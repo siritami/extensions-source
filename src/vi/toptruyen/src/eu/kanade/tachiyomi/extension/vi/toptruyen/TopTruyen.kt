@@ -65,7 +65,7 @@ class TopTruyen : WPComics(
         thumbnail_url = imageOrNull(document.selectFirst("img.image-comic")!!)
     }
 
-    override fun chapterListSelector() = "div.list-chapter li.row:not(.heading):not([style])"
+    override fun chapterListSelector() = "div.list-chapter-dt li.row:not(.heading):not([style])"
 
     override fun chapterFromElement(element: Element): SChapter {
         return super.chapterFromElement(element).apply {
