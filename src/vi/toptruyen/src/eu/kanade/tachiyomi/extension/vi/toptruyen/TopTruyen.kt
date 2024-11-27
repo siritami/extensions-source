@@ -26,9 +26,7 @@ class TopTruyen : WPComics(
         .build()
 
     override fun pageListParse(document: Document): List<Page> =
-        document.select(".page-chapter img").mapIndexed { i, it ->
-            Page(i, imageUrl = it.absUrl("src"))
-        }
+        document.select(".page-chapter img").mapIndexed { i, image -> Page(i, "", image) }
 
     override fun popularMangaSelector() = "div.item-manga div.item"
 
