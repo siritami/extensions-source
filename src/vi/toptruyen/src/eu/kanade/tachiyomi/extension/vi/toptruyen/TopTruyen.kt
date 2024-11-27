@@ -69,9 +69,6 @@ class TopTruyen : WPComics(
             .mapIndexed { idx, it ->
                 Page(idx, imageUrl = it.attr("abs:src"))
             }
-
-    override fun imageUrlParse(document: Document): String =
-        throw UnsupportedOperationException()
         
     override fun chapterListSelector() = "div.list-chapter li.row:not(.heading):not([style])"
 
