@@ -3,7 +3,6 @@ package eu.kanade.tachiyomi.extension.vi.toptruyen
 import eu.kanade.tachiyomi.multisrc.wpcomics.WPComics
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
-import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
@@ -24,6 +23,12 @@ class TopTruyen : WPComics(
     override val client = super.client.newBuilder()
         .rateLimit(3)
         .build()
+
+    override fun pageListParse(document: Document): List<Page> =
+        document.select(".page-chapter img")
+            .mapIndexed { idx, it ->
+                Page(idx, imageUrl = it.attr("abs:src"))
+            }
 
     override fun popularMangaSelector() = "div.item-manga div.item"
 
@@ -67,12 +72,6 @@ class TopTruyen : WPComics(
     }
 
     override fun chapterListSelector() = "div.list-chapter li.row:not(.heading):not([style])"
-
-    override fun pageListParse(document: Document): List<Page> =
-        document.select(".page-chapter img")
-            .mapIndexed { idx, it ->
-                Page(idx, imageUrl = it.attr("abs:src"))
-            }
 
     override fun chapterFromElement(element: Element): SChapter {
         return super.chapterFromElement(element).apply {
