@@ -70,7 +70,7 @@ class DocTruyen3Q : WPComics(
         description = document.selectFirst("p.detail-summary")?.text()
         status = document.selectFirst("li.status p.detail-info span")?.text().toStatus()
         genre = document.select("li.category p.detail-info a")?.joinToString { it.text() }
-        thumbnail_url = document.selectFirst("img.image-comic")?.attr("abs:src")
+        thumbnail_url = imageOrNull(document.selectFirst("img.image-comic")?.attr("src")!!)
     }
 
     override fun chapterListSelector() = "div.list-chapter li.row:not(.heading):not([style])"
