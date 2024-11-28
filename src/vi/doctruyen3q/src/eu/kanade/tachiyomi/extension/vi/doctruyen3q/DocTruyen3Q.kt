@@ -39,7 +39,7 @@ class DocTruyen3Q : WPComics(
             title = it.text()
             setUrlWithoutDomain(it.attr("abs:href"))
         }
-        thumbnail_url = imageOrNull(element.selectFirst("img")!!)
+        thumbnail_url = imageOrNull(element.selectFirst("img.image-item")!!)
     }
 
     override fun searchMangaSelector() = popularMangaSelector()
@@ -70,7 +70,7 @@ class DocTruyen3Q : WPComics(
         description = document.selectFirst("p.detail-summary")?.text()
         status = document.selectFirst("li.status p.detail-info span")?.text().toStatus()
         genre = document.select("li.category p.detail-info a")?.joinToString { it.text() }
-        thumbnail_url = div.selectFirst("div.image-item img")?.src().orEmpty()
+        thumbnail_url = imageOrNull(element.selectFirst("img.image-comic")!!)
     }
 
     override fun chapterListSelector() = "div.list-chapter li.row:not(.heading):not([style])"
