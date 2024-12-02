@@ -26,15 +26,16 @@ class DocTruyen3Q : WPComics(
         .build()
 
     override fun pageListParse(document: Document): List<Page> {
-        return document.select(".page-chapter img")
+        return document.select(".page-chapter img") // Select all img tags inside .page-chapter
             .mapNotNull { img ->
+                // Attempt to get the image URL from various attributes
                 img.attr("abs:data-original").ifBlank { 
                     img.attr("abs:src") 
-                }.takeIf { it.isNotBlank() }
+                }.takeIf { it.isNotBlank() } // Only take non-blank URLs
             }
-            .distinct()
+            .distinct() // Remove duplicate URLs
             .mapIndexed { i, imageUrl ->
-                Page(i, imageUrl = imageUrl)
+                Page(i, imageUrl = imageUrl) // Create Page objects with the image URLs
             }
     }
 
