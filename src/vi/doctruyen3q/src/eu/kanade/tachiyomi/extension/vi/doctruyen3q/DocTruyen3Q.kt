@@ -26,17 +26,15 @@ class DocTruyen3Q : WPComics(
         .build()
 
     override fun pageListParse(document: Document): List<Page> {
-        return document.select(".page-chapter img") // Select all img tags inside .page-chapter
-            .mapNotNull { img ->
-                // Attempt to get the image URL from various attributes
-                img.attr("abs:data-original").ifBlank { 
-                    img.attr("abs:src") 
-                }.takeIf { it.isNotBlank() } // Only take non-blank URLs
+        return document.select(".page-chapter img")
+            .mapNotNull { element ->
+                element.attr("data-original").takeIf { it.isNotBlank() }
+                    ?: element.attr("src").takeIf { it.isNotBlank() }
+                    ?: element.attr("abs:data-original").takeIf { it.isNotBlank() }
+                    ?: element.attr("abs:src").takeIf { it.isNotBlank() }
             }
-            .distinct() // Remove duplicate URLs
-            .mapIndexed { i, imageUrl ->
-                Page(i, imageUrl = imageUrl) // Create Page objects with the image URLs
-            }
+            .distinct() // Remove duplicates
+            .mapIndexed { i, imageUrl -> Page(i, imageUrl = imageUrl) }
     }
 
     override fun popularMangaSelector() = "div.item-manga div.item"
