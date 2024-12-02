@@ -27,14 +27,14 @@ class DocTruyen3Q : WPComics(
 
     override fun pageListParse(document: Document): List<Page> {
         return document.select(".page-chapter img")
-            .mapNotNull { element ->
-                element.attr("data-original").takeIf { it.isNotBlank() }
-                    ?: element.attr("src").takeIf { it.isNotBlank() }
-                    ?: element.attr("abs:data-original").takeIf { it.isNotBlank() }
-                    ?: element.attr("abs:src").takeIf { it.isNotBlank() }
+            .mapNotNull { imgElement ->
+                val imageUrl = imageOrNull(imgElement)
+                imageUrl?.let {
+                    Page(imgElement.siblingIndex(), imageUrl = it)
+                }
             }
-            .distinct() // Remove duplicates
-            .mapIndexed { i, imageUrl -> Page(i, imageUrl = imageUrl) }
+            .distinct()
+            .toList()
     }
 
     override fun popularMangaSelector() = "div.item-manga div.item"
