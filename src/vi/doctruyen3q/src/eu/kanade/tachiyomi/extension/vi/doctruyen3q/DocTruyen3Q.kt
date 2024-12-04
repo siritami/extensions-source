@@ -18,7 +18,9 @@ class DocTruyen3Q : WPComics(
     "DocTruyen3Q",
     "https://doctruyen3qk.pro",
     "vi",
-    dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()),
+    dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
+        timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+    },
     gmtOffset = null,
 ) {
     override val client = super.client.newBuilder()
@@ -35,7 +37,7 @@ class DocTruyen3Q : WPComics(
     override fun popularMangaSelector() = "div.item-manga div.item"
 
     override fun popularMangaFromElement(element: Element) = SManga.create().apply {
-        element.select("h3 a").let {
+        element.selectFirst("h3 a").let {
             title = it.text()
             setUrlWithoutDomain(it.attr("abs:href"))
         }
