@@ -13,12 +13,15 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
 
 class TopTruyen : WPComics(
     "Top Truyen",
     "https://www.toptruyento.pro",
     "vi",
-    dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()),
+    dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
+        timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+    },
     gmtOffset = null,
 ) {
     override val client = super.client.newBuilder()
@@ -35,11 +38,11 @@ class TopTruyen : WPComics(
     override fun popularMangaSelector() = "div.item-manga div.item"
 
     override fun popularMangaFromElement(element: Element) = SManga.create().apply {
-        element.select("h3 a").let {
+        element.selectFirst("h3 a").let {
             title = it.text()
             setUrlWithoutDomain(it.attr("abs:href"))
         }
-        thumbnail_url = imageOrNull(element.selectFirst("img")!!)
+        thumbnail_url = element.selectFirst("img")?.attr("abs:src")
     }
 
     override fun searchMangaSelector() = popularMangaSelector()
@@ -70,14 +73,14 @@ class TopTruyen : WPComics(
         description = document.selectFirst("p.detail-summary")?.text()
         status = document.selectFirst("li.status p.detail-info span")?.text().toStatus()
         genre = document.select("li.category p.detail-info a")?.joinToString { it.text() }
-        thumbnail_url = imageOrNull(document.selectFirst("img.image-comic")!!)
+        thumbnail_url = document.selectFirst("img.image-comic")?.attr("abs:src")
     }
 
     override fun chapterListSelector() = "div.list-chapter li.row:not(.heading):not([style])"
 
     override fun chapterFromElement(element: Element): SChapter {
         return super.chapterFromElement(element).apply {
-            date_upload = element.select(".chapters + div").text().toDate()
+            date_upload = element.selectFirst(".chapters + div").text().toDate()
         }
     }
 
