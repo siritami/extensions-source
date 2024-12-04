@@ -38,11 +38,11 @@ class DocTruyen3Q : WPComics(
     override fun popularMangaSelector() = "div.item-manga div.item"
 
     override fun popularMangaFromElement(element: Element) = SManga.create().apply {
-        element.select("h3 a").let {
+        element.selectFirst("h3 a")?.let {
             title = it.text()
             setUrlWithoutDomain(it.attr("abs:href"))
         }
-        thumbnail_url = element.selectFirst("img")?.attr("abs:src")
+        thumbnail_url = document.selectFirst("img.image-item")?.attr("abs:src")
     }
 
     override fun searchMangaSelector() = popularMangaSelector()
