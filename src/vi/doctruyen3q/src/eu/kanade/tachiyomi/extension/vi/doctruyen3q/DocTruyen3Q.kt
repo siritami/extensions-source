@@ -80,7 +80,7 @@ class DocTruyen3Q : WPComics(
 
     override fun chapterFromElement(element: Element): SChapter {
         return super.chapterFromElement(element).apply {
-            date_upload = element.select(".chapters + div").text().toDate()
+            date_upload = element.selectFirst(".chapters + div").text().toDate()
         }
     }
 
