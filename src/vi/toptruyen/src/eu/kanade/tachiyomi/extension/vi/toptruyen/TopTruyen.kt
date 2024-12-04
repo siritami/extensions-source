@@ -38,7 +38,7 @@ class TopTruyen : WPComics(
     override fun popularMangaSelector() = "div.item-manga div.item"
 
     override fun popularMangaFromElement(element: Element) = SManga.create().apply {
-        element.selectFirst("h3 a").let {
+        element.selectFirst("h3 a")?.let {
             title = it.text()
             setUrlWithoutDomain(it.attr("abs:href"))
         }
@@ -80,7 +80,7 @@ class TopTruyen : WPComics(
 
     override fun chapterFromElement(element: Element): SChapter {
         return super.chapterFromElement(element).apply {
-            date_upload = element.selectFirst(".chapters + div").text().toDate()
+            date_upload = element.selectFirst(".chapters + div")?.text().toDate()
         }
     }
 
