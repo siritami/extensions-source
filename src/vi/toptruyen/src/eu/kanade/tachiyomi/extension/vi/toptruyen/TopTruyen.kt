@@ -23,17 +23,17 @@ import java.util.Locale
 import java.util.TimeZone
 
 class TopTruyen :
-	WPComics(
-		"Top Truyen",
-		"https://www.toptruyen369.net",
-		"vi",
-		dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
-        timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
-    },
-		gmtOffset = null,
-	),
-	ConfigurableSource {
-	
+    WPComics(
+        "Top Truyen",
+        "https://www.toptruyen369.net",
+        "vi",
+        dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+        },
+        gmtOffset = null,
+    ),
+    ConfigurableSource {
+
     override val client = super.client.newBuilder()
         .rateLimit(3)
         .build()
@@ -95,8 +95,8 @@ class TopTruyen :
     }
 
     override val genresSelector = ".categories-detail ul.nav li:not(.active) a"
-	
-	private val preferences: SharedPreferences =
+
+    private val preferences: SharedPreferences =
         Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
 
     init {
