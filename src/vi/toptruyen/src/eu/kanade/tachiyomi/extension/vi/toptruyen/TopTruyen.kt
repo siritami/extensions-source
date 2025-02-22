@@ -33,6 +33,7 @@ class TopTruyen :
 		gmtOffset = null,
 	),
 	ConfigurableSource {
+	
     override val client = super.client.newBuilder()
         .rateLimit(3)
         .build()
@@ -94,7 +95,20 @@ class TopTruyen :
     }
 
     override val genresSelector = ".categories-detail ul.nav li:not(.active) a"
-	}
+	
+	    private val preferences: SharedPreferences =
+        Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
+
+    init {
+        preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
+            if (prefDefaultBaseUrl != super.baseUrl) {
+                preferences.edit()
+                    .putString(BASE_URL_PREF, super.baseUrl)
+                    .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                    .apply()
+            }
+        }
+    }
 
     override val baseUrl by lazy { getPrefBaseUrl() }
 
