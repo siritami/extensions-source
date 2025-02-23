@@ -21,6 +21,7 @@ import uy.kohesive.injekt.api.get
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import keiyoushi.utils.getPreferences
 
 class DocTruyen3Q :
     WPComics(
@@ -96,8 +97,7 @@ class DocTruyen3Q :
 
     override val genresSelector = ".categories-detail ul.nav li:not(.active) a"
 	
-    private val preferences: SharedPreferences =
-        Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
+    private val preferences: SharedPreferences = getPreferences()
 
     init {
         preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
