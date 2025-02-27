@@ -20,7 +20,7 @@ class TuSachXinhXinh :
     override fun popularMangaFromElement(element: Element) = SManga.create().apply {
         setUrlWithoutDomain(element.select(".comic-title-link a").attr("href"))
         title = element.select(".comic-title").text().trim()
-        thumbnail_url = element.select(".comic-img img.img-thumbnail").attr("abs:src")
+        thumbnail_url = element.select(".img-thumbnail").attr("data-lazy-src")
     }
 
     private val preferences: SharedPreferences = getPreferences()
