@@ -43,6 +43,60 @@ class TuSachXinhXinh :
         }
     }
 
+    protected fun decodeImgList(document: Document): String? {
+        val htmlContentScript = document.selectFirst("script:containsData(htmlContent)")?.html()
+            ?.substringAfter("var htmlContent=\"")
+            ?.substringBefore("\";")
+            ?.replace("\\\"", "\"")
+            ?.replace("\\\\", "\\")
+            ?.replace("\\/", "/")
+
+        if (htmlContentScript.isNullOrEmpty()) return null
+
+        val htmlContent = json.decodeFromString<CipherDto>(htmlContentScript)
+        val ciphertext = Base64.decode(htmlContent.ciphertext, Base64.DEFAULT)
+        val iv = htmlContent.iv.decodeHex()
+        val salt = htmlContent.salt.decodeHex()
+
+        val passwordScript = document.selectFirst("script:containsData(chapterHTML)")?.html()
+            ?: throw Exception("Couldn't find password script.")
+        val passphrase = passwordScript.substringAfter("var chapterHTML=CryptoJSAesDecrypt('")
+            .substringBefore("',htmlContent")
+            .replace("'+'", "")
+
+        val keyFactory = SecretKeyFactory.getInstance(KEY_ALGORITHM)
+        val spec = PBEKeySpec(passphrase.toCharArray(), salt, 999, 256)
+        val key = SecretKeySpec(keyFactory.generateSecret(spec).encoded, "AES")
+
+        val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
+        cipher.init(Cipher.DECRYPT_MODE, key, IvParameterSpec(iv))
+
+        return cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
+    }
+	
+    override fun pageListParse(document: Document): List<Page> {
+        // Try decoding encrypted image list first
+        val imgListHtml = runCatching { decodeImgList(document) }.getOrNull()
+        if (imgListHtml != null) {
+            return Jsoup.parseBodyFragment(imgListHtml).select("img").mapIndexed { idx, element ->
+                val encryptedUrl = element.attributes().find { it.key.startsWith("data") }?.value
+                val effectiveUrl = encryptedUrl?.decodeUrl() ?: element.attr("abs:src")
+                Page(idx, imageUrl = effectiveUrl)
+            }
+        }
+
+        // Fallback to direct images in #view-chapter
+        val images = document.select("#view-chapter img")
+        if (images.isNotEmpty()) {
+            return images.mapIndexed { idx, element ->
+                val src = element.attr("abs:src")
+                Page(idx, imageUrl = src)
+            }
+        }
+
+        throw Exception("No images found in chapter page.")
+    }
+
     private val preferences: SharedPreferences = getPreferences()
 
     init {
