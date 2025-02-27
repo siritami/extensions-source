@@ -3,7 +3,7 @@ ext {
     extClass = '.TuSachXinhXinh'
     themePkg = 'a3manga'
     baseUrl = 'https://tusachxinhxinh6.info'
-    overrideVersionCode = 0
+    overrideVersionCode = 1
     isNsfw = true
 }
 
