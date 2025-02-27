@@ -1,0 +1,10 @@
+ext {
+    extName = 'Tu Sach Xinh Xinh'
+    extClass = '.TuSachXinhXinh'
+    themePkg = 'a3manga'
+    baseUrl = 'https://tusachxinhxinh6.info'
+    overrideVersionCode = 0
+    isNsfw = true
+}
+
+apply from: "$rootDir/common.gradle"
