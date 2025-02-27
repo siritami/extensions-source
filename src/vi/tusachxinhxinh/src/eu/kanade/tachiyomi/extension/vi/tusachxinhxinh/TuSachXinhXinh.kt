@@ -7,7 +7,7 @@ import eu.kanade.tachiyomi.multisrc.a3manga.A3Manga
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import keiyoushi.utils.getPreferences
 
-class TeamLanhLung :
+class TuSachXinhXinh :
     A3Manga(
 	    "Tủ Sách Xinh Xinh",
 		"https://tusachxinhxinh6.info",
