@@ -4,11 +4,22 @@ import android.content.SharedPreferences
 import android.widget.Toast
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.multisrc.a3manga.A3Manga
+import eu.kanade.tachiyomi.multisrc.a3manga.CipherDto
 import eu.kanade.tachiyomi.source.ConfigurableSource
+import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SManga
 import keiyoushi.utils.getPreferences
+import kotlinx.serialization.json.Json
+import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import uy.kohesive.injekt.injectLazy
+import android.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
 
 class TuSachXinhXinh :
     A3Manga(
@@ -17,6 +28,8 @@ class TuSachXinhXinh :
         "vi",
     ),
     ConfigurableSource {
+
+    private val json: Json by injectLazy()
 
     override fun popularMangaFromElement(element: Element) = SManga.create().apply {
         setUrlWithoutDomain(element.select(".comic-title-link a").attr("href"))
@@ -43,7 +56,7 @@ class TuSachXinhXinh :
         }
     }
 
-    protected fun decodeImgList(document: Document): String? {
+    protected fun decodeImgListCustom(document: Document): String? {
         val htmlContentScript = document.selectFirst("script:containsData(htmlContent)")?.html()
             ?.substringAfter("var htmlContent=\"")
             ?.substringBefore("\";")
@@ -64,21 +77,21 @@ class TuSachXinhXinh :
             .substringBefore("',htmlContent")
             .replace("'+'", "")
 
-        val keyFactory = SecretKeyFactory.getInstance(KEY_ALGORITHM)
+        val keyFactory = SecretKeyFactory.getInstance(A3Manga.KEY_ALGORITHM)
         val spec = PBEKeySpec(passphrase.toCharArray(), salt, 999, 256)
         val key = SecretKeySpec(keyFactory.generateSecret(spec).encoded, "AES")
 
-        val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
+        val cipher = Cipher.getInstance(A3Manga.CIPHER_TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, key, IvParameterSpec(iv))
 
         return cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
     }
-	
+
     override fun pageListParse(document: Document): List<Page> {
         // Try decoding encrypted image list first
-        val imgListHtml = runCatching { decodeImgList(document) }.getOrNull()
+        val imgListHtml = runCatching { decodeImgListCustom(document) }.getOrNull()
         if (imgListHtml != null) {
-            return Jsoup.parseBodyFragment(imgListHtml).select("img").mapIndexed { idx, element ->
+            return Jsoup.parseBodyFragment(imgListHtml).select("img").mapIndexed { idx: Int, element: Element ->
                 val encryptedUrl = element.attributes().find { it.key.startsWith("data") }?.value
                 val effectiveUrl = encryptedUrl?.decodeUrl() ?: element.attr("abs:src")
                 Page(idx, imageUrl = effectiveUrl)
@@ -88,13 +101,40 @@ class TuSachXinhXinh :
         // Fallback to direct images in #view-chapter
         val images = document.select("#view-chapter img")
         if (images.isNotEmpty()) {
-            return images.mapIndexed { idx, element ->
+            return images.mapIndexed { idx: Int, element: Element ->
                 val src = element.attr("abs:src")
                 Page(idx, imageUrl = src)
             }
         }
 
         throw Exception("No images found in chapter page.")
+    }
+
+    private fun String.decodeHex(): ByteArray {
+        check(length % 2 == 0) { "Must have an even length" }
+        return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    }
+
+    private val patternsLengthCheck: List<Regex> = (20 downTo 1).map { i ->
+        """^https.{$i}(.{$i})(.{$i})""".toRegex()
+    }
+    private val patternsSubstitution: List<Regex> = (20 downTo 1).map { i ->
+        """^https(.{$i})(.{$i}).*(.{$i})(?:webp|jpeg|tiff|.{3})$""".toRegex()
+    }
+
+    private fun String.decodeUrl(): String? {
+        val patternIdx = patternsLengthCheck.indexOfFirst { pattern ->
+            val matchResult = pattern.find(this)
+            val g1 = matchResult?.groupValues?.get(1)
+            val g2 = matchResult?.groupValues?.get(2)
+            g1 == g2 && g1 != null
+        }
+        if (patternIdx == -1) return null
+
+        val matchResult = patternsSubstitution[patternIdx].find(this)
+        return matchResult?.destructured?.let { (colon, slash, period) ->
+            this.replace(colon, ":").replace(slash, "/").replace(period, ".")
+        }
     }
 
     private val preferences: SharedPreferences = getPreferences()
