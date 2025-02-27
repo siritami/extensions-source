@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.multisrc.a3manga.A3Manga
 import eu.kanade.tachiyomi.source.ConfigurableSource
+import eu.kanade.tachiyomi.source.model.SManga
 import keiyoushi.utils.getPreferences
 
 class TuSachXinhXinh :
@@ -14,6 +15,17 @@ class TuSachXinhXinh :
         "vi",
     ),
     ConfigurableSource {
+
+    override fun popularMangaFromElement(element: Element) = SManga.create().apply {
+        setUrlWithoutDomain(element.select(".comic-title-link a").attr("href"))
+        title = element.select(".comic-title").text().trim()
+        thumbnail_url = element.select(".img-thumbnail").run {
+            attr("abs:src").takeIf { it.isNotEmpty() }
+                ?: attr("abs:data-lazy-src").takeIf { it.isNotEmpty() }
+                ?: attr("abs:data-thumb").takeIf { it.isNotEmpty() }
+                ?: ""
+        }
+    }
 
     private val preferences: SharedPreferences = getPreferences()
 
