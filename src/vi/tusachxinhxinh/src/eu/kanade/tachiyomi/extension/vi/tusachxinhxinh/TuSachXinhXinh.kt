@@ -9,11 +9,11 @@ import keiyoushi.utils.getPreferences
 
 class TuSachXinhXinh :
     A3Manga(
-	    "Tủ Sách Xinh Xinh",
-		"https://tusachxinhxinh6.info",
-		"vi"
-	),
-	ConfigurableSource {
+        "Tủ Sách Xinh Xinh",
+        "https://tusachxinhxinh6.info",
+        "vi",
+    ),
+    ConfigurableSource {
 
     private val preferences: SharedPreferences = getPreferences()
 
@@ -57,4 +57,4 @@ class TuSachXinhXinh :
         private const val BASE_URL_PREF_SUMMARY =
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
     }
-	}
+}
