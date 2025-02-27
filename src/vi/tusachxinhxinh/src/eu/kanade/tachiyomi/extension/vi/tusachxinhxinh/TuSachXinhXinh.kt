@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.extension.vi.teamlanhlung
+package eu.kanade.tachiyomi.extension.vi.tusachxinhxinh
 
 import android.content.SharedPreferences
 import android.widget.Toast
