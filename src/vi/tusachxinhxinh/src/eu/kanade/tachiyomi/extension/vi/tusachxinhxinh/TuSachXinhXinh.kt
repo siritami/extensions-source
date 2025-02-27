@@ -23,6 +23,25 @@ class TuSachXinhXinh :
         thumbnail_url = element.select(".img-thumbnail").attr("data-lazy-src")
     }
 
+    override fun mangaDetailsParse(document: Document) = SManga.create().apply {
+        title = document.select(".info-title").text()
+        author = document.select(".comic-info strong:contains(Tác giả) + span").text().trim()
+        description = document.select(".intro-container p").text().substringBefore("— Xem Thêm —")
+        genre = document.select(".comic-info .tags a").joinToString { tag ->
+            tag.text().split(' ').joinToString(separator = " ") { word ->
+                word.replaceFirstChar { it.titlecase() }
+            }
+        }
+        thumbnail_url = document.select(".img-thumbnail").attr("data-lazy-src")
+
+        val statusString = document.select(".comic-info strong:contains(Tình trạng) + span").text()
+        status = when (statusString) {
+            "Đang tiến hành" -> SManga.ONGOING
+            "Trọn bộ " -> SManga.COMPLETED
+            else -> SManga.UNKNOWN
+        }
+    }
+
     private val preferences: SharedPreferences = getPreferences()
 
     init {
