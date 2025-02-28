@@ -1,19 +1,14 @@
 package eu.kanade.tachiyomi.extension.vi.tusachxinhxinh
 
 import android.content.SharedPreferences
-import android.util.Base64
 import android.widget.Toast
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.multisrc.a3manga.A3Manga
-import eu.kanade.tachiyomi.multisrc.a3manga.CipherDto
 import eu.kanade.tachiyomi.source.ConfigurableSource
-import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SManga
 import keiyoushi.utils.getPreferences
-import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 
 class TuSachXinhXinh :
     A3Manga(
