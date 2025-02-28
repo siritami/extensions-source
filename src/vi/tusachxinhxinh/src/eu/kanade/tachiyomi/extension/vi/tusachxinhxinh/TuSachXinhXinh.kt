@@ -66,7 +66,7 @@ class TuSachXinhXinh :
 
         if (htmlContentScript.isNullOrEmpty()) return null
 
-        val htmlContent = json.decodeFromString<CipherDto>(htmlContentScript)
+        val htmlContent = json.decodeFromString(CipherDto.serializer(), htmlContentScript)
         val ciphertext = Base64.decode(htmlContent.ciphertext, Base64.DEFAULT)
         val iv = htmlContent.iv.decodeHex()
         val salt = htmlContent.salt.decodeHex()
