@@ -24,6 +24,19 @@ class TuSachXinhXinh :
         thumbnail_url = element.select(".img-thumbnail").attr("data-lazy-src")
     }
 
+    private val preferences: SharedPreferences = getPreferences()
+
+    init {
+        preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
+            if (prefDefaultBaseUrl != super.baseUrl) {
+                preferences.edit()
+                    .putString(BASE_URL_PREF, super.baseUrl)
+                    .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                    .apply()
+            }
+        }
+    }
+
     override val baseUrl by lazy { getPrefBaseUrl() }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
