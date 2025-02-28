@@ -7,7 +7,6 @@ import eu.kanade.tachiyomi.multisrc.a3manga.A3Manga
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.SManga
 import keiyoushi.utils.getPreferences
-import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class TuSachXinhXinh :
