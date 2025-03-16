@@ -38,7 +38,7 @@ class DocTruyen3Q :
 
     override fun pageListParse(document: Document): List<Page> {
         return document.select(".page-chapter[id] a img, .page-chapter[id] img").mapIndexed { index, element ->
-            val img = element.attr("abs:src").takeIf { it.isNotBlank() } ?: element.attr("abs:data-original")
+            val img = element.attr("abs:data-original").takeIf { it.isNotBlank() } ?: element.attr("abs:src")
             Page(index, imageUrl = img)
         }.distinctBy { it.imageUrl }
     }
