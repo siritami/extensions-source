@@ -37,10 +37,10 @@ class TopTruyen :
         .build()
 
     override fun pageListParse(document: Document): List<Page> {
-        return document.select(".page-chapter[id] img")
-            .mapNotNull(::imageOrNull)
-            .distinct()
-            .mapIndexed { i, image -> Page(i, imageUrl = image) }
+        return document.select(".page-chapter[id] a img, .page-chapter[id] img").mapIndexed { index, element ->
+            val img = element.attr("abs:src")
+            Page(index, imageUrl = img)
+        }.distinctBy { it.imageUrl }
     }
 
     override fun popularMangaSelector() = "div.item-manga div.item"
