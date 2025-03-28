@@ -35,12 +35,15 @@ class DocTruyen3Q :
     override val client = super.client.newBuilder()
         .rateLimit(3)
         .build()
+
     override fun pageListParse(document: Document): List<Page> {
-        return document.select(".page-chapter[id] a img, .page-chapter[id] img").mapIndexed { index, element ->
-            val img = if (element.hasAttr("data-original")) {
-                element.attr("abs:data-original")
-            } else {
-                element.attr("abs:src")
+        return document.select(".page-chapter[id] img").mapIndexed { index, element ->
+            val img = element.attr("abs:src").let { url ->
+                if (url.startsWith("//")) {
+                    "https:$url"
+                } else {
+                    url
+                }
             }
             Page(index, imageUrl = img)
         }.distinctBy { it.imageUrl }
