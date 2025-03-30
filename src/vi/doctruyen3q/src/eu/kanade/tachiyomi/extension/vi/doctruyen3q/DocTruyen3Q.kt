@@ -39,7 +39,11 @@ class DocTruyen3Q :
     override fun pageListParse(document: Document): List<Page> {
         return document.select(".page-chapter[id] img").mapIndexed { index, element ->
             val img = element.attr("abs:src").let { url ->
-                if (src.startsWith("//")) "https:$src" else src
+                if (url.startsWith("//")) {
+                    "https:$url"
+                } else {
+                    url
+                }
             }
             Page(index, imageUrl = img)
         }.distinctBy { it.imageUrl }
