@@ -65,6 +65,18 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
 
     override fun popularMangaNextPageSelector() = ".next-page"
 
+    override fun popularMangaParse(response: Response): MangasPage {
+        val document = response.asJsoup()
+
+        val entries = document.select("div.search-result .m-post")
+            .map(::popularMangaFromElement)
+        val hasNextPage = popularMangaNextPageSelector()?.let { document.selectFirst(it) } != null
+
+        detectLoadMore(document)
+
+        return MangasPage(entries, hasNextPage)
+    }
+
     override fun popularMangaFromElement(element: Element) = SManga.create().apply {
         val a = element.selectFirst("a")!!
 
