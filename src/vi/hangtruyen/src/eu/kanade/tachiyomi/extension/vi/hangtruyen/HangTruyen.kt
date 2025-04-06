@@ -61,7 +61,7 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
         }
     }
 
-    override fun popularMangaRequest(page: Int) = GET("$baseUrl/hot-nhat?type=all")
+    override fun popularMangaRequest(page: Int) = GET("$baseUrl/tim-kiem?r=newly-updated&page=$page&orderBy=view_desc")
 
     override fun popularMangaSelector() = "div.search-result div.row"
 
@@ -89,11 +89,11 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
 
     override fun latestUpdatesSelector() = popularMangaSelector()
 
-    override fun latestUpdatesFromElement(element: Element): SManga {
-        return popularMangaFromElement(element)
-    }
-
     override fun latestUpdatesNextPageSelector() = popularMangaNextPageSelector()
+
+    override fun latestUpdatesParse(response: Response): MangasPage {
+        return popularMangaParse(response)
+    }
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val url = baseUrl.toHttpUrl().newBuilder().apply {
