@@ -61,7 +61,9 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
 
     override fun popularMangaRequest(page: Int) = GET("$baseUrl/tim-kiem?r=newly-updated&page=$page")
 
-    override fun popularMangaSelector() = "div.search-result"
+    override fun popularMangaSelector() = "div.search-result div.row"
+
+    override fun popularMangaNextPageSelector() = ".next-page"
 
     override fun popularMangaFromElement(element: Element) = SManga.create().apply {
         val a = element.selectFirst("a")!!
@@ -70,8 +72,6 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
         title = a.attr("title")
         thumbnail_url = element.selectFirst("img")?.attr("abs:data-src")
     }
-
-    override fun popularMangaNextPageSelector() = ".next-page"
 
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/tim-kiem?r=newly-updated&page=$page")
 
