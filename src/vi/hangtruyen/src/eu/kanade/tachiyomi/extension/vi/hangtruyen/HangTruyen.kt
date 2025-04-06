@@ -123,10 +123,9 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
     override fun searchMangaNextPageSelector() = popularMangaNextPageSelector()
 
     override fun mangaDetailsParse(document: Document) = SManga.create().apply {
-        title = document.selectFirst("div.post-title h1")!!.text()
-        author = document.selectFirst("div.author-content")?.text()
-        artist = document.selectFirst("div.artist-content")?.text()
-        description = document.selectFirst("div.dsct")?.text()
+        title = document.selectFirst("div.title title-detail")!!.text()
+        author = document.selectFirst("div.author")?.text()
+        description = document.selectFirst("div.line-clamp")?.text()
         genre = document.select("div.genres-content a[rel=tag]").joinToString { it.text() }
         status = when (document.selectFirst("div.summary-heading:contains(Tình Trạng) + div.summary-content")?.text()) {
             // I have zero idea what the strings for Ongoing and Completed are, these are educated guesses
@@ -138,7 +137,7 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
         thumbnail_url = document.selectFirst("div.summary_image img")?.attr("abs:data-src")
     }
 
-    override fun chapterListSelector() = "ul.row-content-chapter li"
+    override fun chapterListSelector() = "list-chapters"
 
     override fun chapterFromElement(element: Element) = SChapter.create().apply {
         val a = element.selectFirst("a")!!
