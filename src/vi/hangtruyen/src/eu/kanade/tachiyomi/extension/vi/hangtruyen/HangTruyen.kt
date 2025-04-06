@@ -11,7 +11,7 @@ import java.util.Locale
 
 class HangTruyen :
     Madara(
-        "HentaiVN.plus",
+        "HangTruyen",
         "https://hangtruyen.net",
         "vi",
         dateFormat = SimpleDateFormat("MM/dd/yyyy", Locale.ROOT),
