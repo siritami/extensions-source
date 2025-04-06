@@ -141,19 +141,22 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
         thumbnail_url = document.selectFirst("div.summary_image img")?.attr("abs:data-src")
     }
 
-    override fun chapterListSelector() = "list-chapters"
+    override fun chapterListSelector() = "div.l-chapter"
+	
+	override fun chapterDateSelector() = "span.ll-update"
 
-    override fun chapterFromElement(element: Element) = SChapter.create().apply {
-        val a = element.selectFirst("a")!!
-
-        setUrlWithoutDomain(a.attr("abs:href"))
-        name = a.text()
-        date_upload = runCatching {
-            val date = element.selectFirst("span.chapter-time")!!.text()
-
-            dateFormat.parse(date)!!.time
-        }.getOrDefault(0L)
-    }
+	override fun chapterFromElement(element: Element): SChapter {
+	    val chapter = SChapter.create()
+	    with(element) {
+	        selectFirst(chapterUrlSelector)!!.let { urlElement ->
+	            chapter.url = urlElement.attr("abs:href")
+	            chapter.name = urlElement.text()
+	        }
+	        chapter.date_upload = selectFirst(chapterDateSelector())?.text()?.let { parseRelativeDate(it) }
+	            ?: 0L
+	    }
+	    return chapter
+	}
 
     override fun pageListRequest(chapter: SChapter): Request {
         val chapterId = chapter.url.split('/').last()
