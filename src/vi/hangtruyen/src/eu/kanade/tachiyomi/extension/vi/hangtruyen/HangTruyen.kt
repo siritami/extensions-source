@@ -142,18 +142,18 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
     }
 
     override fun chapterListSelector() = "div.l-chapter"
-	
+
     override fun chapterDateSelector() = "span.ll-update"
 
     override fun chapterFromElement(element: Element): SChapter {
         val chapter = SChapter.create()
         with(element) {
             selectFirst(chapterUrlSelector)!!.let { urlElement ->
-                chapter.url = urlElement.attr("abs:href") // Simplified, since chapterUrlSuffix is ""
+                chapter.url = urlElement.attr("abs:href")
                 chapter.name = urlElement.text()
             }
             chapter.date_upload = selectFirst(chapterDateSelector())?.text()?.let { parseRelativeDate(it) }
-            ?: 0L // Fallback to 0 if date is missing
+            ?: 0L
         }
         return chapter
     }
