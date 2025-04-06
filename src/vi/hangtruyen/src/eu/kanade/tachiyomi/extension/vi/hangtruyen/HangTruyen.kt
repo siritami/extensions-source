@@ -40,7 +40,7 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
 
     override val lang = "vi"
 
-    private val defaultBaseUrl = "https://hangtruyen.net/"
+    private val defaultBaseUrl = "https://hangtruyen.net"
 
     override val baseUrl by lazy { getPrefBaseUrl() }
 
