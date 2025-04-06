@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.ParsedHttpSource
+import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferences
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -72,8 +73,6 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
         val entries = document.select("div.search-result .m-post")
             .map(::popularMangaFromElement)
         val hasNextPage = popularMangaNextPageSelector()?.let { document.selectFirst(it) } != null
-
-        detectLoadMore(document)
 
         return MangasPage(entries, hasNextPage)
     }
