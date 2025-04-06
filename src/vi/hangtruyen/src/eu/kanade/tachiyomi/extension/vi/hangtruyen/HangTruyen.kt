@@ -91,6 +91,10 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
 
     override fun latestUpdatesNextPageSelector() = popularMangaNextPageSelector()
 
+    override fun latestUpdatesFromElement(element: Element): SManga {
+        return popularMangaFromElement(element)
+    }
+
     override fun latestUpdatesParse(response: Response): MangasPage {
         return popularMangaParse(response)
     }
