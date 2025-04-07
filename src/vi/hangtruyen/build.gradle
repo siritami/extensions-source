@@ -1,7 +1,7 @@
 ext {
-    extName = 'HangTruyen'
+    extName = 'Hang Truyen'
     extClass = '.HangTruyen'
-    themePkg = 'madara'
+    themePkg = 'wpcomics'
     baseUrl = 'https://hangtruyen.net'
     overrideVersionCode = 0
     isNsfw = false

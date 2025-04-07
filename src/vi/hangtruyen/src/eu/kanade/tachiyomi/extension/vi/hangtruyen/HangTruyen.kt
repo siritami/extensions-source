@@ -3,7 +3,7 @@ package eu.kanade.tachiyomi.extension.vi.hangtruyen
 import android.content.SharedPreferences
 import android.widget.Toast
 import androidx.preference.PreferenceScreen
-import eu.kanade.tachiyomi.multisrc.madara.Madara
+import eu.kanade.tachiyomi.multisrc.wpcomics.WPComics
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -20,15 +20,16 @@ import java.util.Calendar
 import java.util.Locale
 
 class HangTruyen :
-    Madara(
+    WPComics(
         "HangTruyen",
         "https://hangtruyen.net",
         "vi",
-        dateFormat = SimpleDateFormat("MM/dd/yyyy", Locale.ROOT),
+        dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+        },
+        gmtOffset = null,
     ),
     ConfigurableSource {
-
-    private val chapterDateFormat = SimpleDateFormat("MM/dd/yyyy", Locale.ROOT)
 
     override val useLoadMoreRequest = LoadMoreStrategy.Never
     override val useNewChapterEndpoint = false
@@ -94,29 +95,6 @@ class HangTruyen :
         date_upload = runCatching {
             val dateText = element.select("span.ll-update")[0].text().trim()
             parseChapterDate(dateText)
-        }.getOrDefault(0L)
-    }
-
-    override fun parseChapterDate(date: String?): Long {
-        date ?: return 0L
-
-        val relRegex = Regex("""(\d+)\s+(ngày|tháng|năm)\s+trước""")
-        val match = relRegex.find(date)
-        if (match != null) {
-            val (numStr, unit) = match.destructured
-            val amount = numStr.toInt()
-            val cal = Calendar.getInstance()
-
-            when (unit) {
-                "ngày" -> cal.add(Calendar.DAY_OF_YEAR, -amount)
-                "tháng" -> cal.add(Calendar.MONTH, -amount)
-                "năm" -> cal.add(Calendar.YEAR, -amount)
-            }
-            return cal.timeInMillis
-        }
-
-        return runCatching {
-            chapterDateFormat.parse(date)?.time ?: 0L
         }.getOrDefault(0L)
     }
 
