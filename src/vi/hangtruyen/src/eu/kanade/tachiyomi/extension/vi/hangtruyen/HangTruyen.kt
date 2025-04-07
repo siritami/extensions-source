@@ -31,11 +31,6 @@ class HangTruyen :
     ),
     ConfigurableSource {
 
-    override val useLoadMoreRequest = LoadMoreStrategy.Never
-    override val useNewChapterEndpoint = false
-
-    override val mangaSubString = "truyen-tranh"
-
     override fun popularMangaRequest(page: Int) =
         GET("$baseUrl/tim-kiem?r=newly-updated&page=$page&orderBy=view_desc")
 
