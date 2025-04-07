@@ -16,6 +16,7 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 
 class HangTruyen :
@@ -86,10 +87,7 @@ class HangTruyen :
         setUrlWithoutDomain(a.attr("href"))
         name = a.text().trim()
 
-        date_upload = runCatching {
-            val dateText = element.select("span.ll-update")[0].text().trim()
-            parseChapterDate(dateText)
-        }.getOrDefault(0L)
+		date_upload = element.select("span.ll-update")[0].text().toDate()
     }
 
     override fun pageListParse(document: Document): List<Page> {
