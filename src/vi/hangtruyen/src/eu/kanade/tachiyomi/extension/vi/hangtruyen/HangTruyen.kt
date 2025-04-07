@@ -97,7 +97,7 @@ class HangTruyen :
         }.getOrDefault(0L)
     }
 
-    override fun parseChapterDate(text: String): Long {
+    override fun parseChapterDate(text: String?): Long {
         val relRegex = Regex("""(\d+)\s+(ngày|tháng|năm)\s+trước""")
         val match = relRegex.find(text)
         if (match != null) {
