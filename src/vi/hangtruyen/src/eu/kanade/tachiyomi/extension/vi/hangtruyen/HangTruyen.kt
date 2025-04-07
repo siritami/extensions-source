@@ -35,6 +35,7 @@ import java.util.TimeZone
 
 class HangTruyen : ParsedHttpSource(), ConfigurableSource {
 
+    // Site changed from FMReader to some Madara copycat
     override val versionId = 2
 
     override val name = "HangTruyen"
@@ -68,6 +69,7 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
 
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
+
         val entries = document.select("div.search-result .m-post")
             .map(::popularMangaFromElement)
         val hasNextPage = popularMangaNextPageSelector()?.let { document.selectFirst(it) } != null
@@ -77,6 +79,7 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
 
     override fun popularMangaFromElement(element: Element) = SManga.create().apply {
         val a = element.selectFirst("a")!!
+
         setUrlWithoutDomain(a.attr("abs:href"))
         title = a.attr("title")
         thumbnail_url = element.selectFirst("img")?.attr("abs:data-src")
@@ -129,6 +132,8 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
         description = document.selectFirst("div.line-clamp")?.text()
         genre = document.select("div.genres-content a[rel=tag]").joinToString { it.text() }
         status = when (document.selectFirst("div.summary-heading:contains(Tình Trạng) + div.summary-content")?.text()) {
+            // I have zero idea what the strings for Ongoing and Completed are, these are educated guesses
+            // All the metadata on this page is basically "Unknown".
             "Đang Ra" -> SManga.ONGOING
             "Hoàn Thành" -> SManga.COMPLETED
             else -> SManga.UNKNOWN
@@ -136,29 +141,29 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
         thumbnail_url = document.selectFirst("div.summary_image img")?.attr("abs:data-src")
     }
 
-    override fun chapterListSelector() = "div.l-chapter"
+    override fun chapterListSelector() = "list-chapters"
 
-    override fun chapterDateSelector() = "span.ll-update"
+    override fun chapterFromElement(element: Element) = SChapter.create().apply {
+        val a = element.selectFirst("a")!!
 
-    override fun chapterFromElement(element: Element): SChapter {
-        val chapter = SChapter.create()
-        with(element) {
-            selectFirst(chapterUrlSelector)!!.let { urlElement ->
-                chapter.url = urlElement.attr("abs:href")
-                chapter.name = urlElement.text()
-            }
-            chapter.date_upload = selectFirst(chapterDateSelector())?.text()?.let { parseRelativeDate(it) } ?: 0L
-        }
-        return chapter
+        setUrlWithoutDomain(a.attr("abs:href"))
+        name = a.text()
+        date_upload = runCatching {
+            val date = element.selectFirst("span.chapter-time")!!.text()
+
+            dateFormat.parse(date)!!.time
+        }.getOrDefault(0L)
     }
 
     override fun pageListRequest(chapter: SChapter): Request {
         val chapterId = chapter.url.split('/').last()
+
         return GET("$baseUrl/ajax/image/list/chap/$chapterId?mode=vertical&quality=high")
     }
 
     override fun pageListParse(response: Response): List<Page> {
         val chapterId = response.request.url.pathSegments.last()
+
         countViews(chapterId)
 
         val data = json.decodeFromString<AjaxImageListResponse>(response.body.string())
@@ -195,7 +200,7 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
             .subscribe(
                 {},
                 {
-                    Log.e("hangtruyen", "Could not count chapter view: ${it.stackTraceToString()}")
+                    Log.e("manhuarock", "Could not count chapter view: ${it.stackTraceToString()}")
                 },
             )
     }
@@ -303,6 +308,7 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
         private const val RESTART_APP = "Khởi chạy lại ứng dụng để áp dụng thay đổi."
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF = "overrideBaseUrl"
-        private const val BASE_URL_PREF_SUMMARY = "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
+        private const val BASE_URL_PREF_SUMMARY =
+            "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
     }
 }
