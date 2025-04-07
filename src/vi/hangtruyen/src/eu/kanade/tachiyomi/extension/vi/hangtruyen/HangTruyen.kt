@@ -74,8 +74,12 @@ class HangTruyen :
 
     override fun searchMangaSelector() = "div.search-result"
 
+    override fun searchMangaParse(response: Response): MangasPage {
+        return popularMangaParse(response)
+    }
+
     override fun searchMangaFromElement(element: Element): SManga {
-        return latestUpdatesFromElement(element)
+        return popularMangaFromElement(element)
     }
 
     // Details
@@ -99,7 +103,6 @@ class HangTruyen :
         val a = element.selectFirst("a.ll-chap")!!
         setUrlWithoutDomain(a.attr("href"))
         name = a.text().trim()
-
         date_upload = element.select("span.ll-update")[0].text().toDate()
     }
 
