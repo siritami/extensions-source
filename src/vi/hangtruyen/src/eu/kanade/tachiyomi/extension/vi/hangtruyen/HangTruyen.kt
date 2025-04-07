@@ -27,6 +27,8 @@ class HangTruyen :
     ),
     ConfigurableSource {
 
+    private val chapterDateFormat = SimpleDateFormat("MM/dd/yyyy", Locale.ROOT)
+
     override val useLoadMoreRequest = LoadMoreStrategy.Never
     override val useNewChapterEndpoint = false
 
