@@ -26,6 +26,9 @@ class HangTruyen :
     ),
     ConfigurableSource {
 
+    // local date format for chapter parsing (can't access the private super.dateFormat)
+    private val chapterDateFormat = SimpleDateFormat("MM/dd/yyyy", Locale.ROOT)
+
     override val useLoadMoreRequest = LoadMoreStrategy.Never
     override val useNewChapterEndpoint = false
 
@@ -88,7 +91,7 @@ class HangTruyen :
         name = a.text().trim()
         date_upload = runCatching {
             val dateText = element.select("span.ll-update")[0].text().trim()
-            dateFormat.parse(dateText)!!.time
+            chapterDateFormat.parse(dateText)!!.time
         }.getOrDefault(0L)
     }
 
