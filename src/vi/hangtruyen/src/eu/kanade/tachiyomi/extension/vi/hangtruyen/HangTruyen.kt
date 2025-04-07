@@ -141,19 +141,33 @@ class HangTruyen : ParsedHttpSource(), ConfigurableSource {
         thumbnail_url = document.selectFirst("div.summary_image img")?.attr("abs:data-src")
     }
 
-    override fun chapterListSelector() = "list-chapters"
-
-    override fun chapterFromElement(element: Element) = SChapter.create().apply {
-        val a = element.selectFirst("a")!!
-
-        setUrlWithoutDomain(a.attr("abs:href"))
-        name = a.text()
-        date_upload = runCatching {
-            val date = element.selectFirst("span.chapter-time")!!.text()
-
-            dateFormat.parse(date)!!.time
-        }.getOrDefault(0L)
+    override fun chapterListParse(response: Response): List<SChapter> {
+        val document = response.asJsoup()
+        launchIO { countViews(document) }
+        val chaptersWrapper = document.select("div[id^=manga-chapters-holder]")
+        var chapterElements = document.select(chapterListSelector())
+        if (chapterElements.isEmpty() && !chaptersWrapper.isNullOrEmpty()) {
+            val mangaUrl = document.location().removeSuffix("/")
+            val mangaId = chaptersWrapper.attr("data-id")
+            var xhrRequest = if (useNewChapterEndpoint || oldChapterEndpointDisabled) {
+                xhrChaptersRequest(mangaUrl)
+            } else {
+                oldXhrChaptersRequest(mangaId)
+            }
+            var xhrResponse = client.newCall(xhrRequest).execute()
+            if (!useNewChapterEndpoint && xhrResponse.code == 400) {
+                xhrResponse.close()
+                oldChapterEndpointDisabled = true
+                xhrRequest = xhrChaptersRequest(mangaUrl)
+                xhrResponse = client.newCall(xhrRequest).execute()
+            }
+            chapterElements = xhrResponse.asJsoup().select(chapterListSelector())
+            xhrResponse.close()
+        }
+        return chapterElements.map(::chapterFromElement)
     }
+
+    override fun chapterListSelector() = "div.list-chapters div.l-chapter"
 
     override fun pageListRequest(chapter: SChapter): Request {
         val chapterId = chapter.url.split('/').last()
