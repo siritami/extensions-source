@@ -97,14 +97,10 @@ class HangTruyen :
 
     override fun pageListParse(document: Document): List<Page> {
         return document
-            .select("#read-chaps img.reading-img")
-            .mapIndexed { index, imgEl ->
-                val rawUrl = imgEl
-                    .absUrl("data-src")
-                    .takeIf { it.isNotBlank() }
-                    ?: imgEl.absUrl("src")
-                val imageUrl = if (rawUrl.startsWith("//")) "https:$rawUrl" else rawUrl
-                Page(index, imageUrl = imageUrl)
+            .select("#read-chaps .mi-item .loaded img.reading-img")
+            .mapIndexed { index, element ->
+                val img = element.attr("abs:src")
+                Page(index, imageUrl = img)
             }
             .distinctBy { it.imageUrl }
     }
