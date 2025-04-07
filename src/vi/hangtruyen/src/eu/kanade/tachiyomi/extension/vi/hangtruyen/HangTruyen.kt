@@ -69,7 +69,12 @@ class HangTruyen :
         return popularMangaParse(response)
     }
 
+    // Search
     override val searchPath = "tim-kiem"
+    override fun searchMangaSelector() = "div.search-result"
+    override fun searchMangaFromElement(element: Element): SManga {
+        return popularMangaFromElement(element)
+    }
 
     // Details
     override fun mangaDetailsParse(document: Document) = SManga.create().apply {
