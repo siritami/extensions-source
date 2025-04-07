@@ -92,11 +92,11 @@ class HangTruyen :
 
         date_upload = runCatching {
             val dateText = element.select("span.ll-update")[0].text().trim()
-            parseRelativeOrAbsolute(dateText)
+            parseChapterDate(dateText)
         }.getOrDefault(0L)
     }
 
-    private fun parseRelativeOrAbsolute(text: String): Long {
+    override fun parseChapterDate(text: String): Long {
         val relRegex = Regex("""(\d+)\s+(ngày|tháng|năm)\s+trước""")
         val match = relRegex.find(text)
         if (match != null) {
