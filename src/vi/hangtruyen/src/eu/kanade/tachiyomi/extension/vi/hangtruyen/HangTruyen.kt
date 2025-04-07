@@ -96,13 +96,13 @@ class HangTruyen :
     }
 
     override fun pageListParse(document: Document): List<Page> {
-        return document
-            .select("#read-chaps .mi-item .loaded img.reading-img")
-            .mapIndexed { index, element ->
-                val img = element.attr("abs:src")
-                Page(index, imageUrl = img)
+        return document.select("#read-chaps .mi-item img.reading-img").mapIndexed { index, element ->
+            val img = when {
+                element.hasAttr("data-src") -> element.attr("abs:data-src")
+                else -> element.attr("abs:src")
             }
-            .distinctBy { it.imageUrl }
+            Page(index, imageUrl = img)
+        }.distinctBy { it.imageUrl }
     }
 
     private val preferences: SharedPreferences = getPreferences()
