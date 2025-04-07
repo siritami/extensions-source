@@ -1,5 +1,5 @@
 ext {
-    extName = 'Hang Truyen'
+    extName = 'HangTruyen'
     extClass = '.HangTruyen'
     themePkg = 'wpcomics'
     baseUrl = 'https://hangtruyen.net'

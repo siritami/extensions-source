@@ -31,6 +31,7 @@ class HangTruyen :
     ),
     ConfigurableSource {
 
+    // Popular
     override fun popularMangaRequest(page: Int) =
         GET("$baseUrl/tim-kiem?r=newly-updated&page=$page&orderBy=view_desc")
 
@@ -52,6 +53,7 @@ class HangTruyen :
         thumbnail_url = element.selectFirst("img")?.attr("abs:data-src")
     }
 
+    // Latest
     override fun latestUpdatesRequest(page: Int) =
         GET("$baseUrl/tim-kiem?r=newly-updated&page=$page")
 
@@ -67,6 +69,9 @@ class HangTruyen :
         return popularMangaParse(response)
     }
 
+    override val searchPath = "tim-kiem"
+
+    // Details
     override fun mangaDetailsParse(document: Document) = SManga.create().apply {
         title = document.selectFirst("h1.title-detail a")!!.text().trim()
         author = document.selectFirst("div.author p")?.text()?.trim()
@@ -80,6 +85,7 @@ class HangTruyen :
         thumbnail_url = document.selectFirst("div.col-image img")?.attr("abs:src")
     }
 
+    // Chapters
     override fun chapterListSelector() = "div.list-chapters div.l-chapter"
 
     override fun chapterFromElement(element: Element) = SChapter.create().apply {
@@ -90,6 +96,7 @@ class HangTruyen :
         date_upload = element.select("span.ll-update")[0].text().toDate()
     }
 
+    // Pages
     override fun pageListParse(document: Document): List<Page> {
         return document.select("#read-chaps .mi-item img.reading-img").mapIndexed { index, element ->
             val img = when {
@@ -100,6 +107,7 @@ class HangTruyen :
         }.distinctBy { it.imageUrl }
     }
 
+    // Configurable domain
     private val preferences: SharedPreferences = getPreferences()
 
     init {
