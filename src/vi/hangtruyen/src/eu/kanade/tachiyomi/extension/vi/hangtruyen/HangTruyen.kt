@@ -89,10 +89,31 @@ class HangTruyen :
         val a = element.selectFirst("a.ll-chap")!!
         setUrlWithoutDomain(a.attr("href"))
         name = a.text().trim()
+
         date_upload = runCatching {
             val dateText = element.select("span.ll-update")[0].text().trim()
-            chapterDateFormat.parse(dateText)!!.time
+            parseRelativeOrAbsolute(dateText)
         }.getOrDefault(0L)
+    }
+
+    private fun parseRelativeOrAbsolute(text: String): Long {
+        val relRegex = Regex("""(\d+)\s+(ngày|tháng|năm)\s+trước""")
+        val match = relRegex.find(text)
+        if (match != null) {
+            val (numStr, unit) = match.destructured
+            val amount = numStr.toInt()
+            val cal = Calendar.getInstance()
+
+            when (unit) {
+                "ngày"  -> cal.add(Calendar.DAY_OF_YEAR,    -amount)
+                "tháng" -> cal.add(Calendar.MONTH,          -amount)
+                "năm"   -> cal.add(Calendar.YEAR,           -amount)
+            }
+            return cal.timeInMillis
+        }
+
+        return chapterDateFormat.parse(text)?.time
+            ?: throw IllegalArgumentException("Unrecognized date format: $text")
     }
 
     override fun pageListParse(document: Document): List<Page> {
