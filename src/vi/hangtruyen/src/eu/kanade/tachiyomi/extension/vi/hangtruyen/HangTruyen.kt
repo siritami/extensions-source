@@ -3,12 +3,14 @@ package eu.kanade.tachiyomi.extension.vi.hangtruyen
 import android.content.SharedPreferences
 import android.widget.Toast
 import androidx.preference.PreferenceScreen
+import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.multisrc.madara.Madara
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferences
+import okhttp3.Response
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
