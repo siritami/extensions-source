@@ -1,7 +1,5 @@
 package eu.kanade.tachiyomi.extension.vi.hangtruyen
 
-import java.text.SimpleDateFormat
-import java.util.Locale
 import android.content.SharedPreferences
 import android.widget.Toast
 import androidx.preference.PreferenceScreen
@@ -14,6 +12,8 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferences
 import okhttp3.Response
 import org.jsoup.nodes.Element
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class HangTruyen :
     Madara(
