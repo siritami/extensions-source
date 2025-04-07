@@ -97,9 +97,11 @@ class HangTruyen :
         }.getOrDefault(0L)
     }
 
-    override fun parseChapterDate(text: String?): Long {
+    override fun parseChapterDate(date: String?): Long {
+        date ?: return 0L
+
         val relRegex = Regex("""(\d+)\s+(ngày|tháng|năm)\s+trước""")
-        val match = relRegex.find(text)
+        val match = relRegex.find(date)
         if (match != null) {
             val (numStr, unit) = match.destructured
             val amount = numStr.toInt()
@@ -113,8 +115,9 @@ class HangTruyen :
             return cal.timeInMillis
         }
 
-        return chapterDateFormat.parse(text)?.time
-            ?: throw IllegalArgumentException("Unrecognized date format: $text")
+        return runCatching {
+            chapterDateFormat.parse(date)?.time ?: 0L
+        }.getOrDefault(0L)
     }
 
     override fun pageListParse(document: Document): List<Page> {
