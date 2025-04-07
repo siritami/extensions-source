@@ -8,9 +8,11 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.SManga
+import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.getPreferences
 import okhttp3.Response
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -23,12 +25,14 @@ class HangTruyen :
         dateFormat = SimpleDateFormat("MM/dd/yyyy", Locale.ROOT),
     ),
     ConfigurableSource {
+
     override val useLoadMoreRequest = LoadMoreStrategy.Never
     override val useNewChapterEndpoint = false
 
     override val mangaSubString = "truyen-tranh"
 
-    override fun popularMangaRequest(page: Int) = GET("$baseUrl/tim-kiem?r=newly-updated&page=$page&orderBy=view_desc")
+    override fun popularMangaRequest(page: Int) =
+        GET("$baseUrl/tim-kiem?r=newly-updated&page=$page&orderBy=view_desc")
 
     override fun popularMangaSelector() = "div.search-result div.row"
 
@@ -36,23 +40,20 @@ class HangTruyen :
 
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
-
-        val entries = document.select("div.search-result .m-post")
-            .map(::popularMangaFromElement)
+        val entries = document.select("div.search-result .m-post").map(::popularMangaFromElement)
         val hasNextPage = popularMangaNextPageSelector()?.let { document.selectFirst(it) } != null
-
         return MangasPage(entries, hasNextPage)
     }
 
     override fun popularMangaFromElement(element: Element) = SManga.create().apply {
         val a = element.selectFirst("a")!!
-
         setUrlWithoutDomain(a.attr("abs:href"))
         title = a.attr("title")
         thumbnail_url = element.selectFirst("img")?.attr("abs:data-src")
     }
 
-    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/tim-kiem?r=newly-updated&page=$page")
+    override fun latestUpdatesRequest(page: Int) =
+        GET("$baseUrl/tim-kiem?r=newly-updated&page=$page")
 
     override fun latestUpdatesSelector() = popularMangaSelector()
 
@@ -70,11 +71,11 @@ class HangTruyen :
         title = document.selectFirst("h1.title-detail a")!!.text().trim()
         author = document.selectFirst("div.author p")?.text()?.trim()
         description = document.selectFirst("div.sort-des div.line-clamp")?.text()?.trim()
-        genre = document.select("div.kind a, div.m-tags a")
-            .joinToString(", ") { it.text().trim() }
+        genre = document.select("div.kind a, div.m-tags a").joinToString(", ") { it.text().trim() }
         status = when (document.selectFirst("div.status p")?.text()?.trim()) {
-            "Đang tiến hành"   -> SManga.ONGOING
-            "Hoàn thành"       -> SManga.COMPLETED
+            "Đang tiến hành" -> SManga.ONGOING
+            "Hoàn thành" -> SManga.COMPLETED
+            else -> SManga.UNKNOWN
         }
         thumbnail_url = document.selectFirst("div.col-image img")?.attr("abs:src")
     }
