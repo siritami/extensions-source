@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.multisrc.madara.Madara
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.MangasPage
+import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.util.asJsoup
@@ -26,7 +27,6 @@ class HangTruyen :
     ),
     ConfigurableSource {
 
-    // local date format for chapter parsing (can't access the private super.dateFormat)
     private val chapterDateFormat = SimpleDateFormat("MM/dd/yyyy", Locale.ROOT)
 
     override val useLoadMoreRequest = LoadMoreStrategy.Never
@@ -95,7 +95,19 @@ class HangTruyen :
         }.getOrDefault(0L)
     }
 
-    override val pageListParseSelector = ".read-chaps img"
+    override fun pageListParse(document: Document): List<Page> {
+        return document
+            .select("#read-chaps img.reading-img")
+            .mapIndexed { index, imgEl ->
+                val rawUrl = imgEl
+                    .absUrl("data-src")
+                    .takeIf { it.isNotBlank() }
+                    ?: imgEl.absUrl("src")
+                val imageUrl = if (rawUrl.startsWith("//")) "https:$rawUrl" else rawUrl
+                Page(index, imageUrl = imageUrl)
+            }
+            .distinctBy { it.imageUrl }
+    }
 
     private val preferences: SharedPreferences = getPreferences()
 
