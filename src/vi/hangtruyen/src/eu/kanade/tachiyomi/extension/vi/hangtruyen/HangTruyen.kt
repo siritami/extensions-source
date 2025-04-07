@@ -16,6 +16,7 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 
 class HangTruyen :
@@ -105,9 +106,9 @@ class HangTruyen :
             val cal = Calendar.getInstance()
 
             when (unit) {
-                "ngày"  -> cal.add(Calendar.DAY_OF_YEAR,    -amount)
-                "tháng" -> cal.add(Calendar.MONTH,          -amount)
-                "năm"   -> cal.add(Calendar.YEAR,           -amount)
+                "ngày" -> cal.add(Calendar.DAY_OF_YEAR, -amount)
+                "tháng" -> cal.add(Calendar.MONTH, -amount)
+                "năm" -> cal.add(Calendar.YEAR, -amount)
             }
             return cal.timeInMillis
         }
