@@ -61,19 +61,21 @@ class HangTruyen :
 
     override fun latestUpdatesNextPageSelector() = popularMangaNextPageSelector()
 
-    override fun latestUpdatesFromElement(element: Element): SManga {
-        return popularMangaFromElement(element)
-    }
-
     override fun latestUpdatesParse(response: Response): MangasPage {
         return popularMangaParse(response)
     }
 
+    override fun latestUpdatesFromElement(element: Element): SManga {
+        return popularMangaFromElement(element)
+    }
+
     // Search
     override val searchPath = "tim-kiem"
+
     override fun searchMangaSelector() = "div.search-result"
+
     override fun searchMangaFromElement(element: Element): SManga {
-        return popularMangaFromElement(element)
+        return latestUpdatesFromElement(element)
     }
 
     // Details
