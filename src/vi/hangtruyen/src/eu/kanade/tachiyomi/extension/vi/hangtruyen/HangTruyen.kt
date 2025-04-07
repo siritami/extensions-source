@@ -66,6 +66,31 @@ class HangTruyen :
         return popularMangaParse(response)
     }
 
+    override fun mangaDetailsParse(document: Document) = SManga.create().apply {
+        title = document.selectFirst("h1.title-detail a")!!.text().trim()
+        author = document.selectFirst("div.author p")?.text()?.trim()
+        description = document.selectFirst("div.sort-des div.line-clamp")?.text()?.trim()
+        genre = document.select("div.kind a, div.m-tags a")
+            .joinToString(", ") { it.text().trim() }
+        status = when (document.selectFirst("div.status p")?.text()?.trim()) {
+            "Đang tiến hành"   -> SManga.ONGOING
+            "Hoàn thành"       -> SManga.COMPLETED
+        }
+        thumbnail_url = document.selectFirst("div.col-image img")?.attr("abs:src")
+    }
+
+    override fun chapterListSelector() = "div.list-chapters div.l-chapter"
+
+    override fun chapterFromElement(element: Element) = SChapter.create().apply {
+        val a = element.selectFirst("a.ll-chap")!!
+        setUrlWithoutDomain(a.attr("href"))
+        name = a.text().trim()
+        date_upload = runCatching {
+            val dateText = element.select("span.ll-update")[0].text().trim()
+            dateFormat.parse(dateText)!!.time
+        }.getOrDefault(0L)
+    }
+
     override val pageListParseSelector = ".read-chaps img"
 
     private val preferences: SharedPreferences = getPreferences()
