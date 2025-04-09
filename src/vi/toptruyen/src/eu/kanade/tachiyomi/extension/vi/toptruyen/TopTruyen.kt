@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.toptruyen
 
 import android.content.SharedPreferences
-import android.util.Log
 import android.widget.Toast
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.multisrc.wpcomics.WPComics
@@ -39,7 +38,7 @@ class TopTruyen :
         if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
             try {
                 val originalHost = super.baseUrl.toHttpUrl().host
-                val baseRoot = "${super.baseUrl.toHttpUrl().scheme}://${originalHost}/"
+                val baseRoot = "${super.baseUrl.toHttpUrl().scheme}://$originalHost/"
                 val request = Request.Builder()
                     .url(baseRoot)
                     .headers(headers)
@@ -63,8 +62,6 @@ class TopTruyen :
         }
     }
 
-
-    // Build the client without the redirect-check interceptor.
     override val client = super.client.newBuilder()
         .rateLimit(3)
         .build()
