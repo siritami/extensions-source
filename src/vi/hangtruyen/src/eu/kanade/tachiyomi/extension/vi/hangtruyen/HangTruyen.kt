@@ -14,7 +14,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
-class ParsedHttpSource() {
+class HangTruyen : ParsedHttpSource() {
 
     override val name = "HangTruyen"
 	
