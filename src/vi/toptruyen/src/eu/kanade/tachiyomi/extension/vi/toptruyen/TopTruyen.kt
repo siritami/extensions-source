@@ -32,46 +32,6 @@ class TopTruyen :
     ),
     ConfigurableSource {
 
-    private val preferences: SharedPreferences = getPreferences()
-    private var hasCheckedRedirect = false // Flag to track if redirect check has been performed
-
-    // Create an OkHttp client with an interceptor to catch redirects.
-    override val client = super.client.newBuilder()
-        .addInterceptor { chain ->
-            val originalRequest = chain.request()
-            val response = chain.proceed(originalRequest)
-            // Perform the redirect check only if it hasn't been done yet and auto-update is enabled
-            if (!hasCheckedRedirect && preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
-                hasCheckedRedirect = true // Mark the check as done
-                val originalHost = super.baseUrl.toHttpUrl().host
-                val newHost = response.request.url.host
-                if (newHost != originalHost) {
-                    val newBaseUrl = "${response.request.url.scheme}://$newHost"
-                    preferences.edit()
-                        .putString(BASE_URL_PREF, newBaseUrl)
-                        .putString(DEFAULT_BASE_URL_PREF, newBaseUrl)
-                        .apply()
-                }
-            }
-            response
-        }
-        .rateLimit(3)
-        .build()
-
-    // In case the app is started with a stored value already, this init block can update the preference.
-    init {
-        if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
-            preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
-                if (prefDefaultBaseUrl != super.baseUrl) {
-                    preferences.edit()
-                        .putString(BASE_URL_PREF, super.baseUrl)
-                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
-                        .apply()
-                }
-            }
-        }
-    }
-
     override fun pageListParse(document: Document): List<Page> {
         return document.select("div[id^=page_].page-chapter img").mapIndexed { index, element ->
             val img = element.attr("abs:src")
@@ -130,6 +90,46 @@ class TopTruyen :
 
     override val genresSelector = ".categories-detail ul.nav li:not(.active) a"
 
+    // Configurable, automatic change domain
+    private val preferences: SharedPreferences = getPreferences()
+    private var hasCheckedRedirect = false
+
+    // Catch redirects
+    override val client = super.client.newBuilder()
+        .addInterceptor { chain ->
+            val originalRequest = chain.request()
+            val response = chain.proceed(originalRequest)
+            // Perform the redirect check only if it hasn't been done yet and auto-update is enabled
+            if (!hasCheckedRedirect && preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
+                hasCheckedRedirect = true // Mark the check as done
+                val originalHost = super.baseUrl.toHttpUrl().host
+                val newHost = response.request.url.host
+                if (newHost != originalHost) {
+                    val newBaseUrl = "${response.request.url.scheme}://$newHost"
+                    preferences.edit()
+                        .putString(BASE_URL_PREF, newBaseUrl)
+                        .putString(DEFAULT_BASE_URL_PREF, newBaseUrl)
+                        .apply()
+                }
+            }
+            response
+        }
+        .rateLimit(3)
+        .build()
+
+    init {
+        if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
+            preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
+                if (prefDefaultBaseUrl != super.baseUrl) {
+                    preferences.edit()
+                        .putString(BASE_URL_PREF, super.baseUrl)
+                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                        .apply()
+                }
+            }
+        }
+    }
+
     override val baseUrl by lazy { getPrefBaseUrl() }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -141,7 +141,6 @@ class TopTruyen :
             setDefaultValue(defaultUrl)
             dialogTitle = BASE_URL_PREF_TITLE
             dialogMessage = "Default: $defaultUrl"
-
             setOnPreferenceChangeListener { _, _ ->
                 Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
                 true
@@ -151,8 +150,8 @@ class TopTruyen :
 
         val autoDomainPref = androidx.preference.SwitchPreferenceCompat(screen.context).apply {
             key = AUTO_CHANGE_DOMAIN_PREF
-            title = "Tự động cập nhật domain"
-            summary = "Khi bật, ứng dụng sẽ tự động cập nhật domain mới nếu website chuyển hướng. (Mặc định tắt)"
+            title = AUTO_CHANGE_DOMAIN_TITLE
+            summary = AUTO_CHANGE_DOMAIN_SUMMARY
             setDefaultValue(false)
         }
         screen.addPreference(autoDomainPref)
@@ -168,5 +167,8 @@ class TopTruyen :
         private const val BASE_URL_PREF_SUMMARY =
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
         private const val AUTO_CHANGE_DOMAIN_PREF = "autoChangeDomain"
+        private const val AUTO_CHANGE_DOMAIN_TITLE = "Tự động cập nhật domain"
+        private const val AUTO_CHANGE_DOMAIN_SUMMARY =
+            "Khi mở ứng dụng, ứng dụng sẽ tự động cập nhật domain mới nếu website chuyển hướng."
     }
 }
