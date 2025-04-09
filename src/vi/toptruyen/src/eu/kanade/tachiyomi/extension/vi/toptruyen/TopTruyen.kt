@@ -13,7 +13,9 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import keiyoushi.utils.getPreferences
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Interceptor
 import okhttp3.Request
+import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
@@ -32,25 +34,36 @@ class TopTruyen :
     ),
     ConfigurableSource {
 
-    override val client = super.client.newBuilder()
-        .rateLimit(3)
-        .build()
-
     private val preferences: SharedPreferences = getPreferences()
 
-    // Automatic change domain: this block updates the stored URL only if the user opted in.
     init {
-        if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
-            preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
-                if (prefDefaultBaseUrl != super.baseUrl) {
-                    preferences.edit()
-                        .putString(BASE_URL_PREF, super.baseUrl)
-                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
-                        .apply()
-                }
+        preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
+            if (prefDefaultBaseUrl != super.baseUrl) {
+                preferences.edit()
+                    .putString(BASE_URL_PREF, super.baseUrl)
+                    .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                    .apply()
             }
         }
     }
+
+    override val baseUrl by lazy { getPrefBaseUrl() }
+
+    override val client = super.client.newBuilder()
+        .rateLimit(3)
+        .addInterceptor { chain ->
+            val request = chain.request()
+            val originalHost = request.url.host
+            val response = chain.proceed(request)
+            if (preferences.getBoolean(AUTO_UPDATE_BASE_URL_PREF, false) &&
+                originalHost == baseUrl.toHttpUrl().host &&
+                response.request.url.host != originalHost) {
+                val newBaseUrl = "https://${response.request.url.host}"
+                preferences.edit().putString(BASE_URL_PREF, newBaseUrl).apply()
+            }
+            response
+        }
+        .build()
 
     override fun pageListParse(document: Document): List<Page> {
         return document.select("div[id^=page_].page-chapter img").mapIndexed { index, element ->
@@ -110,10 +123,7 @@ class TopTruyen :
 
     override val genresSelector = ".categories-detail ul.nav li:not(.active) a"
 
-    override val baseUrl by lazy { getPrefBaseUrl() }
-
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        // Preference for manual override of the base URL.
         val baseUrlPref = androidx.preference.EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
             title = BASE_URL_PREF_TITLE
@@ -129,26 +139,26 @@ class TopTruyen :
         }
         screen.addPreference(baseUrlPref)
 
-        // New: Preference switch for automatic domain update from website redirect.
-        val autoDomainPref = androidx.preference.SwitchPreferenceCompat(screen.context).apply {
-            key = AUTO_CHANGE_DOMAIN_PREF
-            title = "Tự động cập nhật domain"
-            summary = "Khi bật, ứng dụng sẽ tự động cập nhật domain mới nếu website chuyển hướng. (Mặc định tắt)"
+        val autoUpdatePref = androidx.preference.SwitchPreference(screen.context).apply {
+            key = AUTO_UPDATE_BASE_URL_PREF
+            title = AUTO_UPDATE_BASE_URL_PREF_TITLE
+            summary = AUTO_UPDATE_BASE_URL_PREF_SUMMARY
             setDefaultValue(false)
         }
-        screen.addPreference(autoDomainPref)
+        screen.addPreference(autoUpdatePref)
     }
 
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, super.baseUrl)!!
 
     companion object {
-        // Bottom of code: Manual change domain and automatic change domain constants.
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
         private const val RESTART_APP = "Khởi chạy lại ứng dụng để áp dụng thay đổi."
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF = "overrideBaseUrl"
         private const val BASE_URL_PREF_SUMMARY =
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
-        private const val AUTO_CHANGE_DOMAIN_PREF = "autoChangeDomain"
+        private const val AUTO_UPDATE_BASE_URL_PREF = "autoUpdateBaseUrl"
+        private const val AUTO_UPDATE_BASE_URL_PREF_TITLE = "Tự động cập nhật URL cơ sở"
+        private const val AUTO_UPDATE_BASE_URL_PREF_SUMMARY = "Tự động cập nhật URL cơ sở khi phát hiện chuyển hướng. Mặc định: tắt"
     }
 }
