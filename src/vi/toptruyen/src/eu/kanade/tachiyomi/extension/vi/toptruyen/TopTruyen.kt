@@ -135,7 +135,6 @@ class TopTruyen :
             title = AUTO_UPDATE_PREF_TITLE
             summary = AUTO_UPDATE_PREF_SUMMARY
             setDefaultValue(true)
-            
             setOnPreferenceChangeListener { _, newValue ->
                 preferences.edit()
                     .putBoolean(AUTO_UPDATE_PREF, newValue as Boolean)
@@ -152,12 +151,10 @@ class TopTruyen :
     private fun domainInterceptor(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val response = chain.proceed(request)
-
         if (isAutoUpdateEnabled() && response.isSuccessful) {
             // Get the final URL after redirects
             val responseUrl = response.request.url.toString()
             val responseBaseUrl = responseUrl.substringBefore("/", responseUrl)
-            
             // If the base URL has changed, update it in preferences
             if (responseBaseUrl != baseUrl && responseBaseUrl.isNotEmpty()) {
                 preferences.edit()
@@ -165,7 +162,6 @@ class TopTruyen :
                     .apply()
             }
         }
-        
         return response
     }
 
