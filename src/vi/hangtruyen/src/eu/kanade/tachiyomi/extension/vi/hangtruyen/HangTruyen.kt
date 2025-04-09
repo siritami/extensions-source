@@ -14,8 +14,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
-class HangTruyen :
-    WPComics(
+class HangTruyen : WPComics(
         "HangTruyen",
         "https://hangtruyen.net",
         "vi",
