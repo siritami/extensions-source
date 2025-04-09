@@ -23,7 +23,7 @@ class HangTruyen : WPComics(
         timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
     },
     gmtOffset = null,
-){
+) {
     override val client = super.client.newBuilder()
         .rateLimit(5)
         .build()
