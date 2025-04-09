@@ -22,9 +22,9 @@ class ParsedHttpSource() {
 	
     override val lang = "vi"
 	
-	private val dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
-		timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
-	}
+    private val dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
+        timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+    }
 
     override val supportsLatest = true
 
