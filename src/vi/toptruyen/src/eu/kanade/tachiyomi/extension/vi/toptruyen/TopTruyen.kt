@@ -177,7 +177,7 @@ class TopTruyen :
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
         private const val AUTO_DOMAIN_UPDATE_PREF = "autoDomainUpdate"
         private const val AUTO_DOMAIN_UPDATE_TITLE = "Tự động cập nhật tên miền"
-        private const val AUTO_DOMAIN_UPDATE_SUMMARY = 
+        private const val AUTO_DOMAIN_UPDATE_SUMMARY =
             "Tự động cập nhật tên miền khi trang web chuyển hướng (khi bật, khởi động lại để áp dụng)"
     }
 }
