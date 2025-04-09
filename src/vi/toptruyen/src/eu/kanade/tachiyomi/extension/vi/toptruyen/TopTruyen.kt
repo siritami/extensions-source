@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.extension.vi.toptruyen
 
 import android.content.SharedPreferences
+import android.util.Log
 import android.widget.Toast
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.multisrc.wpcomics.WPComics
@@ -35,16 +36,17 @@ class TopTruyen :
     private val preferences: SharedPreferences = getPreferences()
 
     init {
-        // If auto-update is enabled, do a one-time network check to detect a domain redirect.
+        // One-time check: only if auto-update is enabled.
         if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
             try {
-                // Create a GET request to the original base URL.
+                // Perform a synchronous GET request to the original base URL.
                 val request: Request = GET(super.baseUrl, headers)
-                // Execute the request synchronously using the original client.
+                // Use the original client (without our extra interceptor) to follow redirects.
                 val response = super.client.newCall(request).execute()
-                // Extract original and returned hosts.
+                // Determine the original host and the host after redirection.
                 val originalHost = super.baseUrl.toHttpUrl().host
                 val newHost = response.request.url.host
+                Log.d("TopTruyen", "Original host: $originalHost, New host: $newHost")
                 if (newHost != originalHost) {
                     // Build a new base URL with only scheme and host.
                     val newBaseUrl = "${response.request.url.scheme}://$newHost"
@@ -52,10 +54,13 @@ class TopTruyen :
                         .putString(BASE_URL_PREF, newBaseUrl)
                         .putString(DEFAULT_BASE_URL_PREF, newBaseUrl)
                         .apply()
+                    Log.d("TopTruyen", "Domain changed to: $newBaseUrl")
+                } else {
+                    Log.d("TopTruyen", "No domain change detected.")
                 }
                 response.close()
             } catch (e: Exception) {
-                // Handle exceptions (e.g., log error, ignore, etc.)
+                Log.e("TopTruyen", "Error checking domain: ${e.message}", e)
             }
         }
     }
@@ -138,6 +143,7 @@ class TopTruyen :
             }
         }
         screen.addPreference(baseUrlPref)
+
         // Switch preference to enable automatic update on domain redirect.
         val autoDomainPref = androidx.preference.SwitchPreferenceCompat(screen.context).apply {
             key = AUTO_CHANGE_DOMAIN_PREF
