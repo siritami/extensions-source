@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import keiyoushi.utils.getPreferences
+import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.jsoup.nodes.Document
@@ -19,6 +20,7 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.UUID
 
 class TopTruyen :
     WPComics(
@@ -34,37 +36,59 @@ class TopTruyen :
 
     private val preferences: SharedPreferences = getPreferences()
 
-    init {
-        if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
-            try {
-                val originalHost = super.baseUrl.toHttpUrl().host
-                val baseRoot = "${super.baseUrl.toHttpUrl().scheme}://$originalHost/"
-                val request = Request.Builder()
-                    .url(baseRoot)
-                    .headers(headers)
-                    .build()
-                val response = super.client.newCall(request).execute()
-                val redirectedHost = response.request.url.host
-                if (redirectedHost != originalHost) {
-                    val newBaseUrl = "${response.request.url.scheme}://$redirectedHost"
-                    preferences.edit()
-                        .putString(BASE_URL_PREF, newBaseUrl)
-                        .putString(DEFAULT_BASE_URL_PREF, newBaseUrl)
-                        .apply()
-                    println("✅ Domain changed to: $newBaseUrl")
-                } else {
-                    println("ℹ️ No domain change detected.")
-                }
-                response.close()
-            } catch (e: Exception) {
-                println("❌ Error while checking for domain update: ${e.message}")
-            }
-        }
-    }
-
+    // Standard client with rate limiting
     override val client = super.client.newBuilder()
         .rateLimit(3)
         .build()
+
+    init {
+        // Check for domain updates only when the app starts (once per session)
+        if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
+            // Generate a unique session ID for this app launch
+            val currentSessionId = UUID.randomUUID().toString()
+            val lastSessionId = preferences.getString(LAST_SESSION_ID, "")
+            if (currentSessionId != lastSessionId) {
+                runBlocking {
+                    try {
+                        val testRequest = Request.Builder()
+                            .url(super.baseUrl)
+                            .build()
+
+                        val response = client.newCall(testRequest).execute()
+
+                        val originalHost = super.baseUrl.toHttpUrl().host
+
+                        val newHost = response.request.url.host
+
+                        if (newHost != originalHost) {
+                            // Build new base URL with only scheme and host
+                            val newBaseUrl = "${response.request.url.scheme}://$newHost"
+                            preferences.edit()
+                                .putString(BASE_URL_PREF, newBaseUrl)
+                                .putString(DEFAULT_BASE_URL_PREF, newBaseUrl)
+                                .apply()
+                        }
+
+                        preferences.edit()
+                            .putString(LAST_SESSION_ID, currentSessionId)
+                            .apply()
+
+                        response.close()
+                    } catch (e: Exception) {
+                    }
+                }
+            }
+        } else {
+            preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
+                if (prefDefaultBaseUrl != super.baseUrl) {
+                    preferences.edit()
+                        .putString(BASE_URL_PREF, super.baseUrl)
+                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                        .apply()
+                }
+            }
+        }
+    }
 
     override fun pageListParse(document: Document): List<Page> {
         return document.select("div[id^=page_].page-chapter img").mapIndexed { index, element ->
@@ -89,6 +113,7 @@ class TopTruyen :
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val url = "$baseUrl/$searchPath".toHttpUrl().newBuilder()
+
         filters.forEach { filter ->
             when (filter) {
                 is GenreFilter -> filter.toUriPart()?.let { url.addPathSegment(it) }
@@ -96,10 +121,12 @@ class TopTruyen :
                 else -> {}
             }
         }
+
         when {
             query.isNotBlank() -> url.addQueryParameter(queryParam, query)
             else -> url.addQueryParameter("page", page.toString())
         }
+
         return GET(url.toString(), headers)
     }
 
@@ -125,7 +152,7 @@ class TopTruyen :
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         val defaultUrl = super.baseUrl
-        // Manual override preference for base URL.
+        // Manual override preference for base URL
         val baseUrlPref = androidx.preference.EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
             title = BASE_URL_PREF_TITLE
@@ -133,6 +160,7 @@ class TopTruyen :
             setDefaultValue(defaultUrl)
             dialogTitle = BASE_URL_PREF_TITLE
             dialogMessage = "Default: $defaultUrl"
+
             setOnPreferenceChangeListener { _, _ ->
                 Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
                 true
@@ -140,12 +168,17 @@ class TopTruyen :
         }
         screen.addPreference(baseUrlPref)
 
-        // Switch preference to enable automatic update on domain redirect.
+        // Switch preference to enable automatic update on domain redirect
         val autoDomainPref = androidx.preference.SwitchPreferenceCompat(screen.context).apply {
             key = AUTO_CHANGE_DOMAIN_PREF
             title = "Tự động cập nhật domain"
-            summary = "Khi bật, ứng dụng sẽ tự động cập nhật domain mới nếu website chuyển hướng. (Mặc định tắt)"
+            summary = "Khi bật, ứng dụng sẽ tự động cập nhật domain mới mỗi khi khởi động (Mặc định tắt)"
             setDefaultValue(false)
+            
+            setOnPreferenceChangeListener { _, _ ->
+                Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
+                true
+            }
         }
         screen.addPreference(autoDomainPref)
     }
@@ -153,6 +186,7 @@ class TopTruyen :
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, super.baseUrl)!!
 
     companion object {
+        // Bottom of code: manual change domain and automatic change domain constants
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
         private const val RESTART_APP = "Khởi chạy lại ứng dụng để áp dụng thay đổi."
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
@@ -160,5 +194,6 @@ class TopTruyen :
         private const val BASE_URL_PREF_SUMMARY =
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
         private const val AUTO_CHANGE_DOMAIN_PREF = "autoChangeDomain"
+        private const val LAST_SESSION_ID = "lastSessionId"
     }
 }
