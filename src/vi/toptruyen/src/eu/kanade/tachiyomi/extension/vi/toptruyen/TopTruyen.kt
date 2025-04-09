@@ -99,9 +99,8 @@ class TopTruyen :
         .addInterceptor { chain ->
             val originalRequest = chain.request()
             val response = chain.proceed(originalRequest)
-            // Perform the redirect check only if it hasn't been done yet and auto-update is enabled
             if (!hasCheckedRedirect && preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
-                hasCheckedRedirect = true // Mark the check as done
+                hasCheckedRedirect = true
                 val originalHost = super.baseUrl.toHttpUrl().host
                 val newHost = response.request.url.host
                 if (newHost != originalHost) {
@@ -114,7 +113,6 @@ class TopTruyen :
             }
             response
         }
-        .rateLimit(3)
         .build()
 
     init {
