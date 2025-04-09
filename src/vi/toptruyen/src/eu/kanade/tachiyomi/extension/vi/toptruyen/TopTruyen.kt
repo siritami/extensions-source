@@ -112,43 +112,8 @@ class TopTruyen :
 
     override val baseUrl by lazy { getPrefBaseUrl() }
 
-    // Intercept response to detect redirects and update base URL if auto-update is enabled
-    override fun intercept(chain: okhttp3.Interceptor.Chain): Response {
-        val request = chain.request()
-        val response = chain.proceed(request)
-
-        if (isAutoUpdateEnabled() && !response.isRedirect && response.isSuccessful) {
-            // Get the final URL after redirects
-            val responseUrl = response.request.url.toString()
-            val responseBaseUrl = responseUrl.substringBefore("/", responseUrl)
-
-            // If the base URL has changed, update it in preferences
-            if (responseBaseUrl != baseUrl && responseBaseUrl.isNotEmpty()) {
-                preferences.edit()
-                    .putString(BASE_URL_PREF, responseBaseUrl)
-                    .apply()
-            }
-        }
-
-        return response
-    }
-
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        // Auto-update domain preference
-        val autoUpdatePref = SwitchPreferenceCompat(screen.context).apply {
-            key = AUTO_UPDATE_PREF
-            title = AUTO_UPDATE_PREF_TITLE
-            summary = AUTO_UPDATE_PREF_SUMMARY
-            setDefaultValue(true)
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit()
-                    .putBoolean(AUTO_UPDATE_PREF, newValue as Boolean)
-                    .apply()
-                true
-            }
-        }
-        screen.addPreference(autoUpdatePref)
-        // Manual base URL override preference
+        // Base URL override preference (original functionality)
         val baseUrlPref = EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
             title = BASE_URL_PREF_TITLE
@@ -163,9 +128,46 @@ class TopTruyen :
             }
         }
         screen.addPreference(baseUrlPref)
+
+        // Auto-update domain preference (new functionality)
+        val autoUpdatePref = SwitchPreferenceCompat(screen.context).apply {
+            key = AUTO_UPDATE_PREF
+            title = AUTO_UPDATE_PREF_TITLE
+            summary = AUTO_UPDATE_PREF_SUMMARY
+            setDefaultValue(true)
+            
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit()
+                    .putBoolean(AUTO_UPDATE_PREF, newValue as Boolean)
+                    .apply()
+                true
+            }
+        }
+        screen.addPreference(autoUpdatePref)
     }
 
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, super.baseUrl)!!
+
+    // Custom interceptor to handle domain changes
+    private fun domainInterceptor(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        val response = chain.proceed(request)
+
+        if (isAutoUpdateEnabled() && response.isSuccessful) {
+            // Get the final URL after redirects
+            val responseUrl = response.request.url.toString()
+            val responseBaseUrl = responseUrl.substringBefore("/", responseUrl)
+            
+            // If the base URL has changed, update it in preferences
+            if (responseBaseUrl != baseUrl && responseBaseUrl.isNotEmpty()) {
+                preferences.edit()
+                    .putString(BASE_URL_PREF, responseBaseUrl)
+                    .apply()
+            }
+        }
+        
+        return response
+    }
 
     private fun isAutoUpdateEnabled(): Boolean = preferences.getBoolean(AUTO_UPDATE_PREF, true)
 
