@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.extension.vi.toptruyen
 
 import android.content.SharedPreferences
 import android.widget.Toast
-import androidx.preference.CheckBoxPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.multisrc.wpcomics.WPComics
 import eu.kanade.tachiyomi.network.GET
@@ -14,9 +13,7 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import keiyoushi.utils.getPreferences
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Interceptor
 import okhttp3.Request
-import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
@@ -37,8 +34,23 @@ class TopTruyen :
 
     override val client = super.client.newBuilder()
         .rateLimit(3)
-        .addInterceptor(::domainRedirectInterceptor)
         .build()
+
+    private val preferences: SharedPreferences = getPreferences()
+
+    // Automatic change domain: this block updates the stored URL only if the user opted in.
+    init {
+        if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
+            preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
+                if (prefDefaultBaseUrl != super.baseUrl) {
+                    preferences.edit()
+                        .putString(BASE_URL_PREF, super.baseUrl)
+                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                        .apply()
+                }
+            }
+        }
+    }
 
     override fun pageListParse(document: Document): List<Page> {
         return document.select("div[id^=page_].page-chapter img").mapIndexed { index, element ->
@@ -98,46 +110,10 @@ class TopTruyen :
 
     override val genresSelector = ".categories-detail ul.nav li:not(.active) a"
 
-    private val preferences: SharedPreferences = getPreferences()
-
-    init {
-        preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
-            if (prefDefaultBaseUrl != super.baseUrl) {
-                preferences.edit()
-                    .putString(BASE_URL_PREF, super.baseUrl)
-                    .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
-                    .apply()
-            }
-        }
-    }
-
     override val baseUrl by lazy { getPrefBaseUrl() }
 
-    private fun domainRedirectInterceptor(chain: Interceptor.Chain): Response {
-        val request = chain.request()
-        val response = chain.proceed(request)
-
-        if (preferences.getBoolean(AUTO_DOMAIN_UPDATE_PREF, false) && response.isRedirect) {
-            val location = response.headers["Location"] ?: return response
-            try {
-                val newBaseUrl = location.toHttpUrl().newBuilder().apply {
-                    host(host)
-                    encodedPath("/")
-                    query(null)
-                    fragment(null)
-                }.build().toString()
-                if (newBaseUrl != getPrefBaseUrl()) {
-                    preferences.edit()
-                        .putString(BASE_URL_PREF, newBaseUrl)
-                        .apply()
-                }
-            } catch (e: Exception) {
-            }
-        }
-        return response
-    }
-
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        // Preference for manual override of the base URL.
         val baseUrlPref = androidx.preference.EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
             title = BASE_URL_PREF_TITLE
@@ -153,31 +129,26 @@ class TopTruyen :
         }
         screen.addPreference(baseUrlPref)
 
-        val autoDomainUpdatePref = CheckBoxPreference(screen.context).apply {
-            key = AUTO_DOMAIN_UPDATE_PREF
-            title = AUTO_DOMAIN_UPDATE_TITLE
-            summary = AUTO_DOMAIN_UPDATE_SUMMARY
+        // New: Preference switch for automatic domain update from website redirect.
+        val autoDomainPref = androidx.preference.SwitchPreferenceCompat(screen.context).apply {
+            key = AUTO_CHANGE_DOMAIN_PREF
+            title = "Tự động cập nhật domain"
+            summary = "Khi bật, ứng dụng sẽ tự động cập nhật domain mới nếu website chuyển hướng. (Mặc định tắt)"
             setDefaultValue(false)
-            setOnPreferenceChangeListener { _, _ ->
-                Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
-                true
-            }
         }
-        screen.addPreference(autoDomainUpdatePref)
+        screen.addPreference(autoDomainPref)
     }
 
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, super.baseUrl)!!
 
     companion object {
+        // Bottom of code: Manual change domain and automatic change domain constants.
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
         private const val RESTART_APP = "Khởi chạy lại ứng dụng để áp dụng thay đổi."
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF = "overrideBaseUrl"
         private const val BASE_URL_PREF_SUMMARY =
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
-        private const val AUTO_DOMAIN_UPDATE_PREF = "autoDomainUpdate"
-        private const val AUTO_DOMAIN_UPDATE_TITLE = "Tự động cập nhật tên miền"
-        private const val AUTO_DOMAIN_UPDATE_SUMMARY =
-            "Tự động cập nhật tên miền khi trang web chuyển hướng (khi bật, khởi động lại để áp dụng)"
+        private const val AUTO_CHANGE_DOMAIN_PREF = "autoChangeDomain"
     }
 }
