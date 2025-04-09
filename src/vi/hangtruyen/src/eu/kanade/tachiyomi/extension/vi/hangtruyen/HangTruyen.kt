@@ -112,4 +112,5 @@ class ParsedHttpSource() {
             }
             Page(index, imageUrl = img)
         }.distinctBy { it.imageUrl }
+    }
 }
