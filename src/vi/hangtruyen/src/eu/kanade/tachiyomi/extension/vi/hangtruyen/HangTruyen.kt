@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.extension.vi.hangtruyen
 
 import eu.kanade.tachiyomi.multisrc.wpcomics.WPComics
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
@@ -15,14 +16,18 @@ import java.util.Locale
 import java.util.TimeZone
 
 class HangTruyen : WPComics(
-        "HangTruyen",
-        "https://hangtruyen.net",
-        "vi",
-        dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
-            timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
-        },
-        gmtOffset = null,
+    "HangTruyen",
+    "https://hangtruyen.net",
+    "vi",
+    dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
+        timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+    },
+    gmtOffset = null,
 ){
+    override val client = super.client.newBuilder()
+        .rateLimit(5)
+        .build()
+
     // Popular
     override fun popularMangaRequest(page: Int) =
         GET("$baseUrl/tim-kiem?r=newly-updated&page=$page&orderBy=view_desc")
