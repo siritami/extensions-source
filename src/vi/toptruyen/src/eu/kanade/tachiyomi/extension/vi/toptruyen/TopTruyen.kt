@@ -46,7 +46,7 @@ class TopTruyen :
             // Only update if auto-update is enabled and the host changed.
             if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false) && newHost != originalHost) {
                 // Build new base URL with only scheme and host.
-                val newBaseUrl = "${response.request.url.scheme}://${newHost}"
+                val newBaseUrl = "${response.request.url.scheme}://$newHost"
                 preferences.edit()
                     .putString(BASE_URL_PREF, newBaseUrl)
                     .putString(DEFAULT_BASE_URL_PREF, newBaseUrl)
