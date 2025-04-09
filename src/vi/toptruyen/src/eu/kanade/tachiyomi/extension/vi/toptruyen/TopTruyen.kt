@@ -34,42 +34,36 @@ class TopTruyen :
 
     private val preferences: SharedPreferences = getPreferences()
 
-    // Create an OkHttp client with an interceptor to catch redirects.
-    override val client = super.client.newBuilder()
-        .addInterceptor { chain ->
-            val originalRequest = chain.request()
-            val response = chain.proceed(originalRequest)
-            // Get the current base URL host as defined in WPComics.
-            val originalHost = super.baseUrl.toHttpUrl().host
-            // Get the host from the (possibly redirected) response's request.
-            val newHost = response.request.url.host
-            // Only update if auto-update is enabled and the host changed.
-            if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false) && newHost != originalHost) {
-                // Build new base URL with only scheme and host.
-                val newBaseUrl = "${response.request.url.scheme}://$newHost"
-                preferences.edit()
-                    .putString(BASE_URL_PREF, newBaseUrl)
-                    .putString(DEFAULT_BASE_URL_PREF, newBaseUrl)
-                    .apply()
-            }
-            response
-        }
-        .rateLimit(3)
-        .build()
-
-    // In case the app is started with a stored value already, this init block can update the preference.
     init {
+        // If auto-update is enabled, do a one-time network check to detect a domain redirect.
         if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
-            preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
-                if (prefDefaultBaseUrl != super.baseUrl) {
+            try {
+                // Create a GET request to the original base URL.
+                val request: Request = GET(super.baseUrl, headers)
+                // Execute the request synchronously using the original client.
+                val response = super.client.newCall(request).execute()
+                // Extract original and returned hosts.
+                val originalHost = super.baseUrl.toHttpUrl().host
+                val newHost = response.request.url.host
+                if (newHost != originalHost) {
+                    // Build a new base URL with only scheme and host.
+                    val newBaseUrl = "${response.request.url.scheme}://$newHost"
                     preferences.edit()
-                        .putString(BASE_URL_PREF, super.baseUrl)
-                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                        .putString(BASE_URL_PREF, newBaseUrl)
+                        .putString(DEFAULT_BASE_URL_PREF, newBaseUrl)
                         .apply()
                 }
+                response.close()
+            } catch (e: Exception) {
+                // Handle exceptions (e.g., log error, ignore, etc.)
             }
         }
     }
+
+    // Build the client without the redirect-check interceptor.
+    override val client = super.client.newBuilder()
+        .rateLimit(3)
+        .build()
 
     override fun pageListParse(document: Document): List<Page> {
         return document.select("div[id^=page_].page-chapter img").mapIndexed { index, element ->
@@ -94,7 +88,6 @@ class TopTruyen :
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val url = "$baseUrl/$searchPath".toHttpUrl().newBuilder()
-
         filters.forEach { filter ->
             when (filter) {
                 is GenreFilter -> filter.toUriPart()?.let { url.addPathSegment(it) }
@@ -102,12 +95,10 @@ class TopTruyen :
                 else -> {}
             }
         }
-
         when {
             query.isNotBlank() -> url.addQueryParameter(queryParam, query)
             else -> url.addQueryParameter("page", page.toString())
         }
-
         return GET(url.toString(), headers)
     }
 
@@ -141,15 +132,13 @@ class TopTruyen :
             setDefaultValue(defaultUrl)
             dialogTitle = BASE_URL_PREF_TITLE
             dialogMessage = "Default: $defaultUrl"
-
             setOnPreferenceChangeListener { _, _ ->
                 Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
                 true
             }
         }
         screen.addPreference(baseUrlPref)
-
-        // New: Switch preference to enable automatic update on domain redirect.
+        // Switch preference to enable automatic update on domain redirect.
         val autoDomainPref = androidx.preference.SwitchPreferenceCompat(screen.context).apply {
             key = AUTO_CHANGE_DOMAIN_PREF
             title = "Tự động cập nhật domain"
@@ -162,7 +151,6 @@ class TopTruyen :
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, super.baseUrl)!!
 
     companion object {
-        // Bottom of code: manual change domain and automatic change domain constants.
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
         private const val RESTART_APP = "Khởi chạy lại ứng dụng để áp dụng thay đổi."
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
