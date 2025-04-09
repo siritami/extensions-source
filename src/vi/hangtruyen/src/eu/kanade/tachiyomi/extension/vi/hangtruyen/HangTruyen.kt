@@ -23,9 +23,7 @@ class HangTruyen :
             timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
         },
         gmtOffset = null,
-    ),
-    ConfigurableSource {
-
+){
     // Popular
     override fun popularMangaRequest(page: Int) =
         GET("$baseUrl/tim-kiem?r=newly-updated&page=$page&orderBy=view_desc")
