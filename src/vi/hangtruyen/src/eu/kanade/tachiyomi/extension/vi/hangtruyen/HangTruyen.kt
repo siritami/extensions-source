@@ -32,13 +32,11 @@ class HangTruyen : WPComics(
     override fun popularMangaRequest(page: Int) =
         GET("$baseUrl/tim-kiem?r=newly-updated&page=$page&orderBy=view_desc")
 
-    override fun popularMangaSelector() = "div.search-result .m-post"
-
     override fun popularMangaNextPageSelector() = ".next-page"
 
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
-        val entries = popularMangaSelector().map(::popularMangaFromElement)
+        val entries = document.select("div.search-result .m-post").map(::popularMangaFromElement)
         val hasNextPage = popularMangaNextPageSelector()?.let { document.selectFirst(it) } != null
         return MangasPage(entries, hasNextPage)
     }
@@ -53,8 +51,6 @@ class HangTruyen : WPComics(
     // Latest
     override fun latestUpdatesRequest(page: Int) =
         GET("$baseUrl/tim-kiem?r=newly-updated&page=$page")
-
-    override fun latestUpdatesSelector() = popularMangaSelector()
 
     override fun latestUpdatesNextPageSelector() = popularMangaNextPageSelector()
 
