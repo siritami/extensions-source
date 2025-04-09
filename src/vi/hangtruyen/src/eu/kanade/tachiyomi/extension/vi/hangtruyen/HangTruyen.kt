@@ -1,11 +1,11 @@
 package eu.kanade.tachiyomi.extension.vi.hangtruyen
 
+import eu.kanade.tachiyomi.multisrc.wpcomics.WPComics
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -14,34 +14,29 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
-class HangTruyen : ParsedHttpSource() {
-
-    override val name = "HangTruyen"
-	
-    override val baseUrl = "https://hangtruyen.net"
-	
-    override val lang = "vi"
-	
-    private val dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
-        timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
-    }
-
-    override val supportsLatest = true
-
-    override fun imageUrlParse(document: Document) =
-        throw UnsupportedOperationException()
+class HangTruyen :
+    WPComics(
+        "HangTruyen",
+        "https://hangtruyen.net",
+        "vi",
+        dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+        },
+        gmtOffset = null,
+    ),
+    ConfigurableSource {
 
     // Popular
     override fun popularMangaRequest(page: Int) =
         GET("$baseUrl/tim-kiem?r=newly-updated&page=$page&orderBy=view_desc")
 
-    override fun popularMangaSelector() = "div.search-result div.row"
+    override fun popularMangaSelector() = "div.search-result .m-post"
 
     override fun popularMangaNextPageSelector() = ".next-page"
 
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
-        val entries = document.select("div.search-result .m-post").map(::popularMangaFromElement)
+        val entries = popularMangaSelector().map(::popularMangaFromElement)
         val hasNextPage = popularMangaNextPageSelector()?.let { document.selectFirst(it) } != null
         return MangasPage(entries, hasNextPage)
     }
@@ -70,17 +65,9 @@ class HangTruyen : ParsedHttpSource() {
     }
 
     // Search
-    private val searchPath = "tim-kiem"
+    override val searchPath = "tim-kiem"
 
     override fun searchMangaSelector() = "div.search-result"
-
-    override fun searchMangaRequest(page: Int, query: String ): Request {
-        val url = "$baseUrl/$searchPath".toHttpUrl().newBuilder()
-        url.apply {
-            addQueryParameter("page", page.toString())
-        }
-        return GET(url.toString(), headers)
-    }
 
     override fun searchMangaParse(response: Response): MangasPage {
         return popularMangaParse(response)
