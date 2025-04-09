@@ -43,12 +43,13 @@ class TopTruyen :
             val originalHost = super.baseUrl.toHttpUrl().host
             // Get the host from the (possibly redirected) response's request.
             val newHost = response.request.url.host
-            // If auto-update is enabled and the host has changed, update the stored domain.
+            // Only update if auto-update is enabled and the host changed.
             if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false) && newHost != originalHost) {
-                val newUrl = response.request.url.toString()
+                // Build new base URL with only scheme and host.
+                val newBaseUrl = "${response.request.url.scheme}://${newHost}"
                 preferences.edit()
-                    .putString(BASE_URL_PREF, newUrl)
-                    .putString(DEFAULT_BASE_URL_PREF, newUrl)
+                    .putString(BASE_URL_PREF, newBaseUrl)
+                    .putString(DEFAULT_BASE_URL_PREF, newBaseUrl)
                     .apply()
             }
             response
