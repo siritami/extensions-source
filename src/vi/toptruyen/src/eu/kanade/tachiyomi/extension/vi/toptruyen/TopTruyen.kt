@@ -36,34 +36,33 @@ class TopTruyen :
     private val preferences: SharedPreferences = getPreferences()
 
     init {
-        // One-time check: only if auto-update is enabled.
         if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
             try {
-                // Perform a synchronous GET request to the original base URL.
-                val request: Request = GET(super.baseUrl, headers)
-                // Use the original client (without our extra interceptor) to follow redirects.
-                val response = super.client.newCall(request).execute()
-                // Determine the original host and the host after redirection.
                 val originalHost = super.baseUrl.toHttpUrl().host
-                val newHost = response.request.url.host
-                Log.d("TopTruyen", "Original host: $originalHost, New host: $newHost")
-                if (newHost != originalHost) {
-                    // Build a new base URL with only scheme and host.
-                    val newBaseUrl = "${response.request.url.scheme}://$newHost"
+                val baseRoot = "${super.baseUrl.toHttpUrl().scheme}://${originalHost}/"
+                val request = Request.Builder()
+                    .url(baseRoot)
+                    .headers(headers)
+                    .build()
+                val response = super.client.newCall(request).execute()
+                val redirectedHost = response.request.url.host
+                if (redirectedHost != originalHost) {
+                    val newBaseUrl = "${response.request.url.scheme}://$redirectedHost"
                     preferences.edit()
                         .putString(BASE_URL_PREF, newBaseUrl)
                         .putString(DEFAULT_BASE_URL_PREF, newBaseUrl)
                         .apply()
-                    Log.d("TopTruyen", "Domain changed to: $newBaseUrl")
+                    println("✅ Domain changed to: $newBaseUrl")
                 } else {
-                    Log.d("TopTruyen", "No domain change detected.")
+                    println("ℹ️ No domain change detected.")
                 }
                 response.close()
             } catch (e: Exception) {
-                Log.e("TopTruyen", "Error checking domain: ${e.message}", e)
+                println("❌ Error while checking for domain update: ${e.message}")
             }
         }
     }
+
 
     // Build the client without the redirect-check interceptor.
     override val client = super.client.newBuilder()
