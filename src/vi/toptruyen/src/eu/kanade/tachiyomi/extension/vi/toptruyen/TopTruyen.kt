@@ -33,46 +33,41 @@ class TopTruyen :
     ConfigurableSource {
 
     private val preferences: SharedPreferences = getPreferences()
+    private var hasCheckedRedirect = false // Flag to track if redirect check has been performed
 
+    // Create an OkHttp client with an interceptor to catch redirects.
     override val client = super.client.newBuilder()
-        .rateLimit(3)
-        .build()
-
-    // One-time per session domain redirect check in init block
-    init {
-        if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
-            val storedDefaultBaseUrl = preferences.getString(DEFAULT_BASE_URL_PREF, null)
-
-            // Update stored base URL if changed or first run
-            if (storedDefaultBaseUrl != super.baseUrl) {
-                preferences.edit()
-                    .putString(BASE_URL_PREF, super.baseUrl)
-                    .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
-                    .apply()
-            }
-
-            // One-time check for domain redirect
-            try {
-                val request = Request.Builder()
-                    .url(super.baseUrl)
-                    .head()
-                    .build()
-
-                val response = client.newCall(request).execute()
-                val responseHost = response.request.url.host
+        .addInterceptor { chain ->
+            val originalRequest = chain.request()
+            val response = chain.proceed(originalRequest)
+            // Perform the redirect check only if it hasn't been done yet and auto-update is enabled
+            if (!hasCheckedRedirect && preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
+                hasCheckedRedirect = true // Mark the check as done
                 val originalHost = super.baseUrl.toHttpUrl().host
-
-                if (response.isRedirect || responseHost != originalHost) {
-                    val newBaseUrl = "${response.request.url.scheme}://$responseHost"
+                val newHost = response.request.url.host
+                if (newHost != originalHost) {
+                    val newBaseUrl = "${response.request.url.scheme}://$newHost"
                     preferences.edit()
                         .putString(BASE_URL_PREF, newBaseUrl)
                         .putString(DEFAULT_BASE_URL_PREF, newBaseUrl)
                         .apply()
                 }
+            }
+            response
+        }
+        .rateLimit(3)
+        .build()
 
-                response.close()
-            } catch (_: Exception) {
-                // Ignore errors
+    // In case the app is started with a stored value already, this init block can update the preference.
+    init {
+        if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
+            preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
+                if (prefDefaultBaseUrl != super.baseUrl) {
+                    preferences.edit()
+                        .putString(BASE_URL_PREF, super.baseUrl)
+                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                        .apply()
+                }
             }
         }
     }
@@ -109,10 +104,9 @@ class TopTruyen :
             }
         }
 
-        if (query.isNotBlank()) {
-            url.addQueryParameter(queryParam, query)
-        } else {
-            url.addQueryParameter("page", page.toString())
+        when {
+            query.isNotBlank() -> url.addQueryParameter(queryParam, query)
+            else -> url.addQueryParameter("page", page.toString())
         }
 
         return GET(url.toString(), headers)
@@ -140,7 +134,6 @@ class TopTruyen :
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         val defaultUrl = super.baseUrl
-
         val baseUrlPref = androidx.preference.EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
             title = BASE_URL_PREF_TITLE
