@@ -3,6 +3,8 @@ package eu.kanade.tachiyomi.extension.vi.toptruyen
 import android.content.SharedPreferences
 import android.widget.Toast
 import androidx.preference.PreferenceScreen
+import androidx.preference.EditTextPreference
+import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.multisrc.wpcomics.WPComics
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
@@ -14,6 +16,7 @@ import eu.kanade.tachiyomi.source.model.SManga
 import keiyoushi.utils.getPreferences
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
+import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
@@ -109,8 +112,46 @@ class TopTruyen :
 
     override val baseUrl by lazy { getPrefBaseUrl() }
 
+    // Intercept response to detect redirects and update base URL if auto-update is enabled
+    override fun intercept(chain: okhttp3.Interceptor.Chain): Response {
+        val request = chain.request()
+        val response = chain.proceed(request)
+        
+        if (isAutoUpdateEnabled() && !response.isRedirect && response.isSuccessful) {
+            // Get the final URL after redirects
+            val responseUrl = response.request.url.toString()
+            val responseBaseUrl = responseUrl.substringBefore("/", responseUrl)
+            
+            // If the base URL has changed, update it in preferences
+            if (responseBaseUrl != baseUrl && responseBaseUrl.isNotEmpty()) {
+                preferences.edit()
+                    .putString(BASE_URL_PREF, responseBaseUrl)
+                    .apply()
+            }
+        }
+        
+        return response
+    }
+
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val baseUrlPref = androidx.preference.EditTextPreference(screen.context).apply {
+        // Auto-update domain preference
+        val autoUpdatePref = SwitchPreferenceCompat(screen.context).apply {
+            key = AUTO_UPDATE_PREF
+            title = AUTO_UPDATE_PREF_TITLE
+            summary = AUTO_UPDATE_PREF_SUMMARY
+            setDefaultValue(true)
+            
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit()
+                    .putBoolean(AUTO_UPDATE_PREF, newValue as Boolean)
+                    .apply()
+                true
+            }
+        }
+        screen.addPreference(autoUpdatePref)
+        
+        // Manual base URL override preference
+        val baseUrlPref = EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
             title = BASE_URL_PREF_TITLE
             summary = BASE_URL_PREF_SUMMARY
@@ -127,6 +168,8 @@ class TopTruyen :
     }
 
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, super.baseUrl)!!
+    
+    private fun isAutoUpdateEnabled(): Boolean = preferences.getBoolean(AUTO_UPDATE_PREF, true)
 
     companion object {
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
@@ -135,5 +178,9 @@ class TopTruyen :
         private const val BASE_URL_PREF = "overrideBaseUrl"
         private const val BASE_URL_PREF_SUMMARY =
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
+        private const val AUTO_UPDATE_PREF = "autoUpdateBaseUrl"
+        private const val AUTO_UPDATE_PREF_TITLE = "Tự động cập nhật URL cơ sở"
+        private const val AUTO_UPDATE_PREF_SUMMARY = 
+            "Tự động cập nhật URL khi trang web chuyển hướng đến domain mới"
     }
 }
