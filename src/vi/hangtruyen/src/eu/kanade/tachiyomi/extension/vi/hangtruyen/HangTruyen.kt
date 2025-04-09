@@ -74,23 +74,11 @@ class HangTruyen : ParsedHttpSource() {
 
     override fun searchMangaSelector() = "div.search-result"
 
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
+    override fun searchMangaRequest(page: Int, query: String ): Request {
         val url = "$baseUrl/$searchPath".toHttpUrl().newBuilder()
-
-        filters.forEach { filter ->
-            when (filter) {
-                is GenreFilter -> filter.toUriPart()?.let { url.addPathSegment(it) }
-                is StatusFilter -> filter.toUriPart()?.let { url.addQueryParameter("status", it) }
-                else -> {}
-            }
-        }
-
         url.apply {
-            addQueryParameter(queryParam, query)
             addQueryParameter("page", page.toString())
-            addQueryParameter("sort", "0")
         }
-
         return GET(url.toString(), headers)
     }
 
