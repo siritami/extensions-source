@@ -132,14 +132,15 @@ class TopTruyen :
     override val baseUrl by lazy { getPrefBaseUrl() }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        val defaultUrl = super.baseUrl
         // Manual override preference for base URL.
         val baseUrlPref = androidx.preference.EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
             title = BASE_URL_PREF_TITLE
             summary = BASE_URL_PREF_SUMMARY
-            setDefaultValue(super.baseUrl)
+            setDefaultValue(defaultUrl)
             dialogTitle = BASE_URL_PREF_TITLE
-            dialogMessage = "Default: ${super.baseUrl}"
+            dialogMessage = "Default: $defaultUrl"
 
             setOnPreferenceChangeListener { _, _ ->
                 Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
