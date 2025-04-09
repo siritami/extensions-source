@@ -2,8 +2,8 @@ package eu.kanade.tachiyomi.extension.vi.toptruyen
 
 import android.content.SharedPreferences
 import android.widget.Toast
-import androidx.preference.PreferenceScreen
 import androidx.preference.EditTextPreference
+import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.multisrc.wpcomics.WPComics
 import eu.kanade.tachiyomi.network.GET
@@ -180,7 +180,7 @@ class TopTruyen :
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
         private const val AUTO_UPDATE_PREF = "autoUpdateBaseUrl"
         private const val AUTO_UPDATE_PREF_TITLE = "Tự động cập nhật URL cơ sở"
-        private const val AUTO_UPDATE_PREF_SUMMARY = 
+        private const val AUTO_UPDATE_PREF_SUMMARY =
             "Tự động cập nhật URL khi trang web chuyển hướng đến domain mới"
     }
 }
