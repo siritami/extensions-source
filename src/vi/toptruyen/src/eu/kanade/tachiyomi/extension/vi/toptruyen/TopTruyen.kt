@@ -150,7 +150,6 @@ class TopTruyen :
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         val defaultUrl = super.baseUrl
-        // Manual override preference for base URL
         val baseUrlPref = androidx.preference.EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
             title = BASE_URL_PREF_TITLE
@@ -158,7 +157,6 @@ class TopTruyen :
             setDefaultValue(defaultUrl)
             dialogTitle = BASE_URL_PREF_TITLE
             dialogMessage = "Default: $defaultUrl"
-
             setOnPreferenceChangeListener { _, _ ->
                 Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
                 true
@@ -166,13 +164,11 @@ class TopTruyen :
         }
         screen.addPreference(baseUrlPref)
 
-        // Switch preference to enable automatic update on domain redirect
         val autoDomainPref = androidx.preference.SwitchPreferenceCompat(screen.context).apply {
             key = AUTO_CHANGE_DOMAIN_PREF
             title = "Tự động cập nhật domain"
             summary = "Khi bật, ứng dụng sẽ tự động cập nhật domain mới mỗi khi khởi động (Mặc định tắt)"
             setDefaultValue(false)
-            
             setOnPreferenceChangeListener { _, _ ->
                 Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
                 true
@@ -184,7 +180,6 @@ class TopTruyen :
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, super.baseUrl)!!
 
     companion object {
-        // Bottom of code: manual change domain and automatic change domain constants
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
         private const val RESTART_APP = "Khởi chạy lại ứng dụng để áp dụng thay đổi."
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
