@@ -44,7 +44,6 @@ class TopTruyen :
     init {
         // Check for domain updates only when the app starts (once per session)
         if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
-            // Generate a unique session ID for this app launch
             val currentSessionId = UUID.randomUUID().toString()
             val lastSessionId = preferences.getString(LAST_SESSION_ID, "")
             if (currentSessionId != lastSessionId) {
@@ -61,7 +60,6 @@ class TopTruyen :
                         val newHost = response.request.url.host
 
                         if (newHost != originalHost) {
-                            // Build new base URL with only scheme and host
                             val newBaseUrl = "${response.request.url.scheme}://$newHost"
                             preferences.edit()
                                 .putString(BASE_URL_PREF, newBaseUrl)
