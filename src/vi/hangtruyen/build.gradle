@@ -1,7 +1,7 @@
 ext {
     extName = 'HangTruyen'
     extClass = '.HangTruyen'
-    overrideVersionCode = 0
+    extVersionCode = 0
     isNsfw = false
 }
 
