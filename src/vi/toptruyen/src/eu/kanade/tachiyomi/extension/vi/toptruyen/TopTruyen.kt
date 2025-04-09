@@ -116,12 +116,12 @@ class TopTruyen :
     override fun intercept(chain: okhttp3.Interceptor.Chain): Response {
         val request = chain.request()
         val response = chain.proceed(request)
-        
+
         if (isAutoUpdateEnabled() && !response.isRedirect && response.isSuccessful) {
             // Get the final URL after redirects
             val responseUrl = response.request.url.toString()
             val responseBaseUrl = responseUrl.substringBefore("/", responseUrl)
-            
+
             // If the base URL has changed, update it in preferences
             if (responseBaseUrl != baseUrl && responseBaseUrl.isNotEmpty()) {
                 preferences.edit()
@@ -129,7 +129,7 @@ class TopTruyen :
                     .apply()
             }
         }
-        
+
         return response
     }
 
@@ -140,7 +140,6 @@ class TopTruyen :
             title = AUTO_UPDATE_PREF_TITLE
             summary = AUTO_UPDATE_PREF_SUMMARY
             setDefaultValue(true)
-            
             setOnPreferenceChangeListener { _, newValue ->
                 preferences.edit()
                     .putBoolean(AUTO_UPDATE_PREF, newValue as Boolean)
@@ -149,7 +148,6 @@ class TopTruyen :
             }
         }
         screen.addPreference(autoUpdatePref)
-        
         // Manual base URL override preference
         val baseUrlPref = EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
@@ -168,7 +166,7 @@ class TopTruyen :
     }
 
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, super.baseUrl)!!
-    
+
     private fun isAutoUpdateEnabled(): Boolean = preferences.getBoolean(AUTO_UPDATE_PREF, true)
 
     companion object {
