@@ -12,7 +12,6 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import keiyoushi.utils.getPreferences
-import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.jsoup.nodes.Document
@@ -20,7 +19,6 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
-import java.util.UUID
 
 class TopTruyen :
     WPComics(
@@ -36,54 +34,45 @@ class TopTruyen :
 
     private val preferences: SharedPreferences = getPreferences()
 
-    // Standard client with rate limiting
     override val client = super.client.newBuilder()
         .rateLimit(3)
         .build()
 
+    // One-time per session domain redirect check in init block
     init {
-        // Check for domain updates only when the app starts (once per session)
         if (preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
-            val currentSessionId = UUID.randomUUID().toString()
-            val lastSessionId = preferences.getString(LAST_SESSION_ID, "")
-            if (currentSessionId != lastSessionId) {
-                runBlocking {
-                    try {
-                        val testRequest = Request.Builder()
-                            .url(super.baseUrl)
-                            .build()
+            val storedDefaultBaseUrl = preferences.getString(DEFAULT_BASE_URL_PREF, null)
 
-                        val response = client.newCall(testRequest).execute()
-
-                        val originalHost = super.baseUrl.toHttpUrl().host
-
-                        val newHost = response.request.url.host
-
-                        if (newHost != originalHost) {
-                            val newBaseUrl = "${response.request.url.scheme}://$newHost"
-                            preferences.edit()
-                                .putString(BASE_URL_PREF, newBaseUrl)
-                                .putString(DEFAULT_BASE_URL_PREF, newBaseUrl)
-                                .apply()
-                        }
-
-                        preferences.edit()
-                            .putString(LAST_SESSION_ID, currentSessionId)
-                            .apply()
-
-                        response.close()
-                    } catch (e: Exception) {
-                    }
-                }
+            // Update stored base URL if changed or first run
+            if (storedDefaultBaseUrl != super.baseUrl) {
+                preferences.edit()
+                    .putString(BASE_URL_PREF, super.baseUrl)
+                    .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                    .apply()
             }
-        } else {
-            preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
-                if (prefDefaultBaseUrl != super.baseUrl) {
+
+            // One-time check for domain redirect
+            try {
+                val request = Request.Builder()
+                    .url(super.baseUrl)
+                    .head()
+                    .build()
+
+                val response = client.newCall(request).execute()
+                val responseHost = response.request.url.host
+                val originalHost = super.baseUrl.toHttpUrl().host
+
+                if (response.isRedirect || responseHost != originalHost) {
+                    val newBaseUrl = "${response.request.url.scheme}://$responseHost"
                     preferences.edit()
-                        .putString(BASE_URL_PREF, super.baseUrl)
-                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                        .putString(BASE_URL_PREF, newBaseUrl)
+                        .putString(DEFAULT_BASE_URL_PREF, newBaseUrl)
                         .apply()
                 }
+
+                response.close()
+            } catch (_: Exception) {
+                // Ignore errors
             }
         }
     }
@@ -120,9 +109,10 @@ class TopTruyen :
             }
         }
 
-        when {
-            query.isNotBlank() -> url.addQueryParameter(queryParam, query)
-            else -> url.addQueryParameter("page", page.toString())
+        if (query.isNotBlank()) {
+            url.addQueryParameter(queryParam, query)
+        } else {
+            url.addQueryParameter("page", page.toString())
         }
 
         return GET(url.toString(), headers)
@@ -150,6 +140,7 @@ class TopTruyen :
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         val defaultUrl = super.baseUrl
+
         val baseUrlPref = androidx.preference.EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
             title = BASE_URL_PREF_TITLE
@@ -157,6 +148,7 @@ class TopTruyen :
             setDefaultValue(defaultUrl)
             dialogTitle = BASE_URL_PREF_TITLE
             dialogMessage = "Default: $defaultUrl"
+
             setOnPreferenceChangeListener { _, _ ->
                 Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
                 true
@@ -167,12 +159,8 @@ class TopTruyen :
         val autoDomainPref = androidx.preference.SwitchPreferenceCompat(screen.context).apply {
             key = AUTO_CHANGE_DOMAIN_PREF
             title = "Tự động cập nhật domain"
-            summary = "Khi bật, ứng dụng sẽ tự động cập nhật domain mới mỗi khi khởi động (Mặc định tắt)"
+            summary = "Khi bật, ứng dụng sẽ tự động cập nhật domain mới nếu website chuyển hướng. (Mặc định tắt)"
             setDefaultValue(false)
-            setOnPreferenceChangeListener { _, _ ->
-                Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
-                true
-            }
         }
         screen.addPreference(autoDomainPref)
     }
@@ -187,6 +175,5 @@ class TopTruyen :
         private const val BASE_URL_PREF_SUMMARY =
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
         private const val AUTO_CHANGE_DOMAIN_PREF = "autoChangeDomain"
-        private const val LAST_SESSION_ID = "lastSessionId"
     }
 }
