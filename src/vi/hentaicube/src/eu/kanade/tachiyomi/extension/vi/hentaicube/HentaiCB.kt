@@ -68,11 +68,15 @@ class HentaiCB :
                 manga.title = it.ownText()
             }
             selectFirst("img")?.let {
-                manga.thumbnail_url = it.attr("abs:src")
+                val getUrl = it.attr("abs:src")
+                val originalUrl = getUrl.replace(Regex("-\\d+x\\d+(\\.[a-zA-Z]+)$"), "$1")
+                manga.thumbnail_url = originalUrl
             }
         }
+
         return manga
     }
+
 
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
         if (query.startsWith(URL_SEARCH_PREFIX)) {
