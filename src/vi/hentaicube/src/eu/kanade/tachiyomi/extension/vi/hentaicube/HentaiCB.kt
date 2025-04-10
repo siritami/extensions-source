@@ -77,7 +77,6 @@ class HentaiCB :
         return manga
     }
 
-
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
         if (query.startsWith(URL_SEARCH_PREFIX)) {
             val mangaUrl = baseUrl.toHttpUrl().newBuilder().apply {
