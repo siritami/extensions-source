@@ -59,22 +59,14 @@ class HentaiCB :
 
     override val altNameSelector = ".post-content_item:contains(Tên khác) .summary-content"
 
-    override fun popularMangaFromElement(element: Element): SManga {
-        val manga = SManga.create()
+    private val thumbnailOriginalUrlRegex = Regex("-\\d+x\\d+(\\.[a-zA-Z]+)$")
 
-        with(element) {
-            selectFirst(popularMangaUrlSelector)!!.let {
-                manga.setUrlWithoutDomain(it.attr("abs:href"))
-                manga.title = it.ownText()
-            }
-            selectFirst("img")?.let {
-                val getUrl = it.attr("abs:src")
-                val originalUrl = getUrl.replace(Regex("-\\d+x\\d+(\\.[a-zA-Z]+)$"), "$1")
-                manga.thumbnail_url = originalUrl
+    override fun popularMangaFromElement(element: Element): SManga {
+        return super.popularMangaFromElement(element).apply {
+            element.selectFirst("img")?.let { img ->
+                thumbnail_url = img.attr("abs:src").replace(thumbnaiOriginallUrlRegex, "$1")
             }
         }
-
-        return manga
     }
 
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
@@ -135,6 +127,7 @@ class HentaiCB :
     }
 
     companion object {
+        private val THUMBNAIL_REGEX = Regex("-\\d+x\\d+(\\.[a-zA-Z]+)$")
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
         private const val RESTART_APP = "Khởi chạy lại ứng dụng để áp dụng thay đổi."
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
