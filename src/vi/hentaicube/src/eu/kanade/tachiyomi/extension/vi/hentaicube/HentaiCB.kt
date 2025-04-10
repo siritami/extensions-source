@@ -24,7 +24,7 @@ import java.util.Locale
 class HentaiCB :
     Madara(
         "CBHentai",
-        "https://hentaicb.lat",
+        "https://hentaicb.fit",
         "vi",
         SimpleDateFormat("dd/MM/yyyy", Locale("vi")),
     ),
@@ -58,16 +58,33 @@ class HentaiCB :
 
     override val altNameSelector = ".post-content_item:contains(Tên khác) .summary-content"
 
+    override fun popularMangaFromElement(element: Element): SManga {
+        val manga = SManga.create()
+
+        with(element) {
+            selectFirst(popularMangaUrlSelector)!!.let {
+                manga.setUrlWithoutDomain(it.attr("abs:href"))
+                manga.title = it.ownText()
+            }
+            selectFirst("img")?.let {
+                manga.thumbnail_url = it.attr("abs:src")
+            }
+        }
+        return manga
+    }
+
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
         if (query.startsWith(URL_SEARCH_PREFIX)) {
             val mangaUrl = baseUrl.toHttpUrl().newBuilder().apply {
                 addPathSegment(mangaSubString)
                 addPathSegment(query.substringAfter(URL_SEARCH_PREFIX))
+                addPathSegment("")
             }.build()
             return client.newCall(GET(mangaUrl, headers))
                 .asObservableSuccess().map { response ->
                     val manga = mangaDetailsParse(response).apply {
                         setUrlWithoutDomain(mangaUrl.toString())
+                        initialized = true
                     }
 
                     MangasPage(listOf(manga), false)
