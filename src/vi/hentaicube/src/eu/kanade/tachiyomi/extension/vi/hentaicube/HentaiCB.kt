@@ -59,7 +59,7 @@ class HentaiCB :
 
     override val altNameSelector = ".post-content_item:contains(Tên khác) .summary-content"
 
-    private val thumbnailOriginalUrlRegex = Regex("-\\d+x\\d+(\\.[a-zA-Z]+)$")
+    private val thumbnailOriginalUrlRegex = Regex("""-\\d+x\\d+(\\.[a-zA-Z]+)$""")
 
     override fun popularMangaFromElement(element: Element): SManga {
         return super.popularMangaFromElement(element).apply {
