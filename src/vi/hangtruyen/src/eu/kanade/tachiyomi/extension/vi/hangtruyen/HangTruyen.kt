@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
@@ -75,6 +76,8 @@ class HangTruyen : ParsedHttpSource() {
 
     override fun searchMangaSelector() = "div.search-result"
 
+    override fun searchMangaNextPageSelector() = popularMangaNextPageSelector()
+
     override fun searchMangaParse(response: Response): MangasPage {
         return popularMangaParse(response)
     }
@@ -107,6 +110,8 @@ class HangTruyen : ParsedHttpSource() {
         date_upload = element.select("span.ll-update")[0].text().toDate()
     }
 
+    private val dateFormat: SimpleDateFormat = SimpleDateFormat("HH:mm - dd/MM/yyyy Z", Locale.ROOT),
+
     private fun String?.toDate(): Long {
         this ?: return 0L
 
@@ -121,8 +126,6 @@ class HangTruyen : ParsedHttpSource() {
                 val parts = this.removeSuffix(" trước").trim().split(" ")
                 if (parts.size < 2) return 0L
                 val amount = parts[0].toIntOrNull() ?: return 0L
-
-                val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"), Locale.ROOT)
 
                 when {
                     yearWords.contains(parts[1]) -> calendar.add(Calendar.YEAR, -amount)
