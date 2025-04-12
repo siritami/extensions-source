@@ -110,7 +110,7 @@ class HangTruyen : ParsedHttpSource() {
         date_upload = element.select("span.ll-update")[0].text().toDate()
     }
 
-    private val dateFormat: SimpleDateFormat = SimpleDateFormat("HH:mm - dd/MM/yyyy Z", Locale.ROOT),
+    private val dateFormat: SimpleDateFormat = SimpleDateFormat("HH:mm - dd/MM/yyyy Z", Locale.ROOT)
 
     private fun String?.toDate(): Long {
         this ?: return 0L
