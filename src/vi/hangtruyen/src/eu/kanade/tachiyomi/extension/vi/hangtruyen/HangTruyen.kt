@@ -11,6 +11,7 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 
@@ -21,13 +22,9 @@ class HangTruyen : ParsedHttpSource() {
     override val baseUrl = "https://hangtruyen.net"
 	
     override val lang = "vi"
-	
-    private val dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
-        timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
-    }
 
     override val supportsLatest = true
-
+	
     override fun imageUrlParse(document: Document) =
         throw UnsupportedOperationException()
 
@@ -102,46 +99,25 @@ class HangTruyen : ParsedHttpSource() {
         date_upload = element.select("span.ll-update")[0].text().toDate()
     }
 
-    private fun List<String>.doesInclude(thisWord: String): Boolean = this.any { it.contains(thisWord, ignoreCase = true) }
+    private fun String.toDate(): Long {
+        val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"), Locale.ROOT)
 
-    private fun String?.toDate(): Long {
-        this ?: return 0L
+        val parts = this.trim().split(" ")
+        if (parts.size < 2) return 0L
 
-        val secondWords = listOf("giây")
-        val minuteWords = listOf("phút")
-        val hourWords = listOf("giờ")
-        val dayWords = listOf("ngày")
-        val monthWords = listOf("tháng")
-        val yearWords = listOf("năm")
-        val agoWords = listOf("trước")
-
-        return try {
-            if (agoWords.any { this.contains(it, ignoreCase = true) }) {
-                val trimmedDate = this.substringBefore(" ago").removeSuffix("s").split(" ")
-                val calendar = Calendar.getInstance()
-
-                when {
-                    yearWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.YEAR, -trimmedDate[0].toInt()) }
-                    monthWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.MONTH, -trimmedDate[0].toInt()) }
-                    dayWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.DAY_OF_MONTH, -trimmedDate[0].toInt()) }
-                    hourWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.HOUR_OF_DAY, -trimmedDate[0].toInt()) }
-                    minuteWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.MINUTE, -trimmedDate[0].toInt()) }
-                    secondWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.SECOND, -trimmedDate[0].toInt()) }
-                }
-
-                calendar.timeInMillis
-            } else {
-                (if (gmtOffset == null) this.substringAfterLast(" ") else "$this $gmtOffset").let {
-                    if (Regex("""\d+/\d+/\d\d""").find(it)?.value != null) {
-                        dateFormat.parse(it)?.time ?: 0L
-                    } else {
-                        dateFormat.parse("$it/$currentYear")?.time ?: 0L
-                    }
-                }
-            }
-        } catch (_: Exception) {
-            0L
+        val amount = parts[0].toIntOrNull() ?: return 0L
+        when (parts[1]) {
+            "giây" -> calendar.add(Calendar.SECOND, -amount)
+            "phút"  -> calendar.add(Calendar.MINUTE, -amount)
+            "giờ"   -> calendar.add(Calendar.HOUR_OF_DAY, -amount)
+            "ngày"  -> calendar.add(Calendar.DAY_OF_MONTH, -amount)
+            "tuần"  -> calendar.add(Calendar.WEEK_OF_YEAR, -amount)
+            "tháng" -> calendar.add(Calendar.MONTH, -amount)
+            "năm"   -> calendar.add(Calendar.YEAR, -amount)
         }
+
+        val formatted = dateFormat.format(calendar.time)
+        return dateFormat.parse(formatted)?.time ?: calendar.timeInMillis
     }
 
     // Pages
