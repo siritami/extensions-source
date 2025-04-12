@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
@@ -38,9 +39,11 @@ class HangTruyen : ParsedHttpSource() {
 
     override fun popularMangaNextPageSelector() = ".next-page"
 
+    override fun popularMangaSelector() = "div.search-result .m-post"
+
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
-        val entries = document.select("div.search-result .m-post").map(::popularMangaFromElement)
+        val entries = document.select(popularMangaSelector()).map(::popularMangaFromElement)
         val hasNextPage = popularMangaNextPageSelector()?.let { document.selectFirst(it) } != null
         return MangasPage(entries, hasNextPage)
     }
@@ -56,6 +59,8 @@ class HangTruyen : ParsedHttpSource() {
     override fun latestUpdatesRequest(page: Int) =
         GET("$baseUrl/tim-kiem?r=newly-updated&page=$page")
 
+    override fun latestUpdatesSelector() = popularMangaSelector()
+
     override fun latestUpdatesNextPageSelector() = popularMangaNextPageSelector()
 
     override fun latestUpdatesParse(response: Response): MangasPage {
@@ -67,7 +72,7 @@ class HangTruyen : ParsedHttpSource() {
     }
 
     // Search
-    override val searchPath = "tim-kiem"
+    private val searchPath = "tim-kiem"
 
     override fun searchMangaSelector() = "div.search-result"
 
