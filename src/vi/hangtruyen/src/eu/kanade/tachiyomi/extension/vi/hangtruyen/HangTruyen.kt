@@ -75,13 +75,10 @@ class HangTruyen : ParsedHttpSource() {
 
     private val queryParam = "keyword"
 
-    override fun searchMangaRequest(page: Int, query: String): Request {
-        val url = "$baseUrl/$searchPath".toHttpUrl().newBuilder()
+    override fun searchMangaRequest(page: Int, query: String, filters: FilterList) =
+        GET("$baseUrl/?s=$query&page=$page", headers)
 
-        return GET(url.toString(), headers)
-    }
-
-    override fun searchMangaSelector() = override fun popularMangaSelector()
+    override fun searchMangaSelector() = popularMangaSelector()
 
     override fun searchMangaNextPageSelector() = popularMangaNextPageSelector()
 
@@ -120,6 +117,8 @@ class HangTruyen : ParsedHttpSource() {
     private val dateFormat: SimpleDateFormat = SimpleDateFormat("HH:mm - dd/MM/yyyy Z", Locale.ROOT)
 
     private fun List<String>.doesInclude(thisWord: String): Boolean = this.any { it.contains(thisWord, ignoreCase = true) }
+
+    private val currentYear by lazy { Calendar.getInstance(Locale.ROOT)[1].toString().takeLast(2) }
 
     private fun String?.toDate(): Long {
         this ?: return 0L
