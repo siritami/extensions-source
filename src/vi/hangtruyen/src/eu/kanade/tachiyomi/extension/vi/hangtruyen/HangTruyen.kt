@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.extension.vi.hangtruyen
 
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
@@ -10,7 +11,6 @@ import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
@@ -18,15 +18,19 @@ import java.util.TimeZone
 class HangTruyen : ParsedHttpSource() {
 
     override val name = "HangTruyen"
-	
+
     override val baseUrl = "https://hangtruyen.net"
-	
+
     override val lang = "vi"
 
     override val supportsLatest = true
-	
+
     override fun imageUrlParse(document: Document) =
         throw UnsupportedOperationException()
+
+    override val client = super.client.newBuilder()
+        .rateLimit(5)
+        .build()
 
     // Popular
     override fun popularMangaRequest(page: Int) =
@@ -107,13 +111,11 @@ class HangTruyen : ParsedHttpSource() {
 
         val amount = parts[0].toIntOrNull() ?: return 0L
         when (parts[1]) {
-            "giây" -> calendar.add(Calendar.SECOND, -amount)
-            "phút"  -> calendar.add(Calendar.MINUTE, -amount)
-            "giờ"   -> calendar.add(Calendar.HOUR_OF_DAY, -amount)
-            "ngày"  -> calendar.add(Calendar.DAY_OF_MONTH, -amount)
-            "tuần"  -> calendar.add(Calendar.WEEK_OF_YEAR, -amount)
+            "giờ" -> calendar.add(Calendar.HOUR_OF_DAY, -amount)
+            "ngày" -> calendar.add(Calendar.DAY_OF_MONTH, -amount)
+            "tuần" -> calendar.add(Calendar.WEEK_OF_YEAR, -amount)
             "tháng" -> calendar.add(Calendar.MONTH, -amount)
-            "năm"   -> calendar.add(Calendar.YEAR, -amount)
+            "năm" -> calendar.add(Calendar.YEAR, -amount)
         }
 
         val formatted = dateFormat.format(calendar.time)
