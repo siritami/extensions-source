@@ -33,6 +33,45 @@ class HentaiCB :
 
     override val id: Long = 823638192569572166
 
+    private var hasCheckedRedirect = false
+
+    override val client: OkHttpClient = network.cloudflareClient.newBuilder()
+        .addInterceptor { chain ->
+            val originalRequest = chain.request()
+            val response = chain.proceed(originalRequest)
+            if (!hasCheckedRedirect && preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
+                hasCheckedRedirect = true
+                val originalHost = super.baseUrl.toHttpUrl().host
+                val newHost = response.request.url.host
+                if (newHost != originalHost) {
+                    val newBaseUrl = "${response.request.url.scheme}://$newHost"
+                    preferences.edit()
+                        .putString(BASE_URL_PREF, newBaseUrl)
+                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                        .apply()
+                }
+            }
+            response
+        }
+        .rateLimit(10)
+        .build()
+
+    private val preferences: SharedPreferences = getPreferences()
+
+    init {
+        preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
+            if (prefDefaultBaseUrl != super.baseUrl) {
+                preferences.edit()
+                    .putString(BASE_URL_PREF, super.baseUrl)
+                    .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                    .apply()
+            }
+        }
+    }
+    private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, super.baseUrl)!!
+
+    override val baseUrl by lazy { getPrefBaseUrl() }
+
     override val filterNonMangaItems = false
 
     override val mangaSubString = "read"
@@ -90,45 +129,6 @@ class HentaiCB :
         return super.pageListParse(document).distinctBy { it.imageUrl }
     }
 
-    // Configurable, automatic change domain
-    private val preferences: SharedPreferences = getPreferences()
-    private var hasCheckedRedirect = false
-
-    // Catch redirects
-    override val client: OkHttpClient = network.cloudflareClient.newBuilder()
-        .addInterceptor { chain ->
-            val originalRequest = chain.request()
-            val response = chain.proceed(originalRequest)
-            if (!hasCheckedRedirect && preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
-                hasCheckedRedirect = true
-                val originalHost = super.baseUrl.toHttpUrl().host
-                val newHost = response.request.url.host
-                if (newHost != originalHost) {
-                    val newBaseUrl = "${response.request.url.scheme}://$newHost"
-                    preferences.edit()
-                        .putString(BASE_URL_PREF, newBaseUrl)
-                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
-                        .apply()
-                }
-            }
-            response
-        }
-        .rateLimit(10)
-        .build()
-
-    init {
-        preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
-            if (prefDefaultBaseUrl != super.baseUrl) {
-                preferences.edit()
-                    .putString(BASE_URL_PREF, super.baseUrl)
-                    .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
-                    .apply()
-            }
-        }
-    }
-
-    override val baseUrl by lazy { getPrefBaseUrl() }
-
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         val defaultUrl = super.baseUrl
         val baseUrlPref = androidx.preference.EditTextPreference(screen.context).apply {
@@ -153,8 +153,6 @@ class HentaiCB :
         }
         screen.addPreference(autoDomainPref)
     }
-
-    private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, super.baseUrl)!!
 
     companion object {
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
