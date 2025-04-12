@@ -36,9 +36,9 @@ class HangTruyen : ParsedHttpSource() {
     override fun popularMangaRequest(page: Int) =
         GET("$baseUrl/tim-kiem?r=newly-updated&page=$page&orderBy=view_desc")
 
-    override fun popularMangaNextPageSelector() = ".next-page"
-
     override fun popularMangaSelector() = "div.search-result .m-post"
+
+    override fun popularMangaNextPageSelector() = ".next-page"
 
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
@@ -73,7 +73,7 @@ class HangTruyen : ParsedHttpSource() {
     // Search
     private val searchPath = "tim-kiem"
 
-    override fun searchMangaSelector() = "div.search-result"
+    override fun searchMangaSelector() = override fun popularMangaSelector()
 
     override fun searchMangaNextPageSelector() = popularMangaNextPageSelector()
 
@@ -133,7 +133,7 @@ class HangTruyen : ParsedHttpSource() {
                     dayWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.DAY_OF_MONTH, -trimmedDate[0].toInt()) }
                     hourWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.HOUR_OF_DAY, -trimmedDate[0].toInt()) }
                     minuteWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.MINUTE, -trimmedDate[0].toInt()) }
-					secondWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.SECOND, -trimmedDate[0].toInt()) }
+                    secondWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.SECOND, -trimmedDate[0].toInt()) }
                 }
 
                 calendar.timeInMillis
