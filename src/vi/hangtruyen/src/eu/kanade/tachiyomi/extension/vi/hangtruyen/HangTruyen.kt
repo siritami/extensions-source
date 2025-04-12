@@ -108,23 +108,38 @@ class HangTruyen : ParsedHttpSource() {
         date_upload = element.select("span.ll-update")[0].text().toDate()
     }
 
-    private fun String.toDate(): Long {
-        val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"), Locale.ROOT)
+    private fun String?.toDate(): Long {
+        this ?: return 0L
 
-        val parts = this.trim().split(" ")
-        if (parts.size < 2) return 0L
+        val hourWords = listOf("giờ")
+        val dayWords = listOf("ngày")
+        val monthWords = listOf("tháng")
+        val yearWords = listOf("năm")
+        val agoWords = listOf("trước")
 
-        val amount = parts[0].toIntOrNull() ?: return 0L
-        when (parts[1]) {
-            "giờ" -> calendar.add(Calendar.HOUR_OF_DAY, -amount)
-            "ngày" -> calendar.add(Calendar.DAY_OF_MONTH, -amount)
-            "tuần" -> calendar.add(Calendar.WEEK_OF_YEAR, -amount)
-            "tháng" -> calendar.add(Calendar.MONTH, -amount)
-            "năm" -> calendar.add(Calendar.YEAR, -amount)
+        return try {
+            if (agoWords.any { this.contains(it, ignoreCase = true) }) {
+                val parts = this.removeSuffix(" trước").trim().split(" ")
+                if (parts.size < 2) return 0L
+                val amount = parts[0].toIntOrNull() ?: return 0L
+
+                val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"), Locale.ROOT)
+
+                when {
+                    yearWords.contains(parts[1]) -> calendar.add(Calendar.YEAR, -amount)
+                    monthWords.contains(parts[1]) -> calendar.add(Calendar.MONTH, -amount)
+                    dayWords.contains(parts[1]) -> calendar.add(Calendar.DAY_OF_MONTH, -amount)
+                    hourWords.contains(parts[1]) -> calendar.add(Calendar.HOUR_OF_DAY, -amount)
+                }
+
+                val formatted = dateFormat.format(calendar.time)
+                dateFormat.parse(formatted)?.time ?: calendar.timeInMillis
+            } else {
+                0L
+            }
+        } catch (_: Exception) {
+            0L
         }
-
-        val formatted = dateFormat.format(calendar.time)
-        return dateFormat.parse(formatted)?.time ?: calendar.timeInMillis
     }
 
     // Pages
