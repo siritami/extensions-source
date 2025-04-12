@@ -115,6 +115,7 @@ class HangTruyen : ParsedHttpSource() {
     private fun String?.toDate(): Long {
         this ?: return 0L
 
+        val minuteWords = listOf("phút")
         val hourWords = listOf("giờ")
         val dayWords = listOf("ngày")
         val monthWords = listOf("tháng")
@@ -123,21 +124,26 @@ class HangTruyen : ParsedHttpSource() {
 
         return try {
             if (agoWords.any { this.contains(it, ignoreCase = true) }) {
-                val parts = this.removeSuffix(" trước").trim().split(" ")
-                if (parts.size < 2) return 0L
-                val amount = parts[0].toIntOrNull() ?: return 0L
+                val trimmedDate = this.substringBefore(" trước").removeSuffix("s").split(" ")
+                val calendar = Calendar.getInstance()
 
                 when {
-                    yearWords.contains(parts[1]) -> calendar.add(Calendar.YEAR, -amount)
-                    monthWords.contains(parts[1]) -> calendar.add(Calendar.MONTH, -amount)
-                    dayWords.contains(parts[1]) -> calendar.add(Calendar.DAY_OF_MONTH, -amount)
-                    hourWords.contains(parts[1]) -> calendar.add(Calendar.HOUR_OF_DAY, -amount)
+                    yearWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.YEAR, -trimmedDate[0].toInt()) }
+                    monthWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.MONTH, -trimmedDate[0].toInt()) }
+                    dayWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.DAY_OF_MONTH, -trimmedDate[0].toInt()) }
+                    hourWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.HOUR_OF_DAY, -trimmedDate[0].toInt()) }
+                    minuteWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.MINUTE, -trimmedDate[0].toInt()) }
                 }
 
-                val formatted = dateFormat.format(calendar.time)
-                dateFormat.parse(formatted)?.time ?: calendar.timeInMillis
+                calendar.timeInMillis
             } else {
-                0L
+                this.let {
+                    if (Regex("""\d+/\d+/\d\d""").find(it)?.value != null) {
+                        dateFormat.parse(it)?.time ?: 0L
+                    } else {
+                        dateFormat.parse("$it/$currentYear")?.time ?: 0L
+                    }
+                }
             }
         } catch (_: Exception) {
             0L
