@@ -14,6 +14,8 @@ import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SManga
 import keiyoushi.utils.getPreferences
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import rx.Observable
@@ -93,7 +95,7 @@ class HentaiCB :
     private var hasCheckedRedirect = false
 
     // Catch redirects
-    override val client = super.client.newBuilder()
+    override val client: OkHttpClient = network.cloudflareClient.newBuilder()
         .addInterceptor { chain ->
             val originalRequest = chain.request()
             val response = chain.proceed(originalRequest)
