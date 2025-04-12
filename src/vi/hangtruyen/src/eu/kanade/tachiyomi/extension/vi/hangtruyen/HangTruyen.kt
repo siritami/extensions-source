@@ -1,12 +1,11 @@
 package eu.kanade.tachiyomi.extension.vi.hangtruyen
 
-import eu.kanade.tachiyomi.multisrc.wpcomics.WPComics
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
+import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -15,18 +14,22 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
-class HangTruyen : WPComics(
-    "HangTruyen",
-    "https://hangtruyen.net",
-    "vi",
-    dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
+class HangTruyen : ParsedHttpSource() {
+
+    override val name = "HangTruyen"
+	
+    override val baseUrl = "https://hangtruyen.net"
+	
+    override val lang = "vi"
+	
+    private val dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
         timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
-    },
-    gmtOffset = null,
-) {
-    override val client = super.client.newBuilder()
-        .rateLimit(5)
-        .build()
+    }
+
+    override val supportsLatest = true
+
+    override fun imageUrlParse(document: Document) =
+        throw UnsupportedOperationException()
 
     // Popular
     override fun popularMangaRequest(page: Int) =
@@ -97,6 +100,46 @@ class HangTruyen : WPComics(
         setUrlWithoutDomain(a.attr("href"))
         name = a.text().trim()
         date_upload = element.select("span.ll-update")[0].text().toDate()
+    }
+
+    private fun String?.toDate(): Long {
+        this ?: return 0L
+
+        val secondWords = listOf("giây")
+        val minuteWords = listOf("phút")
+        val hourWords = listOf(""giờ")
+        val dayWords = listOf("ngày")
+        val monthWords = listOf("tháng")
+        val yearWords = listOf("năm")
+        val agoWords = listOf("trước")
+
+        return try {
+            if (agoWords.any { this.contains(it, ignoreCase = true) }) {
+                val trimmedDate = this.substringBefore(" ago").removeSuffix("s").split(" ")
+                val calendar = Calendar.getInstance()
+
+                when {
+                    yearWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.YEAR, -trimmedDate[0].toInt()) }
+                    monthWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.MONTH, -trimmedDate[0].toInt()) }
+                    dayWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.DAY_OF_MONTH, -trimmedDate[0].toInt()) }
+                    hourWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.HOUR_OF_DAY, -trimmedDate[0].toInt()) }
+                    minuteWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.MINUTE, -trimmedDate[0].toInt()) }
+                    secondWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.SECOND, -trimmedDate[0].toInt()) }
+                }
+
+                calendar.timeInMillis
+            } else {
+                (if (gmtOffset == null) this.substringAfterLast(" ") else "$this $gmtOffset").let {
+                    if (Regex("""\d+/\d+/\d\d""").find(it)?.value != null) {
+                        dateFormat.parse(it)?.time ?: 0L
+                    } else {
+                        dateFormat.parse("$it/$currentYear")?.time ?: 0L
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            0L
+        }
     }
 
     // Pages
