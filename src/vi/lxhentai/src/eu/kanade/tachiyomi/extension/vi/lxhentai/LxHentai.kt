@@ -29,15 +29,11 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
 
     override val id = 6495630445796108150
 
-    private val defaultBaseUrl = "https://lxmanga.art"
-
-    override val baseUrl by lazy { getPrefBaseUrl() }
+    private val defaultBaseUrl = "https://lxmanga.link"
 
     override val lang = "vi"
 
     override val supportsLatest = true
-
-    override val client: OkHttpClient = network.cloudflareClient
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder().add("Referer", baseUrl)
 
@@ -279,7 +275,31 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
         Genre("LXHENTAI", 66),
     )
 
+    // Configurable, automatic change domain
     private val preferences: SharedPreferences = getPreferences()
+    private var hasCheckedRedirect = false
+
+    // Catch redirects
+    override val client = super.client.newBuilder()
+        .addInterceptor { chain ->
+            val originalRequest = chain.request()
+            val response = chain.proceed(originalRequest)
+            if (!hasCheckedRedirect && preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
+                hasCheckedRedirect = true
+                val originalHost = super.baseUrl.toHttpUrl().host
+                val newHost = response.request.url.host
+                if (newHost != originalHost) {
+                    val newBaseUrl = "${response.request.url.scheme}://$newHost"
+                    preferences.edit()
+                        .putString(BASE_URL_PREF, newBaseUrl)
+                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                        .apply()
+                }
+            }
+            response
+        }
+        .rateLimit(10)
+        .build()
 
     init {
         preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
@@ -292,21 +312,31 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
         }
     }
 
+    override val baseUrl by lazy { getPrefBaseUrl() }
+
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        val defaultUrl = super.baseUrl
         val baseUrlPref = androidx.preference.EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
             title = BASE_URL_PREF_TITLE
             summary = BASE_URL_PREF_SUMMARY
-            setDefaultValue(defaultBaseUrl)
+            setDefaultValue(defaultUrl)
             dialogTitle = BASE_URL_PREF_TITLE
-            dialogMessage = "Default: $defaultBaseUrl"
-
+            dialogMessage = "Default: $defaultUrl"
             setOnPreferenceChangeListener { _, _ ->
                 Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
                 true
             }
         }
         screen.addPreference(baseUrlPref)
+
+        val autoDomainPref = androidx.preference.SwitchPreferenceCompat(screen.context).apply {
+            key = AUTO_CHANGE_DOMAIN_PREF
+            title = AUTO_CHANGE_DOMAIN_TITLE
+            summary = AUTO_CHANGE_DOMAIN_SUMMARY
+            setDefaultValue(false)
+        }
+        screen.addPreference(autoDomainPref)
     }
 
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, defaultBaseUrl)!!
@@ -323,5 +353,9 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
         private const val BASE_URL_PREF = "overrideBaseUrl"
         private const val BASE_URL_PREF_SUMMARY =
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
+        private const val AUTO_CHANGE_DOMAIN_PREF = "autoChangeDomain"
+        private const val AUTO_CHANGE_DOMAIN_TITLE = "Tự động cập nhật domain"
+        private const val AUTO_CHANGE_DOMAIN_SUMMARY =
+            "Khi mở ứng dụng, ứng dụng sẽ tự động cập nhật domain mới nếu website chuyển hướng."
     }
 }
