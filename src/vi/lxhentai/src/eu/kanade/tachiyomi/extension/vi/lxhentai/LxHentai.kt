@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import android.widget.Toast
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -28,7 +29,7 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
 
     override val id = 6495630445796108150
 
-    private val defaultBaseUrl = "https://lxmanga.link"
+    private val defaultBaseUrl = "https://lxmanga.sbs"
 
     override val lang = "vi"
 
@@ -176,7 +177,7 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
             Pair("Cũ nhất", "created_at"),
             Pair("Xem nhiều", "-views"),
             Pair("A-Z", "name"),
-            Pair("Z-A", "-name"),
+            Pair("Z-A", "-name")
         ),
         state,
     )
@@ -186,8 +187,8 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
         arrayOf(
             Pair("Tất cả", "1,2"),
             Pair("Đang tiến hành", "2"),
-            Pair("Đã hoàn thành", "1"),
-        ),
+            Pair("Đã hoàn thành", "1")
+        )
     )
 
     private class Genre(name: String, val id: Int) : Filter.TriState(name)
@@ -201,7 +202,7 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
         GenreList(getGenreList()),
         Filter.Header("Không dùng được với nhau và với tìm tựa đề"),
         Author(),
-        Doujinshi(),
+        Doujinshi()
     )
 
     // console.log([...document.querySelectorAll("label.ml-3.inline-flex.items-center.cursor-pointer")].map(e => `Genre("${e.querySelector(".truncate").innerText}", ${e.getAttribute("@click").replace('toggleGenre(\'', '').replace('\')', '')}),`).join("\n"))
@@ -271,7 +272,7 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
         Genre("Artist", 63),
         Genre("Scat", 64),
         Genre("Milf", 65),
-        Genre("LXHENTAI", 66),
+        Genre("LXHENTAI", 66)
     )
 
     // Configurable, automatic change domain
@@ -285,13 +286,13 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
             val response = chain.proceed(originalRequest)
             if (!hasCheckedRedirect && preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
                 hasCheckedRedirect = true
-                val originalHost = super.baseUrl.toHttpUrl().host
+                val originalHost = baseUrl.toHttpUrl().host
                 val newHost = response.request.url.host
                 if (newHost != originalHost) {
                     val newBaseUrl = "${response.request.url.scheme}://$newHost"
                     preferences.edit()
                         .putString(BASE_URL_PREF, newBaseUrl)
-                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                        .putString(DEFAULT_BASE_URL_PREF, defaultBaseUrl)
                         .apply()
                 }
             }
@@ -314,7 +315,7 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
     override val baseUrl by lazy { getPrefBaseUrl() }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val defaultUrl = super.baseUrl
+        val defaultUrl = baseUrl
         val baseUrlPref = androidx.preference.EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
             title = BASE_URL_PREF_TITLE
