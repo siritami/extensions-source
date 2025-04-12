@@ -33,26 +33,6 @@ class HentaiCB :
 
     override val id: Long = 823638192569572166
 
-    override val client: OkHttpClient = network.cloudflareClient.newBuilder()
-        .rateLimit(3)
-        .build()
-
-    private val preferences: SharedPreferences = getPreferences()
-
-    init {
-        preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
-            if (prefDefaultBaseUrl != super.baseUrl) {
-                preferences.edit()
-                    .putString(BASE_URL_PREF, super.baseUrl)
-                    .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
-                    .apply()
-            }
-        }
-    }
-    private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, super.baseUrl)!!
-
-    override val baseUrl by lazy { getPrefBaseUrl() }
-
     override val filterNonMangaItems = false
 
     override val mangaSubString = "read"
@@ -110,29 +90,82 @@ class HentaiCB :
         return super.pageListParse(document).distinctBy { it.imageUrl }
     }
 
+    // Configurable, automatic change domain
+    private val preferences: SharedPreferences = getPreferences()
+    private var hasCheckedRedirect = false
+
+    // Catch redirects
+    override val client = super.client.newBuilder()
+        .addInterceptor { chain ->
+            val originalRequest = chain.request()
+            val response = chain.proceed(originalRequest)
+            if (!hasCheckedRedirect && preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
+                hasCheckedRedirect = true
+                val originalHost = super.baseUrl.toHttpUrl().host
+                val newHost = response.request.url.host
+                if (newHost != originalHost) {
+                    val newBaseUrl = "${response.request.url.scheme}://$newHost"
+                    preferences.edit()
+                        .putString(BASE_URL_PREF, newBaseUrl)
+                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                        .apply()
+                }
+            }
+            response
+        }
+        .rateLimit(10)
+        .build()
+
+    init {
+        preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
+            if (prefDefaultBaseUrl != super.baseUrl) {
+                preferences.edit()
+                    .putString(BASE_URL_PREF, super.baseUrl)
+                    .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                    .apply()
+            }
+        }
+    }
+
+    override val baseUrl by lazy { getPrefBaseUrl() }
+
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        EditTextPreference(screen.context).apply {
+        val defaultUrl = super.baseUrl
+        val baseUrlPref = androidx.preference.EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
             title = BASE_URL_PREF_TITLE
             summary = BASE_URL_PREF_SUMMARY
-            setDefaultValue(super.baseUrl)
+            setDefaultValue(defaultUrl)
             dialogTitle = BASE_URL_PREF_TITLE
-            dialogMessage = "Default: ${super.baseUrl}"
-
+            dialogMessage = "Default: $defaultUrl"
             setOnPreferenceChangeListener { _, _ ->
                 Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
                 true
             }
-        }.let(screen::addPreference)
+        }
+        screen.addPreference(baseUrlPref)
+
+        val autoDomainPref = androidx.preference.SwitchPreferenceCompat(screen.context).apply {
+            key = AUTO_CHANGE_DOMAIN_PREF
+            title = AUTO_CHANGE_DOMAIN_TITLE
+            summary = AUTO_CHANGE_DOMAIN_SUMMARY
+            setDefaultValue(false)
+        }
+        screen.addPreference(autoDomainPref)
     }
 
+    private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, super.baseUrl)!!
+
     companion object {
-        private val THUMBNAIL_REGEX = Regex("-\\d+x\\d+(\\.[a-zA-Z]+)$")
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
         private const val RESTART_APP = "Khởi chạy lại ứng dụng để áp dụng thay đổi."
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF = "overrideBaseUrl"
         private const val BASE_URL_PREF_SUMMARY =
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
+        private const val AUTO_CHANGE_DOMAIN_PREF = "autoChangeDomain"
+        private const val AUTO_CHANGE_DOMAIN_TITLE = "Tự động cập nhật domain"
+        private const val AUTO_CHANGE_DOMAIN_SUMMARY =
+            "Khi mở ứng dụng, ứng dụng sẽ tự động cập nhật domain mới nếu website chuyển hướng."
     }
 }
