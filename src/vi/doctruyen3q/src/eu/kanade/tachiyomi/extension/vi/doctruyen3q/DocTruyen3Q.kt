@@ -113,6 +113,7 @@ class DocTruyen3Q :
                     val newBaseUrl = "${response.request.url.scheme}://$newHost"
                     preferences.edit()
                         .putString(BASE_URL_PREF, newBaseUrl)
+						.putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
                         .apply()
                 }
             }
