@@ -102,12 +102,14 @@ class HangTruyen : ParsedHttpSource() {
         date_upload = element.select("span.ll-update")[0].text().toDate()
     }
 
+    private fun List<String>.doesInclude(thisWord: String): Boolean = this.any { it.contains(thisWord, ignoreCase = true) }
+
     private fun String?.toDate(): Long {
         this ?: return 0L
 
         val secondWords = listOf("giây")
         val minuteWords = listOf("phút")
-        val hourWords = listOf(""giờ")
+        val hourWords = listOf("giờ")
         val dayWords = listOf("ngày")
         val monthWords = listOf("tháng")
         val yearWords = listOf("năm")
