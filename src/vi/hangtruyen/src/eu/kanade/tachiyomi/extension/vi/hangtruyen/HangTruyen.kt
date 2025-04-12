@@ -4,6 +4,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
+import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.ParsedHttpSource
@@ -75,8 +76,25 @@ class HangTruyen : ParsedHttpSource() {
 
     private val queryParam = "keyword"
 
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList) =
-        GET("$baseUrl/?s=$query&page=$page", headers)
+    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
+        val url = "$baseUrl/$searchPath".toHttpUrl().newBuilder()
+
+        filters.forEach { filter ->
+            when (filter) {
+                is GenreFilter -> filter.toUriPart()?.let { url.addPathSegment(it) }
+                is StatusFilter -> filter.toUriPart()?.let { url.addQueryParameter("status", it) }
+                else -> {}
+            }
+        }
+
+        url.apply {
+            addQueryParameter(queryParam, query)
+            addQueryParameter("page", page.toString())
+            addQueryParameter("sort", "0")
+        }
+
+        return GET(url.toString(), headers)
+    }
 
     override fun searchMangaSelector() = popularMangaSelector()
 
@@ -158,6 +176,78 @@ class HangTruyen : ParsedHttpSource() {
         } catch (_: Exception) {
             0L
         }
+    }
+
+    // Filters
+    private class StatusFilter(name: String, pairs: List<Pair<String?, String>>) : UriPartFilter(name, pairs)
+
+    private class GenreFilter(name: String, pairs: List<Pair<String?, String>>) : UriPartFilter(name, pairs)
+
+    private open fun getStatusList(): List<Pair<String?, String>> =
+        listOf(
+            Pair(null, intl["STATUS_ALL"]),
+            Pair("1", intl["STATUS_ONGOING"]),
+            Pair("2", intl["STATUS_COMPLETED"]),
+        )
+
+    private var genreList: List<Pair<String?, String>> = emptyList()
+
+    private val scope = CoroutineScope(Dispatchers.IO)
+
+    private fun launchIO(block: () -> Unit) = scope.launch { block() }
+
+    private var fetchGenresAttempts: Int = 0
+
+    private fun fetchGenres() {
+        if (fetchGenresAttempts < 3 && genreList.isEmpty()) {
+            try {
+                genreList =
+                    client.newCall(genresRequest()).execute()
+                        .asJsoup()
+                        .let(::parseGenres)
+            } catch (_: Exception) {
+            } finally {
+                fetchGenresAttempts++
+            }
+        }
+    }
+
+    private fun genresRequest() = GET("$baseUrl/$searchPath", headers)
+
+    private val genresSelector = ".genres ul.nav li:not(.active) a"
+
+    private val genresUrlDelimiter = "/"
+
+    private fun parseGenres(document: Document): List<Pair<String?, String>> {
+        val items = document.select(genresSelector)
+        return buildList(items.size + 1) {
+            add(Pair(null, intl["STATUS_ALL"]))
+            items.mapTo(this) {
+                Pair(
+                    it.attr("href")
+                        .removeSuffix("/")
+                        .substringAfterLast(genresUrlDelimiter),
+                    it.text(),
+                )
+            }
+        }
+    }
+
+    override fun getFilterList(): FilterList {
+        launchIO { fetchGenres() }
+        return FilterList(
+            StatusFilter(intl["STATUS"], getStatusList()),
+            if (genreList.isEmpty()) {
+                Filter.Header(intl["GENRES_RESET"])
+            } else {
+                GenreFilter(intl["GENRE"], genreList)
+            },
+        )
+    }
+
+    private class UriPartFilter(displayName: String, private val pairs: List<Pair<String?, String>>) :
+        Filter.Select<String>(displayName, pairs.map { it.second }.toTypedArray()) {
+        fun toUriPart() = pairs[state].first
     }
 
     // Pages
