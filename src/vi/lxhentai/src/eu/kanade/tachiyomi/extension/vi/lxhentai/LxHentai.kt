@@ -177,7 +177,7 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
             Pair("Cũ nhất", "created_at"),
             Pair("Xem nhiều", "-views"),
             Pair("A-Z", "name"),
-            Pair("Z-A", "-name")
+            Pair("Z-A", "-name"),
         ),
         state,
     )
@@ -187,8 +187,8 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
         arrayOf(
             Pair("Tất cả", "1,2"),
             Pair("Đang tiến hành", "2"),
-            Pair("Đã hoàn thành", "1")
-        )
+            Pair("Đã hoàn thành", "1"),
+        ),
     )
 
     private class Genre(name: String, val id: Int) : Filter.TriState(name)
@@ -202,7 +202,7 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
         GenreList(getGenreList()),
         Filter.Header("Không dùng được với nhau và với tìm tựa đề"),
         Author(),
-        Doujinshi()
+        Doujinshi(),
     )
 
     // console.log([...document.querySelectorAll("label.ml-3.inline-flex.items-center.cursor-pointer")].map(e => `Genre("${e.querySelector(".truncate").innerText}", ${e.getAttribute("@click").replace('toggleGenre(\'', '').replace('\')', '')}),`).join("\n"))
@@ -272,7 +272,7 @@ class LxHentai : ParsedHttpSource(), ConfigurableSource {
         Genre("Artist", 63),
         Genre("Scat", 64),
         Genre("Milf", 65),
-        Genre("LXHENTAI", 66)
+        Genre("LXHENTAI", 66),
     )
 
     // Configurable, automatic change domain
