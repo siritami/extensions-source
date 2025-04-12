@@ -1,50 +1,47 @@
 package eu.kanade.tachiyomi.extension.vi.hangtruyen
 
+import android.content.SharedPreferences
+import android.widget.Toast
+import androidx.preference.PreferenceScreen
+import eu.kanade.tachiyomi.multisrc.wpcomics.WPComics
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.interceptor.rateLimit
-import eu.kanade.tachiyomi.source.model.Filter
-import eu.kanade.tachiyomi.source.model.FilterList
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.getPreferences
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Locale
+import java.util.TimeZone
 
-class HangTruyen : ParsedHttpSource() {
-
-    override val name = "HangTruyen"
-
-    override val baseUrl = "https://hangtruyen.net"
-
-    override val lang = "vi"
-
-    override val supportsLatest = true
-
-    override fun imageUrlParse(document: Document) =
-        throw UnsupportedOperationException()
-
-    override val client = super.client.newBuilder()
-        .rateLimit(5)
-        .build()
+class HangTruyen :
+    WPComics(
+        "HangTruyen",
+        "https://hangtruyen.net",
+        "vi",
+        dateFormat = SimpleDateFormat("dd-MM-yyyy", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+        },
+        gmtOffset = null,
+    ),
+    ConfigurableSource {
 
     // Popular
     override fun popularMangaRequest(page: Int) =
         GET("$baseUrl/tim-kiem?r=newly-updated&page=$page&orderBy=view_desc")
 
-    override fun popularMangaSelector() = "div.search-result .m-post"
+    override fun popularMangaSelector() = "div.search-result div.row"
 
     override fun popularMangaNextPageSelector() = ".next-page"
 
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
-        val entries = document.select(popularMangaSelector()).map(::popularMangaFromElement)
+        val entries = document.select("div.search-result .m-post").map(::popularMangaFromElement)
         val hasNextPage = popularMangaNextPageSelector()?.let { document.selectFirst(it) } != null
         return MangasPage(entries, hasNextPage)
     }
@@ -73,33 +70,9 @@ class HangTruyen : ParsedHttpSource() {
     }
 
     // Search
-    private val searchPath = "tim-kiem"
+    override val searchPath = "tim-kiem"
 
-    private val queryParam = "keyword"
-
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        val url = "$baseUrl/$searchPath".toHttpUrl().newBuilder()
-
-        filters.forEach { filter ->
-            when (filter) {
-                is GenreFilter -> filter.toUriPart()?.let { url.addPathSegment(it) }
-                is StatusFilter -> filter.toUriPart()?.let { url.addQueryParameter("status", it) }
-                else -> {}
-            }
-        }
-
-        url.apply {
-            addQueryParameter(queryParam, query)
-            addQueryParameter("page", page.toString())
-            addQueryParameter("sort", "0")
-        }
-
-        return GET(url.toString(), headers)
-    }
-
-    override fun searchMangaSelector() = popularMangaSelector()
-
-    override fun searchMangaNextPageSelector() = popularMangaNextPageSelector()
+    override fun searchMangaSelector() = "div.search-result"
 
     override fun searchMangaParse(response: Response): MangasPage {
         return popularMangaParse(response)
@@ -133,124 +106,6 @@ class HangTruyen : ParsedHttpSource() {
         date_upload = element.select("span.ll-update")[0].text().toDate()
     }
 
-    private val dateFormat: SimpleDateFormat = SimpleDateFormat("HH:mm - dd/MM/yyyy Z", Locale.ROOT)
-
-    private fun List<String>.doesInclude(thisWord: String): Boolean = this.any { it.contains(thisWord, ignoreCase = true) }
-
-    private val currentYear by lazy { Calendar.getInstance(Locale.ROOT)[1].toString().takeLast(2) }
-
-    private fun String?.toDate(): Long {
-        this ?: return 0L
-
-        val secondWords = listOf("giây")
-        val minuteWords = listOf("phút")
-        val hourWords = listOf("giờ")
-        val dayWords = listOf("ngày")
-        val monthWords = listOf("tháng")
-        val yearWords = listOf("năm")
-        val agoWords = listOf("trước")
-
-        return try {
-            if (agoWords.any { this.contains(it, ignoreCase = true) }) {
-                val trimmedDate = this.substringBefore(" trước").removeSuffix("s").split(" ")
-                val calendar = Calendar.getInstance()
-
-                when {
-                    yearWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.YEAR, -trimmedDate[0].toInt()) }
-                    monthWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.MONTH, -trimmedDate[0].toInt()) }
-                    dayWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.DAY_OF_MONTH, -trimmedDate[0].toInt()) }
-                    hourWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.HOUR_OF_DAY, -trimmedDate[0].toInt()) }
-                    minuteWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.MINUTE, -trimmedDate[0].toInt()) }
-                    secondWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.SECOND, -trimmedDate[0].toInt()) }
-                }
-
-                calendar.timeInMillis
-            } else {
-                this.let {
-                    if (Regex("""\d+/\d+/\d\d""").find(it)?.value != null) {
-                        dateFormat.parse(it)?.time ?: 0L
-                    } else {
-                        dateFormat.parse("$it/$currentYear")?.time ?: 0L
-                    }
-                }
-            }
-        } catch (_: Exception) {
-            0L
-        }
-    }
-
-    // Filters
-    private class StatusFilter(name: String, pairs: List<Pair<String?, String>>) : UriPartFilter(name, pairs)
-
-    private class GenreFilter(name: String, pairs: List<Pair<String?, String>>) : UriPartFilter(name, pairs)
-
-    private open fun getStatusList(): List<Pair<String?, String>> =
-        listOf(
-            Pair(null, intl["STATUS_ALL"]),
-            Pair("1", intl["STATUS_ONGOING"]),
-            Pair("2", intl["STATUS_COMPLETED"]),
-        )
-
-    private var genreList: List<Pair<String?, String>> = emptyList()
-
-    private val scope = CoroutineScope(Dispatchers.IO)
-
-    private fun launchIO(block: () -> Unit) = scope.launch { block() }
-
-    private var fetchGenresAttempts: Int = 0
-
-    private fun fetchGenres() {
-        if (fetchGenresAttempts < 3 && genreList.isEmpty()) {
-            try {
-                genreList =
-                    client.newCall(genresRequest()).execute()
-                        .asJsoup()
-                        .let(::parseGenres)
-            } catch (_: Exception) {
-            } finally {
-                fetchGenresAttempts++
-            }
-        }
-    }
-
-    private fun genresRequest() = GET("$baseUrl/$searchPath", headers)
-
-    private val genresSelector = ".genres ul.nav li:not(.active) a"
-
-    private val genresUrlDelimiter = "/"
-
-    private fun parseGenres(document: Document): List<Pair<String?, String>> {
-        val items = document.select(genresSelector)
-        return buildList(items.size + 1) {
-            add(Pair(null, intl["STATUS_ALL"]))
-            items.mapTo(this) {
-                Pair(
-                    it.attr("href")
-                        .removeSuffix("/")
-                        .substringAfterLast(genresUrlDelimiter),
-                    it.text(),
-                )
-            }
-        }
-    }
-
-    override fun getFilterList(): FilterList {
-        launchIO { fetchGenres() }
-        return FilterList(
-            StatusFilter(intl["STATUS"], getStatusList()),
-            if (genreList.isEmpty()) {
-                Filter.Header(intl["GENRES_RESET"])
-            } else {
-                GenreFilter(intl["GENRE"], genreList)
-            },
-        )
-    }
-
-    private class UriPartFilter(displayName: String, private val pairs: List<Pair<String?, String>>) :
-        Filter.Select<String>(displayName, pairs.map { it.second }.toTypedArray()) {
-        fun toUriPart() = pairs[state].first
-    }
-
     // Pages
     override fun pageListParse(document: Document): List<Page> {
         return document.select("#read-chaps .mi-item img.reading-img").mapIndexed { index, element ->
@@ -260,5 +115,84 @@ class HangTruyen : ParsedHttpSource() {
             }
             Page(index, imageUrl = img)
         }.distinctBy { it.imageUrl }
+    }
+
+    // Configurable, automatic change domain
+    private val preferences: SharedPreferences = getPreferences()
+    private var hasCheckedRedirect = false
+
+    // Catch redirects
+    override val client = super.client.newBuilder()
+        .addInterceptor { chain ->
+            val originalRequest = chain.request()
+            val response = chain.proceed(originalRequest)
+            if (!hasCheckedRedirect && preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
+                hasCheckedRedirect = true
+                val originalHost = super.baseUrl.toHttpUrl().host
+                val newHost = response.request.url.host
+                if (newHost != originalHost) {
+                    val newBaseUrl = "${response.request.url.scheme}://$newHost"
+                    preferences.edit()
+                        .putString(BASE_URL_PREF, newBaseUrl)
+                        .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                        .apply()
+                }
+            }
+            response
+        }
+        .rateLimit(10)
+        .build()
+
+    init {
+        preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
+            if (prefDefaultBaseUrl != super.baseUrl) {
+                preferences.edit()
+                    .putString(BASE_URL_PREF, super.baseUrl)
+                    .putString(DEFAULT_BASE_URL_PREF, super.baseUrl)
+                    .apply()
+            }
+        }
+    }
+
+    override val baseUrl by lazy { getPrefBaseUrl() }
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        val defaultUrl = super.baseUrl
+        val baseUrlPref = androidx.preference.EditTextPreference(screen.context).apply {
+            key = BASE_URL_PREF
+            title = BASE_URL_PREF_TITLE
+            summary = BASE_URL_PREF_SUMMARY
+            setDefaultValue(defaultUrl)
+            dialogTitle = BASE_URL_PREF_TITLE
+            dialogMessage = "Default: $defaultUrl"
+            setOnPreferenceChangeListener { _, _ ->
+                Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
+                true
+            }
+        }
+        screen.addPreference(baseUrlPref)
+
+        val autoDomainPref = androidx.preference.SwitchPreferenceCompat(screen.context).apply {
+            key = AUTO_CHANGE_DOMAIN_PREF
+            title = AUTO_CHANGE_DOMAIN_TITLE
+            summary = AUTO_CHANGE_DOMAIN_SUMMARY
+            setDefaultValue(false)
+        }
+        screen.addPreference(autoDomainPref)
+    }
+
+    private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, super.baseUrl)!!
+
+    companion object {
+        private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
+        private const val RESTART_APP = "Khởi chạy lại ứng dụng để áp dụng thay đổi."
+        private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
+        private const val BASE_URL_PREF = "overrideBaseUrl"
+        private const val BASE_URL_PREF_SUMMARY =
+            "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
+        private const val AUTO_CHANGE_DOMAIN_PREF = "autoChangeDomain"
+        private const val AUTO_CHANGE_DOMAIN_TITLE = "Tự động cập nhật domain"
+        private const val AUTO_CHANGE_DOMAIN_SUMMARY =
+            "Khi mở ứng dụng, ứng dụng sẽ tự động cập nhật domain mới nếu website chuyển hướng."
     }
 }

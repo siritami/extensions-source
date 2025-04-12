@@ -1,8 +1,10 @@
 ext {
     extName = 'HangTruyen'
     extClass = '.HangTruyen'
-    extVersionCode = 1
-	isNsfw = false
+    themePkg = 'wpcomics'
+    baseUrl = 'https://hangtruyen.net'
+    overrideVersionCode = 0
+    isNsfw = false
 }
 
 apply from: "$rootDir/common.gradle"
