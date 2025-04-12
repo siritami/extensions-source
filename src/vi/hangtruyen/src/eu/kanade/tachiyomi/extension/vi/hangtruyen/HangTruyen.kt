@@ -14,7 +14,6 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
-import java.util.TimeZone
 
 class HangTruyen : ParsedHttpSource() {
 
@@ -115,6 +114,7 @@ class HangTruyen : ParsedHttpSource() {
     private fun String?.toDate(): Long {
         this ?: return 0L
 
+        val secondWords = listOf("giây")
         val minuteWords = listOf("phút")
         val hourWords = listOf("giờ")
         val dayWords = listOf("ngày")
@@ -133,6 +133,7 @@ class HangTruyen : ParsedHttpSource() {
                     dayWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.DAY_OF_MONTH, -trimmedDate[0].toInt()) }
                     hourWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.HOUR_OF_DAY, -trimmedDate[0].toInt()) }
                     minuteWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.MINUTE, -trimmedDate[0].toInt()) }
+					secondWords.doesInclude(trimmedDate[1]) -> calendar.apply { add(Calendar.SECOND, -trimmedDate[0].toInt()) }
                 }
 
                 calendar.timeInMillis
