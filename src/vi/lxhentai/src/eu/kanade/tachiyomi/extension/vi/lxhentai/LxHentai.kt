@@ -15,7 +15,6 @@ import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import keiyoushi.utils.getPreferences
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
