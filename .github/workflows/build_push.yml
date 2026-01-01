@@ -98,7 +98,7 @@ jobs:
 
       - name: Upload APKs (${{ matrix.chunk.number }})
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        if: "github.repository == 'keiyoushi/extensions-source'"
+        if: "github.repository == 'siritami/extensions-source'"
         with:
           name: "individual-apks-${{ matrix.chunk.number }}"
           path: "**/*.apk"
@@ -110,7 +110,7 @@ jobs:
   publish:
     name: Publish extension repo
     needs: [prepare, build]
-    if: "github.repository == 'keiyoushi/extensions-source'"
+    if: "github.repository == 'siritami/extensions-source'"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -144,7 +144,7 @@ jobs:
       - name: Checkout repo branch
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
-          repository: keiyoushi/extensions
+          repository: siritami/extensions
           token: ${{ secrets.BOT_PAT }}
           ref: repo
           path: repo
