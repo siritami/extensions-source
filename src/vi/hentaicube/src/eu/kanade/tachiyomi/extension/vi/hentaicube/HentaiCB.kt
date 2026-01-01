@@ -90,6 +90,13 @@ class HentaiCB :
 
     override val filterNonMangaItems = false
 
+    override fun popularMangaNextPageSelector(): String? =
+        if (useLoadMoreRequest()) {
+            "body:not(:has(.no-posts))"
+        } else {
+            "div.nav-previous, nav.navigation-ajax, a.nextpostslink[rel=next]"
+        }
+
     override val mangaSubString = "read"
 
     override val altNameSelector = ".post-content_item:contains(Tên khác) .summary-content"
