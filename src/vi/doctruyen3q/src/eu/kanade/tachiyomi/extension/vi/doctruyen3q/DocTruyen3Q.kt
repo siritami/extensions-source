@@ -32,18 +32,14 @@ class DocTruyen3Q :
     ),
     ConfigurableSource {
 
-    override fun pageListParse(document: Document): List<Page> {
-        return document.select(".page-chapter[id] img").mapIndexed { index, element ->
-            val img = element.attr("abs:src").let { url ->
-                if (url.startsWith("//")) {
-                    "https:$url"
-                } else {
-                    url
+    override fun pageListParse(document: Document) =
+        document.select("div[id^=page_] img").mapIndexedNotNull { i, e ->
+            (e.attr("data-src").ifBlank { e.attr("src") })
+                .takeIf { it.isNotBlank() }
+                ?.let {
+                    Page(i, if (it.startsWith("//")) "https:$it" else it)
                 }
-            }
-            Page(index, imageUrl = img)
         }.distinctBy { it.imageUrl }
-    }
 
     override fun popularMangaSelector() = "div.item-manga div.item"
 
