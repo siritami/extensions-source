@@ -33,19 +33,20 @@ class DocTruyen3Q :
     ConfigurableSource {
 
     override fun pageListParse(document: Document): List<Page> {
-        val elements = document.select("div.page-chapter[id] img")
-        return elements.mapIndexed { index, element ->
-            var rawUrl = element.attr("data-src")
-            if (rawUrl.isEmpty()) {
-                rawUrl = element.attr("src")
+        return document.select(".page-chapter[id] img").mapNotNull { element ->
+            val src = element.attr("abs:src").ifBlank { element.attr("src") }
+            val dataSrc = element.attr("abs:data-src").ifBlank { element.attr("data-src") }
+    
+            val raw = when {
+                dataSrc.isNotBlank() && (src.isBlank() || src.contains("chapter_default.png")) -> dataSrc
+                else -> src
             }
-            val finalUrl = if (rawUrl.startsWith("//")) {
-                "https:$rawUrl"
-            } else {
-                rawUrl
-            }
-            Page(index, imageUrl = finalUrl)
-        }.distinctBy { it.imageUrl }
+    
+            raw.takeIf { it.isNotBlank() && !it.contains("chapter_default.png") }
+                ?.let { url -> if (url.startsWith("//")) "https:$url" else url }
+        }
+            .distinct()
+            .mapIndexed { index, url -> Page(index, imageUrl = url) }
     }
 
     override fun popularMangaSelector() = "div.item-manga div.item"
