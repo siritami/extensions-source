@@ -36,12 +36,12 @@ class DocTruyen3Q :
         return document.select(".page-chapter[id] img").mapNotNull { element ->
             val src = element.attr("abs:src").ifBlank { element.attr("src") }
             val dataSrc = element.attr("abs:data-src").ifBlank { element.attr("data-src") }
-    
+
             val raw = when {
                 dataSrc.isNotBlank() && (src.isBlank() || src.contains("chapter_default.png")) -> dataSrc
                 else -> src
             }
-    
+
             raw.takeIf { it.isNotBlank() && !it.contains("chapter_default.png") }
                 ?.let { url -> if (url.startsWith("//")) "https:$url" else url }
         }
