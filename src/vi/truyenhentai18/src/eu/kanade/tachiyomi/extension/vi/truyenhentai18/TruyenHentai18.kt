@@ -231,5 +231,4 @@ class TruyenHentai18 : HttpSource() {
     override fun imageUrlParse(response: Response): String {
         throw UnsupportedOperationException()
     }
-
 }
