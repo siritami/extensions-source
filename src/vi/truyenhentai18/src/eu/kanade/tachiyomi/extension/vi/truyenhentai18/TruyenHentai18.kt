@@ -12,6 +12,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
+import rx.Observable
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -73,6 +74,16 @@ class TruyenHentai18 : HttpSource() {
     override fun latestUpdatesParse(response: Response): MangasPage = popularMangaParse(response)
 
     // ============================== Search ======================================
+
+    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
+        return if (query.startsWith(PREFIX_SLUG_SEARCH)) {
+            val slug = query.removePrefix(PREFIX_SLUG_SEARCH)
+            fetchMangaDetails(SManga.create().apply { url = "/$slug.html" })
+                .map { MangasPage(listOf(it), false) }
+        } else {
+            super.fetchSearchManga(page, query, filters)
+        }
+    }
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val url = baseUrl.toHttpUrl().newBuilder()
@@ -140,9 +151,11 @@ class TruyenHentai18 : HttpSource() {
 
     override fun chapterListParse(response: Response): List<SChapter> {
         val document = response.asJsoup()
-        return document.select("div.chapter-item").mapIndexed { index, element ->
-            chapterFromElement(element, index)
-        }.reversed() // Reverse to get descending order (newest first)
+        val chapters = document.select("div.chapter-item")
+        val totalChapters = chapters.size
+        return chapters.mapIndexed { index, element ->
+            chapterFromElement(element, totalChapters - index)
+        }
     }
 
     private fun chapterFromElement(element: Element, index: Int): SChapter = SChapter.create().apply {
@@ -176,6 +189,7 @@ class TruyenHentai18 : HttpSource() {
     }
 
     companion object {
+        internal const val PREFIX_SLUG_SEARCH = "slug:"
         private val DATE_REGEX = """(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})""".toRegex()
         private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.ROOT)
     }
