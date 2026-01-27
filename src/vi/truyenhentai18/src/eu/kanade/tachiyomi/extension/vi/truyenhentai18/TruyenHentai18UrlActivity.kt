@@ -16,7 +16,7 @@ class TruyenHentai18UrlActivity : Activity() {
         if (!pathSegments.isNullOrEmpty()) {
             // Get the slug from path segment and remove .html suffix
             val slug = pathSegments.last().removeSuffix(".html")
-            
+
             try {
                 val mainIntent = Intent().apply {
                     action = "eu.kanade.tachiyomi.SEARCH"
