@@ -86,10 +86,25 @@ class TruyenHentai18 : HttpSource() {
     }
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        val url = baseUrl.toHttpUrl().newBuilder()
-            .addQueryParameter("s", query)
-            .build()
-        return GET(url, headers)
+        // Check if genre filter is selected
+        val genreFilter = filters.filterIsInstance<GenreFilter>().firstOrNull()
+        val selectedGenre = genreFilter?.toUriPart()
+
+        return if (query.isBlank() && !selectedGenre.isNullOrEmpty()) {
+            // Genre browsing
+            val url = if (page > 1) {
+                "$baseUrl/category/$selectedGenre/page/$page"
+            } else {
+                "$baseUrl/category/$selectedGenre"
+            }
+            GET(url, headers)
+        } else {
+            // Text search
+            val url = baseUrl.toHttpUrl().newBuilder()
+                .addQueryParameter("s", query)
+                .build()
+            GET(url, headers)
+        }
     }
 
     override fun searchMangaParse(response: Response): MangasPage {
@@ -97,9 +112,13 @@ class TruyenHentai18 : HttpSource() {
         val mangas = document.select("div.col-6.col-md-4.col-lg-2.mb-3").map { element ->
             mangaFromElement(element)
         }
-        // Search doesn't have pagination
-        return MangasPage(mangas, hasNextPage = false)
+        val hasNextPage = document.selectFirst("ul.pagination a[rel=next]") != null
+        return MangasPage(mangas, hasNextPage)
     }
+
+    // ============================== Filters ======================================
+
+    override fun getFilterList(): FilterList = getFilters()
 
     // ============================== Details ======================================
 
@@ -162,7 +181,7 @@ class TruyenHentai18 : HttpSource() {
         val linkElement = element.selectFirst("a.fw-bold")!!
         setUrlWithoutDomain(linkElement.absUrl("href"))
         name = linkElement.text()
-        chapter_number = (index + 1).toFloat()
+        chapter_number = index.toFloat()
 
         // Try to parse date from text content
         val dateText = element.text()
