@@ -141,7 +141,7 @@ class NewTruyenTranh : HttpSource() {
 
     // ============================== Utilities =============================
     private inline fun <reified T> Response.parseAs(): T {
-        return json.decodeFromString(body.string())
+        return json.decodeFromString<T>(body.string())
     }
 
     private fun MangaChannel.toSManga(): SManga = SManga.create().apply {
