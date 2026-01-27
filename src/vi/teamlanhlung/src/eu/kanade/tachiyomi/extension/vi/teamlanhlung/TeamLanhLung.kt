@@ -48,7 +48,6 @@ class TeamLanhLung : HttpSource() {
         val mangaList = document.select(".comic-item").map { element ->
             SManga.create().apply {
                 setUrlWithoutDomain(element.selectFirst("a[href]")?.attr("href") ?: "")
-                // Title is in h3.comic-title or .comic-title
                 title = element.selectFirst("h3.comic-title, .comic-title")?.text()?.trim() ?: ""
                 thumbnail_url = element.selectFirst("img")?.let {
                     it.attr("data-src").ifEmpty { it.attr("src") }
@@ -112,7 +111,6 @@ class TeamLanhLung : HttpSource() {
         val document = response.asJsoup()
 
         return SManga.create().apply {
-            // Title is in h2.info-title on detail page
             title = document.selectFirst("h2.info-title, .info-title")?.text()?.trim() ?: ""
             author = document.selectFirst(".comic-info strong:contains(Tác giả) + span")?.text()?.trim()
             description = document.selectFirst(".intro-container .text-justify, .intro-container")?.text()
@@ -158,10 +156,8 @@ class TeamLanhLung : HttpSource() {
 
         return SChapter.create().apply {
             setUrlWithoutDomain(url)
-            // Get the chapter text and extract just the "Chap X" part after the dash
             val fullText = linkElement.selectFirst("span")?.text()?.trim()
                 ?: linkElement.text().trim()
-            // Split by both regular dash "-" and en dash "–" (U+2013)
             name = fullText.split("-", "–").lastOrNull()?.trim() ?: fullText
 
             date_upload = element.selectFirst("td:last-child")?.text()?.let {
@@ -179,10 +175,8 @@ class TeamLanhLung : HttpSource() {
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
 
-        // Try #view-chapter first (the main image container)
         var images = document.select("#view-chapter img")
 
-        // Fallback to other common selectors
         if (images.isEmpty()) {
             images = document.select(".chapter-content img, .reading-content img, .content-chapter img")
         }

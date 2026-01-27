@@ -15,7 +15,6 @@ class TeamLanhLungUrlActivity : Activity() {
         super.onCreate(savedInstanceState)
         val pathSegments = intent?.data?.pathSegments
         if (pathSegments != null && pathSegments.isNotEmpty()) {
-            // The manga slug is the first path segment
             val slug = pathSegments[0]
             try {
                 startActivity(
