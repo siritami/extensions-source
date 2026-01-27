@@ -174,41 +174,31 @@ class TruyenHentai18 : HttpSource() {
     private fun String?.toDate(): Long {
         this ?: return 0L
 
-        val hourWords = listOf("hour", "giờ")
-        val dayWords = listOf("day", "ngày")
-        val weekWords = listOf("week", "tuần")
-        val monthWords = listOf("month", "tháng")
-        val yearWords = listOf("year", "năm")
-        val minuteWords = listOf("minute", "phút")
-        val secondWords = listOf("second", "giây")
-        val agoWords = listOf("ago", "trước")
+        if (!this.contains("trước", ignoreCase = true)) {
+            return 0L
+        }
 
         return try {
-            if (agoWords.any { this.contains(it, ignoreCase = true) }) {
-                val number = Regex("""\d+""").find(this)?.value?.toIntOrNull() ?: return 0L
-                val calendar = Calendar.getInstance()
+            val calendar = Calendar.getInstance()
 
-                when {
-                    hourWords.any { this.contains(it, ignoreCase = true) } ->
-                        calendar.add(Calendar.HOUR_OF_DAY, -number)
-                    dayWords.any { this.contains(it, ignoreCase = true) } ->
-                        calendar.add(Calendar.DAY_OF_MONTH, -number)
-                    weekWords.any { this.contains(it, ignoreCase = true) } ->
-                        calendar.add(Calendar.WEEK_OF_YEAR, -number)
-                    monthWords.any { this.contains(it, ignoreCase = true) } ->
-                        calendar.add(Calendar.MONTH, -number)
-                    yearWords.any { this.contains(it, ignoreCase = true) } ->
-                        calendar.add(Calendar.YEAR, -number)
-                    minuteWords.any { this.contains(it, ignoreCase = true) } ->
-                        calendar.add(Calendar.MINUTE, -number)
-                    secondWords.any { this.contains(it, ignoreCase = true) } ->
-                        calendar.add(Calendar.SECOND, -number)
+            val patterns = listOf(
+                Regex("""(\d+)\s*giờ""", RegexOption.IGNORE_CASE) to Calendar.HOUR_OF_DAY,
+                Regex("""(\d+)\s*ngày""", RegexOption.IGNORE_CASE) to Calendar.DAY_OF_MONTH,
+                Regex("""(\d+)\s*tuần""", RegexOption.IGNORE_CASE) to Calendar.WEEK_OF_YEAR,
+                Regex("""(\d+)\s*tháng""", RegexOption.IGNORE_CASE) to Calendar.MONTH,
+                Regex("""(\d+)\s*năm""", RegexOption.IGNORE_CASE) to Calendar.YEAR,
+                Regex("""(\d+)\s*phút""", RegexOption.IGNORE_CASE) to Calendar.MINUTE,
+                Regex("""(\d+)\s*giây""", RegexOption.IGNORE_CASE) to Calendar.SECOND,
+            )
+
+            for ((pattern, field) in patterns) {
+                pattern.find(this)?.groupValues?.get(1)?.toIntOrNull()?.let { number ->
+                    calendar.add(field, -number)
+                    return calendar.timeInMillis
                 }
-
-                calendar.timeInMillis
-            } else {
-                0L
             }
+
+            0L
         } catch (_: Exception) {
             0L
         }
