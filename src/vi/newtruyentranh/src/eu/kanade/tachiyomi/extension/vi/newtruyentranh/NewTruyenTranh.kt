@@ -30,7 +30,7 @@ class NewTruyenTranh : HttpSource() {
     // ============================== Popular ===============================
     override fun popularMangaRequest(page: Int): Request {
         val url = "$baseUrl/search".toHttpUrl().newBuilder()
-            .addQueryParameter("sort", "10")  // Top all
+            .addQueryParameter("sort", "10") // Top all
             .addQueryParameter("p", page.toString())
             .build()
         return GET(url, headers)
@@ -39,8 +39,8 @@ class NewTruyenTranh : HttpSource() {
     override fun popularMangaParse(response: Response): MangasPage {
         val result = response.parseAs<MangaListResponse>()
         val mangas = result.channels.map { it.toSManga() }
-        val hasNextPage = result.loadMore?.pageInfo?.let { 
-            it.currentPage < it.lastPage 
+        val hasNextPage = result.loadMore?.pageInfo?.let {
+            it.currentPage < it.lastPage
         } ?: false
         return MangasPage(mangas, hasNextPage)
     }
@@ -93,7 +93,7 @@ class NewTruyenTranh : HttpSource() {
     override fun chapterListParse(response: Response): List<SChapter> {
         val result = response.parseAs<ChapterListResponse>()
         val chapters = mutableListOf<SChapter>()
-        
+
         result.sources.forEach { source ->
             source.contents.forEach { content ->
                 content.streams.forEach { stream ->
@@ -102,12 +102,12 @@ class NewTruyenTranh : HttpSource() {
                             url = stream.remoteData.url
                             name = stream.name
                             chapter_number = stream.index.toFloat()
-                        }
+                        },
                     )
                 }
             }
         }
-        
+
         // Sort by index descending (newest first)
         return chapters.sortedByDescending { it.chapter_number }
     }
