@@ -7,21 +7,18 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 
 class NewTruyenTranh : HttpSource() {
     override val name = "NewTruyenTranh"
     override val lang = "vi"
     override val baseUrl = "https://newtruyenhot.4share.me"
     override val supportsLatest = true
-
-    private val json: Json by injectLazy()
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", baseUrl)
@@ -140,10 +137,6 @@ class NewTruyenTranh : HttpSource() {
     }
 
     // ============================== Utilities =============================
-    private inline fun <reified T> Response.parseAs(): T {
-        return json.decodeFromString<T>(body.string())
-    }
-
     private fun MangaChannel.toSManga(): SManga = SManga.create().apply {
         url = remoteData.url.replace(baseUrl, "")
         title = name
