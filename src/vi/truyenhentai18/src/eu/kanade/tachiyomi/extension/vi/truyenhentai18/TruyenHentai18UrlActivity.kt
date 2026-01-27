@@ -13,16 +13,17 @@ class TruyenHentai18UrlActivity : Activity() {
 
         val pathSegments = intent?.data?.pathSegments
 
-        if (pathSegments != null && pathSegments.size > 0) {
+        if (!pathSegments.isNullOrEmpty()) {
+            // Get the slug from path segment and remove .html suffix
             val slug = pathSegments.last().removeSuffix(".html")
-            val intent = Intent().apply {
-                action = "eu.kanade.tachiyomi.SEARCH"
-                putExtra("query", "${TruyenHentai18.PREFIX_SLUG_SEARCH}$slug")
-                putExtra("filter", packageName)
-            }
-
+            
             try {
-                startActivity(intent)
+                val mainIntent = Intent().apply {
+                    action = "eu.kanade.tachiyomi.SEARCH"
+                    putExtra("query", "${TruyenHentai18.PREFIX_SLUG_SEARCH}$slug")
+                    putExtra("filter", packageName)
+                }
+                startActivity(mainIntent)
             } catch (e: ActivityNotFoundException) {
                 Log.e("TruyenHentai18UrlAct", "Could not start activity", e)
             }
