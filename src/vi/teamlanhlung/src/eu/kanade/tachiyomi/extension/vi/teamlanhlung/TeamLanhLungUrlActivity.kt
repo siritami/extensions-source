@@ -7,9 +7,6 @@ import android.os.Bundle
 import android.util.Log
 import kotlin.system.exitProcess
 
-/**
- * Springboard that accepts https://lanhlungteam.com/{manga-slug}/ intents
- */
 class TeamLanhLungUrlActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
