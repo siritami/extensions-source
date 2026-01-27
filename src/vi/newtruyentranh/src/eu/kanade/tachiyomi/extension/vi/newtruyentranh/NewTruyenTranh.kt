@@ -28,7 +28,7 @@ class NewTruyenTranh : HttpSource() {
     // ============================== Popular ===============================
     override fun popularMangaRequest(page: Int): Request {
         val url = "$apiUrl/search".toHttpUrl().newBuilder()
-            .addQueryParameter("sort", "10") // Top all
+            .addQueryParameter("sort", "10")
             .addQueryParameter("p", page.toString())
             .build()
         return GET(url, headers)
