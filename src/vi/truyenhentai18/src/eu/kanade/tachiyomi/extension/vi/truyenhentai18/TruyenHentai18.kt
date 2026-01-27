@@ -12,8 +12,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
-import java.text.SimpleDateFormat
-import java.util.Locale
+import java.util.Calendar
 
 class TruyenHentai18 : HttpSource() {
 
@@ -75,12 +74,10 @@ class TruyenHentai18 : HttpSource() {
     // ============================== Search ======================================
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        // Check if genre filter is selected
         val genreFilter = filters.filterIsInstance<GenreFilter>().firstOrNull()
         val selectedGenre = genreFilter?.toUriPart()
 
         return if (query.isBlank() && !selectedGenre.isNullOrEmpty()) {
-            // Genre browsing
             val url = if (page > 1) {
                 "$baseUrl/category/$selectedGenre/page/$page"
             } else {
@@ -88,7 +85,6 @@ class TruyenHentai18 : HttpSource() {
             }
             GET(url, headers)
         } else {
-            // Text search
             val url = baseUrl.toHttpUrl().newBuilder()
                 .addQueryParameter("s", query)
                 .build()
@@ -126,7 +122,6 @@ class TruyenHentai18 : HttpSource() {
 
         genre = document.select("a.badge.bg-primary").joinToString { it.text() }
 
-        // Find status
         document.select(".list-group-item, div").forEach { element ->
             val text = element.text()
             when {
@@ -172,10 +167,51 @@ class TruyenHentai18 : HttpSource() {
         name = linkElement.text()
         chapter_number = index.toFloat()
 
-        // Try to parse date from text content
-        val dateText = element.text()
-        val dateMatch = DATE_REGEX.find(dateText)
-        date_upload = dateMatch?.value?.let { dateFormat.parse(it)?.time } ?: 0L
+        val dateText = element.selectFirst("div.chapter-date")?.text()
+        date_upload = dateText.toDate()
+    }
+
+    private fun String?.toDate(): Long {
+        this ?: return 0L
+
+        val hourWords = listOf("hour", "giờ")
+        val dayWords = listOf("day", "ngày")
+        val weekWords = listOf("week", "tuần")
+        val monthWords = listOf("month", "tháng")
+        val yearWords = listOf("year", "năm")
+        val minuteWords = listOf("minute", "phút")
+        val secondWords = listOf("second", "giây")
+        val agoWords = listOf("ago", "trước")
+
+        return try {
+            if (agoWords.any { this.contains(it, ignoreCase = true) }) {
+                val number = Regex("""\d+""").find(this)?.value?.toIntOrNull() ?: return 0L
+                val calendar = Calendar.getInstance()
+
+                when {
+                    hourWords.any { this.contains(it, ignoreCase = true) } ->
+                        calendar.add(Calendar.HOUR_OF_DAY, -number)
+                    dayWords.any { this.contains(it, ignoreCase = true) } ->
+                        calendar.add(Calendar.DAY_OF_MONTH, -number)
+                    weekWords.any { this.contains(it, ignoreCase = true) } ->
+                        calendar.add(Calendar.WEEK_OF_YEAR, -number)
+                    monthWords.any { this.contains(it, ignoreCase = true) } ->
+                        calendar.add(Calendar.MONTH, -number)
+                    yearWords.any { this.contains(it, ignoreCase = true) } ->
+                        calendar.add(Calendar.YEAR, -number)
+                    minuteWords.any { this.contains(it, ignoreCase = true) } ->
+                        calendar.add(Calendar.MINUTE, -number)
+                    secondWords.any { this.contains(it, ignoreCase = true) } ->
+                        calendar.add(Calendar.SECOND, -number)
+                }
+
+                calendar.timeInMillis
+            } else {
+                0L
+            }
+        } catch (_: Exception) {
+            0L
+        }
     }
 
     // ============================== Pages ======================================
@@ -196,8 +232,4 @@ class TruyenHentai18 : HttpSource() {
         throw UnsupportedOperationException()
     }
 
-    companion object {
-        private val DATE_REGEX = """(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})""".toRegex()
-        private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.ROOT)
-    }
 }
