@@ -17,8 +17,10 @@ import okhttp3.Response
 class NewTruyenTranh : HttpSource() {
     override val name = "NewTruyenTranh"
     override val lang = "vi"
-    override val baseUrl = "https://newtruyenhot.4share.me"
+    override val baseUrl = "https://newtruyentranh5.com"
     override val supportsLatest = true
+
+    private val apiUrl = "https://newtruyenhot.4share.me"
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", baseUrl)
@@ -26,7 +28,7 @@ class NewTruyenTranh : HttpSource() {
 
     // ============================== Popular ===============================
     override fun popularMangaRequest(page: Int): Request {
-        val url = "$baseUrl/search".toHttpUrl().newBuilder()
+        val url = "$apiUrl/search".toHttpUrl().newBuilder()
             .addQueryParameter("sort", "10") // Top all
             .addQueryParameter("p", page.toString())
             .build()
@@ -44,7 +46,7 @@ class NewTruyenTranh : HttpSource() {
 
     // ============================== Latest ================================
     override fun latestUpdatesRequest(page: Int): Request {
-        val url = "$baseUrl/page/newest".toHttpUrl().newBuilder()
+        val url = "$apiUrl/page/newest".toHttpUrl().newBuilder()
             .addQueryParameter("p", page.toString())
             .build()
         return GET(url, headers)
@@ -54,7 +56,7 @@ class NewTruyenTranh : HttpSource() {
 
     // ============================== Search ================================
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        val url = "$baseUrl/search".toHttpUrl().newBuilder()
+        val url = "$apiUrl/search".toHttpUrl().newBuilder()
             .addQueryParameter("q", query)
             .addQueryParameter("p", page.toString())
             .build()
@@ -66,7 +68,7 @@ class NewTruyenTranh : HttpSource() {
     // ============================== Details ===============================
     override fun mangaDetailsRequest(manga: SManga): Request {
         val id = manga.url.substringAfter("/detail/").substringBefore("?")
-        return GET("$baseUrl/detail/$id", headers)
+        return GET("$apiUrl/detail/$id", headers)
     }
 
     override fun mangaDetailsParse(response: Response): SManga {
@@ -78,13 +80,13 @@ class NewTruyenTranh : HttpSource() {
     }
 
     override fun getMangaUrl(manga: SManga): String {
-        return "https://newtruyentranh5.com" + manga.url.replace("/detail/", "/truyen/")
+        return baseUrl + manga.url.replace("/detail/", "/truyen/")
     }
 
     // ============================== Chapters ==============================
     override fun chapterListRequest(manga: SManga): Request {
         val id = manga.url.substringAfter("/detail/").substringBefore("?")
-        return GET("$baseUrl/detail/$id", headers)
+        return GET("$apiUrl/detail/$id", headers)
     }
 
     override fun chapterListParse(response: Response): List<SChapter> {
@@ -111,7 +113,7 @@ class NewTruyenTranh : HttpSource() {
 
     override fun getChapterUrl(chapter: SChapter): String {
         val chapterId = chapter.url.substringAfter("/chapter/")
-        return "https://newtruyentranh5.com/truyen-tranh/$chapterId"
+        return "$baseUrl/truyen-tranh/$chapterId"
     }
 
     // ============================== Pages =================================
@@ -120,7 +122,7 @@ class NewTruyenTranh : HttpSource() {
         val url = if (chapterUrl.startsWith("http")) {
             chapterUrl
         } else {
-            "$baseUrl$chapterUrl"
+            "$apiUrl$chapterUrl"
         }
         return GET(url, headers)
     }
@@ -138,7 +140,7 @@ class NewTruyenTranh : HttpSource() {
 
     // ============================== Utilities =============================
     private fun MangaChannel.toSManga(): SManga = SManga.create().apply {
-        url = remoteData.url.replace(baseUrl, "")
+        url = remoteData.url.replace(apiUrl, "")
         title = name
         thumbnail_url = image.url
     }
