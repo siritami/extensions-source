@@ -9,8 +9,6 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -65,7 +63,6 @@ class NewTruyenTranh : HttpSource() {
             return GET(url, headers)
         }
 
-        // Handle filters
         var genreSlug: String? = null
         var sortValue: String? = null
         var statusValue: String? = null
@@ -91,7 +88,6 @@ class NewTruyenTranh : HttpSource() {
             }
         }
 
-        // Genre filter uses /page/{slug} endpoint
         if (genreSlug != null) {
             val url = "$apiUrl/page/$genreSlug".toHttpUrl().newBuilder()
                 .addQueryParameter("p", page.toString())
@@ -99,7 +95,6 @@ class NewTruyenTranh : HttpSource() {
             return GET(url, headers)
         }
 
-        // Sort and Status use /search endpoint with query params
         val url = "$apiUrl/search".toHttpUrl().newBuilder().apply {
             if (sortValue != null) {
                 addQueryParameter("sort", sortValue)
@@ -181,10 +176,8 @@ class NewTruyenTranh : HttpSource() {
             Pair("Trọng Sinh", "trong-sinh"),
             Pair("Trùng Sinh", "trung-sinh"),
             Pair("Truyện Chill", "truyen-chill"),
-            Pair("Truyện Đang cập nhật", "truyen-dang-cap-nhat"),
             Pair("Truyện Đánh đấm", "truyen-danh-dam"),
             Pair("Truyện Học viện", "truyen-hoc-vien"),
-            Pair("Truyện HOT", "truyen-hot"),
             Pair("Truyện Manga", "truyen-manga"),
             Pair("Truyện Manga màu", "truyen-manga-mau"),
             Pair("Truyện Màu", "truyen-mau"),
@@ -235,8 +228,6 @@ class NewTruyenTranh : HttpSource() {
     }
 
     override fun mangaDetailsParse(response: Response): SManga {
-        // The API detail endpoint returns chapter list, not full manga details
-        // We get the basic info from the list already
         return SManga.create().apply {
             initialized = true
         }
@@ -270,7 +261,6 @@ class NewTruyenTranh : HttpSource() {
             }
         }
 
-        // Sort by index descending (newest first)
         return chapters.sortedByDescending { it.chapter_number }
     }
 
@@ -307,89 +297,4 @@ class NewTruyenTranh : HttpSource() {
         title = name
         thumbnail_url = image.url
     }
-
-    // ============================== DTO ===================================
-    @Serializable
-    data class MangaListResponse(
-        val channels: List<MangaChannel> = emptyList(),
-        @SerialName("load_more")
-        val loadMore: LoadMore? = null,
-    )
-
-    @Serializable
-    data class MangaChannel(
-        val id: String,
-        val name: String,
-        val description: String = "",
-        val image: ImageData,
-        @SerialName("remote_data")
-        val remoteData: RemoteData,
-    )
-
-    @Serializable
-    data class ImageData(
-        val url: String,
-    )
-
-    @Serializable
-    data class RemoteData(
-        val url: String,
-    )
-
-    @Serializable
-    data class LoadMore(
-        @SerialName("pageInfo")
-        val pageInfo: PageInfo? = null,
-    )
-
-    @Serializable
-    data class PageInfo(
-        @SerialName("current_page")
-        val currentPage: Int = 1,
-        val total: Int = 0,
-        @SerialName("per_page")
-        val perPage: Int = 24,
-        @SerialName("last_page")
-        val lastPage: Int = 1,
-    )
-
-    @Serializable
-    data class ChapterListResponse(
-        val sources: List<Source> = emptyList(),
-    )
-
-    @Serializable
-    data class Source(
-        val id: String,
-        val name: String,
-        val contents: List<Content> = emptyList(),
-    )
-
-    @Serializable
-    data class Content(
-        val id: String,
-        val name: String = "",
-        val streams: List<Stream> = emptyList(),
-    )
-
-    @Serializable
-    data class Stream(
-        val id: String,
-        val index: Int,
-        val name: String,
-        @SerialName("remote_data")
-        val remoteData: RemoteData,
-    )
-
-    @Serializable
-    data class PageListResponse(
-        val files: List<PageFile> = emptyList(),
-    )
-
-    @Serializable
-    data class PageFile(
-        val id: String,
-        val name: String = "",
-        val url: String,
-    )
 }
