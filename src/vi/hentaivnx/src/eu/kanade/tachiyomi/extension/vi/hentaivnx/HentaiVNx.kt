@@ -25,6 +25,9 @@ class HentaiVNx : HttpSource() {
 
     override val supportsLatest = true
 
+    override fun headersBuilder() = super.headersBuilder()
+        .add("Referer", "$baseUrl/")
+
     // ============================== Popular ===============================
 
     override fun popularMangaRequest(page: Int): Request {
