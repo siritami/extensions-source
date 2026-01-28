@@ -73,7 +73,7 @@ class MiMiHentai : HttpSource() {
                 when (filter) {
                     is GenreFilter -> {
                         filter.state.filter { it.state }.forEach { genre ->
-                            addQueryParameter("genres[${genre.id}]", "1")
+                            addQueryParameter("genres[]", genre.id)
                         }
                     }
                     is StatusFilter -> {
