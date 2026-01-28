@@ -23,9 +23,6 @@ class MiMiHentai : HttpSource() {
 
     override val supportsLatest = true
 
-    override fun headersBuilder() = super.headersBuilder()
-        .add("Referer", "$baseUrl/")
-
     // ============================== Popular ===============================
 
     override fun popularMangaRequest(page: Int): Request {
@@ -46,7 +43,9 @@ class MiMiHentai : HttpSource() {
             }
         }
 
-        val hasNextPage = document.selectFirst("a[href*='page=']:contains(>)") != null
+        // Check if there's a next page by looking for current page + 1
+        val currentPage = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
+        val hasNextPage = document.selectFirst("a[href*='page=${currentPage + 1}']") != null
 
         return MangasPage(mangaList, hasNextPage)
     }
@@ -125,12 +124,15 @@ class MiMiHentai : HttpSource() {
     override fun chapterListParse(response: Response): List<SChapter> {
         val document = response.asJsoup()
 
-        return document.select("div.chapter-list a[href*='/chap-']").map { element ->
+        return document.select("div.chapter-list a").map { element ->
             SChapter.create().apply {
                 setUrlWithoutDomain(element.attr("href"))
-                name = element.selectFirst("h1")?.text() ?: element.text()
+                name = element.selectFirst("h1")?.text()
+                    ?: element.attr("title")
+                    ?: element.text()
 
-                val dateText = element.parent()?.parent()?.selectFirst("span")?.text()
+                val dateText = element.parent()?.selectFirst("span.timeago")?.text()
+                    ?: element.parent()?.parent()?.selectFirst("span.timeago")?.text()
                 date_upload = parseRelativeDate(dateText)
             }
         }
