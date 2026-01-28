@@ -179,14 +179,6 @@ class MiMiHentai : HttpSource() {
         throw UnsupportedOperationException()
     }
 
-    // Override imageRequest to add Referer header for image loading
-    override fun imageRequest(page: Page): Request {
-        val imageHeaders = headersBuilder()
-            .add("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
-            .build()
-        return GET(page.imageUrl!!, imageHeaders)
-    }
-
     // ============================== Filters ===============================
 
     override fun getFilterList(): FilterList = getFilters()
