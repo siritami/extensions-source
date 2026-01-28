@@ -46,7 +46,6 @@ class MiMiHentai : HttpSource() {
             }
         }
 
-        // Check if there's a next page by looking for current page + 1
         val currentPage = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
         val hasNextPage = document.selectFirst("a[href*='page=${currentPage + 1}']") != null
 
@@ -167,7 +166,6 @@ class MiMiHentai : HttpSource() {
         val document = response.asJsoup()
 
         return document.select("img.lazy").mapIndexed { index, element ->
-            // Images have URL in src attribute (after lazy loading) or data-src
             val imageUrl = element.attr("src").ifEmpty {
                 element.attr("data-src")
             }
