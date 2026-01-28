@@ -13,6 +13,7 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 import rx.Observable
+import java.util.Calendar
 
 class HentaiVNx : HttpSource() {
 
@@ -139,18 +140,53 @@ class HentaiVNx : HttpSource() {
     override fun chapterListParse(response: Response): List<SChapter> {
         val document = response.asJsoup()
 
-        return document.select(".list-chapter ul li a, #nt_listchapter ul li a").mapNotNull { element ->
+        return document.select("#nt_listchapter ul li.row, .list-chapter ul li.row").mapNotNull { element ->
             parseChapterElement(element)
         }
     }
 
     private fun parseChapterElement(element: Element): SChapter? {
-        val url = element.attr("href")
+        val linkElement = element.selectFirst("div.chapter a") ?: return null
+        val url = linkElement.attr("href")
         if (url.isBlank()) return null
 
         return SChapter.create().apply {
             setUrlWithoutDomain(url)
-            name = element.text().trim()
+            name = linkElement.text().trim()
+            date_upload = element.selectFirst("div.col-xs-4")?.text().toDate()
+        }
+    }
+
+    private fun String?.toDate(): Long {
+        this ?: return 0L
+
+        if (!this.contains("trước", ignoreCase = true)) {
+            return 0L
+        }
+
+        return try {
+            val calendar = Calendar.getInstance()
+
+            val patterns = listOf(
+                Regex("""(\d+)\s*giờ""", RegexOption.IGNORE_CASE) to Calendar.HOUR_OF_DAY,
+                Regex("""(\d+)\s*ngày""", RegexOption.IGNORE_CASE) to Calendar.DAY_OF_MONTH,
+                Regex("""(\d+)\s*tuần""", RegexOption.IGNORE_CASE) to Calendar.WEEK_OF_YEAR,
+                Regex("""(\d+)\s*tháng""", RegexOption.IGNORE_CASE) to Calendar.MONTH,
+                Regex("""(\d+)\s*năm""", RegexOption.IGNORE_CASE) to Calendar.YEAR,
+                Regex("""(\d+)\s*phút""", RegexOption.IGNORE_CASE) to Calendar.MINUTE,
+                Regex("""(\d+)\s*giây""", RegexOption.IGNORE_CASE) to Calendar.SECOND,
+            )
+
+            for ((pattern, field) in patterns) {
+                pattern.find(this)?.groupValues?.get(1)?.toIntOrNull()?.let { number ->
+                    calendar.add(field, -number)
+                    return calendar.timeInMillis
+                }
+            }
+
+            0L
+        } catch (_: Exception) {
+            0L
         }
     }
 
