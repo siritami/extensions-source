@@ -2,49 +2,67 @@ package eu.kanade.tachiyomi.extension.vi.mimihentai
 
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
+import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.ParsedHttpSource
+import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
+import okhttp3.Response
 import java.util.Calendar
 
-class MiMiHentai : ParsedHttpSource() {
+class MiMiHentai : HttpSource() {
+
     override val name = "MiMiHentai"
-    override val lang = "vi"
+
     override val baseUrl = "https://mimihentai.net"
+
+    override val lang = "vi"
+
     override val supportsLatest = true
 
+    override fun headersBuilder() = super.headersBuilder()
+        .add("Referer", "$baseUrl/")
+
     // ============================== Popular ===============================
+
     override fun popularMangaRequest(page: Int): Request {
         return GET("$baseUrl/danh-sach?sort=-views&page=$page", headers)
     }
 
-    override fun popularMangaSelector(): String = "a.group"
+    override fun popularMangaParse(response: Response): MangasPage {
+        val document = response.asJsoup()
 
-    override fun popularMangaFromElement(element: Element): SManga = SManga.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
-        title = element.selectFirst("h1")?.text() ?: ""
-        thumbnail_url = element.selectFirst("img")?.absUrl("src")
+        val mangaList = document.select("a.group").map { element ->
+            SManga.create().apply {
+                setUrlWithoutDomain(element.attr("href"))
+                title = element.selectFirst("h1")?.text() ?: ""
+                thumbnail_url = element.selectFirst("img")?.let {
+                    it.absUrl("data-src")
+                        .ifEmpty { it.absUrl("src") }
+                }
+            }
+        }
+
+        val hasNextPage = document.selectFirst("a[href*='page=']:contains(>)") != null
+
+        return MangasPage(mangaList, hasNextPage)
     }
 
-    override fun popularMangaNextPageSelector(): String = "a[href*='page=']:contains(>)"
-
     // =============================== Latest ===============================
+
     override fun latestUpdatesRequest(page: Int): Request {
         return GET("$baseUrl/danh-sach?page=$page", headers)
     }
 
-    override fun latestUpdatesSelector(): String = popularMangaSelector()
-
-    override fun latestUpdatesFromElement(element: Element): SManga = popularMangaFromElement(element)
-
-    override fun latestUpdatesNextPageSelector(): String = popularMangaNextPageSelector()
+    override fun latestUpdatesParse(response: Response): MangasPage {
+        return popularMangaParse(response)
+    }
 
     // =============================== Search ===============================
+
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val url = "$baseUrl/tim-kiem".toHttpUrl().newBuilder().apply {
             addQueryParameter("keyword", query)
@@ -73,41 +91,49 @@ class MiMiHentai : ParsedHttpSource() {
         return GET(url, headers)
     }
 
-    override fun searchMangaSelector(): String = popularMangaSelector()
-
-    override fun searchMangaFromElement(element: Element): SManga = popularMangaFromElement(element)
-
-    override fun searchMangaNextPageSelector(): String = popularMangaNextPageSelector()
+    override fun searchMangaParse(response: Response): MangasPage {
+        return popularMangaParse(response)
+    }
 
     // =============================== Details ==============================
-    override fun mangaDetailsParse(document: Document): SManga = SManga.create().apply {
-        val infoContainer = document.selectFirst("div.title")?.parent()
 
-        title = document.selectFirst("div.title p")?.text() ?: ""
-        thumbnail_url = document.selectFirst("img.rounded.shadow-md.w-full")?.absUrl("src")
-        author = document.selectFirst("a[href*='/tac-gia/']")?.text()
-        genre = document.select("a[href*='/the-loai/']").joinToString { it.text() }
+    override fun mangaDetailsParse(response: Response): SManga {
+        val document = response.asJsoup()
 
-        val bodyText = document.body().text()
-        status = when {
-            bodyText.contains("Đã hoàn thành") -> SManga.COMPLETED
-            bodyText.contains("Đang tiến hành") -> SManga.ONGOING
-            else -> SManga.UNKNOWN
+        return SManga.create().apply {
+            title = document.selectFirst("div.title p")?.text() ?: ""
+            thumbnail_url = document.selectFirst("img.rounded.shadow-md.w-full")?.let {
+                it.absUrl("data-src")
+                    .ifEmpty { it.absUrl("src") }
+            }
+            author = document.selectFirst("a[href*='/tac-gia/']")?.text()
+            genre = document.select("a[href*='/the-loai/']").joinToString { it.text() }
+
+            val bodyText = document.body().text()
+            status = when {
+                bodyText.contains("Đã hoàn thành") -> SManga.COMPLETED
+                bodyText.contains("Đang tiến hành") -> SManga.ONGOING
+                else -> SManga.UNKNOWN
+            }
+
+            description = document.selectFirst("div.mt-4")?.ownText()
         }
-
-        description = infoContainer?.selectFirst("div.mt-4")?.ownText()
-            ?: document.selectFirst("div.mt-\\[4rem\\]")?.text()
     }
 
     // ============================== Chapters ==============================
-    override fun chapterListSelector(): String = "a[href*='/chap-']"
 
-    override fun chapterFromElement(element: Element): SChapter = SChapter.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
-        name = element.selectFirst("h1")?.text() ?: element.text()
+    override fun chapterListParse(response: Response): List<SChapter> {
+        val document = response.asJsoup()
 
-        val dateText = element.parent()?.selectFirst("span")?.text()
-        date_upload = parseRelativeDate(dateText)
+        return document.select("a[href*='/chap-']").map { element ->
+            SChapter.create().apply {
+                setUrlWithoutDomain(element.attr("href"))
+                name = element.selectFirst("h1")?.text() ?: element.text()
+
+                val dateText = element.parent()?.selectFirst("span")?.text()
+                date_upload = parseRelativeDate(dateText)
+            }
+        }
     }
 
     private fun parseRelativeDate(dateStr: String?): Long {
@@ -131,14 +157,23 @@ class MiMiHentai : ParsedHttpSource() {
     }
 
     // =============================== Pages ================================
-    override fun pageListParse(document: Document): List<Page> {
-        return document.select("img.lazy").mapIndexed { index, img ->
-            Page(index, imageUrl = img.absUrl("src"))
+
+    override fun pageListParse(response: Response): List<Page> {
+        val document = response.asJsoup()
+
+        return document.select("img.lazy").mapIndexed { index, element ->
+            val imageUrl = element.attr("data-src").ifEmpty {
+                element.attr("src")
+            }
+            Page(index, imageUrl = imageUrl)
         }
     }
 
-    override fun imageUrlParse(document: Document): String = throw UnsupportedOperationException()
+    override fun imageUrlParse(response: Response): String {
+        throw UnsupportedOperationException()
+    }
 
     // ============================== Filters ===============================
+
     override fun getFilterList(): FilterList = getFilters()
 }
