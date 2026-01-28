@@ -23,6 +23,9 @@ class MiMiHentai : HttpSource() {
 
     override val supportsLatest = true
 
+    override fun headersBuilder() = super.headersBuilder()
+        .add("Referer", "$baseUrl/")
+
     // ============================== Popular ===============================
 
     override fun popularMangaRequest(page: Int): Request {
@@ -164,8 +167,9 @@ class MiMiHentai : HttpSource() {
         val document = response.asJsoup()
 
         return document.select("img.lazy").mapIndexed { index, element ->
-            val imageUrl = element.attr("data-src").ifEmpty {
-                element.attr("src")
+            // Images have URL in src attribute (after lazy loading) or data-src
+            val imageUrl = element.attr("src").ifEmpty {
+                element.attr("data-src")
             }
             Page(index, imageUrl = imageUrl)
         }
@@ -173,6 +177,14 @@ class MiMiHentai : HttpSource() {
 
     override fun imageUrlParse(response: Response): String {
         throw UnsupportedOperationException()
+    }
+
+    // Override imageRequest to add Referer header for image loading
+    override fun imageRequest(page: Page): Request {
+        val imageHeaders = headersBuilder()
+            .add("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            .build()
+        return GET(page.imageUrl!!, imageHeaders)
     }
 
     // ============================== Filters ===============================
