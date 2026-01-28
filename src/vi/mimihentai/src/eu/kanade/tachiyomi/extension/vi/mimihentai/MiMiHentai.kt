@@ -125,12 +125,12 @@ class MiMiHentai : HttpSource() {
     override fun chapterListParse(response: Response): List<SChapter> {
         val document = response.asJsoup()
 
-        return document.select("a[href*='/chap-']").map { element ->
+        return document.select("div.chapter-list a[href*='/chap-']").map { element ->
             SChapter.create().apply {
                 setUrlWithoutDomain(element.attr("href"))
                 name = element.selectFirst("h1")?.text() ?: element.text()
 
-                val dateText = element.parent()?.selectFirst("span")?.text()
+                val dateText = element.parent()?.parent()?.selectFirst("span")?.text()
                 date_upload = parseRelativeDate(dateText)
             }
         }
