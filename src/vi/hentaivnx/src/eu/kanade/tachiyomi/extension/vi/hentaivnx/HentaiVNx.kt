@@ -38,7 +38,7 @@ class HentaiVNx : HttpSource() {
             SManga.create().apply {
                 val linkElement = element.selectFirst("a.jtip, .image a")!!
                 setUrlWithoutDomain(linkElement.absUrl("href"))
-                title = linkElement.attr("title").ifEmpty { 
+                title = linkElement.attr("title").ifEmpty {
                     element.selectFirst("h3 a")?.text() ?: linkElement.text()
                 }
                 thumbnail_url = element.selectFirst(".image img")?.let {
