@@ -34,15 +34,17 @@ class HentaiVNx : HttpSource() {
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
 
-        val mangaList = document.select(".item").map { element ->
+        val mangaList = document.select(".items .item").map { element ->
             SManga.create().apply {
-                val linkElement = element.selectFirst("a.jtip, .image a")!!
+                val linkElement = element.selectFirst("h3 a")
+                    ?: element.selectFirst("a.jtip")
+                    ?: element.selectFirst(".image a")!!
                 setUrlWithoutDomain(linkElement.absUrl("href"))
-                title = linkElement.attr("title").ifEmpty {
-                    element.selectFirst("h3 a")?.text() ?: linkElement.text()
-                }
-                thumbnail_url = element.selectFirst(".image img")?.let {
-                    it.absUrl("data-src").ifEmpty { it.absUrl("src") }
+                title = linkElement.attr("title").ifEmpty { linkElement.text() }
+                thumbnail_url = element.selectFirst("img")?.let {
+                    it.absUrl("data-original")
+                        .ifEmpty { it.absUrl("data-src") }
+                        .ifEmpty { it.absUrl("src") }
                 }
             }
         }
@@ -83,7 +85,7 @@ class HentaiVNx : HttpSource() {
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val url = if (query.isNotBlank()) {
-            baseUrl.toHttpUrl().newBuilder()
+            "$baseUrl/tim-truyen".toHttpUrl().newBuilder()
                 .addQueryParameter("keyword", query)
                 .addQueryParameter("page", page.toString())
                 .build()
@@ -123,7 +125,9 @@ class HentaiVNx : HttpSource() {
             description = document.selectFirst(".detail-content")?.text()?.trim()
             genre = document.select("li.kind .col-xs-8 a").joinToString { it.text().trim() }
             thumbnail_url = document.selectFirst(".detail-info .col-image img")?.let {
-                it.absUrl("data-src").ifEmpty { it.absUrl("src") }
+                it.absUrl("data-original")
+                    .ifEmpty { it.absUrl("data-src") }
+                    .ifEmpty { it.absUrl("src") }
             }
 
             val statusText = document.selectFirst("li.status .col-xs-8")?.text()
@@ -199,8 +203,8 @@ class HentaiVNx : HttpSource() {
             .ifEmpty { document.select(".chapter-content img") }
 
         return images.mapIndexed { idx, element ->
-            val imageUrl = element.absUrl("data-src")
-                .ifEmpty { element.absUrl("data-original") }
+            val imageUrl = element.absUrl("data-original")
+                .ifEmpty { element.absUrl("data-src") }
                 .ifEmpty { element.absUrl("src") }
             Page(idx, imageUrl = imageUrl)
         }
