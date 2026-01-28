@@ -203,9 +203,11 @@ class HentaiVNx : HttpSource() {
             .ifEmpty { document.select(".chapter-content img") }
 
         return images.mapIndexed { idx, element ->
-            val imageUrl = element.absUrl("data-original")
-                .ifEmpty { element.absUrl("data-src") }
-                .ifEmpty { element.absUrl("src") }
+            val imageUrl = element.attr("data-src").ifEmpty {
+                element.attr("data-original").ifEmpty {
+                    element.attr("src")
+                }
+            }
             Page(idx, imageUrl = imageUrl)
         }
     }
