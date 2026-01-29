@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.extension.vi.luottruyen
 
 import android.content.SharedPreferences
+import android.util.Base64
 import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
@@ -23,7 +24,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import android.util.Base64
 import java.util.Calendar
 
 class LuotTruyen : HttpSource(), ConfigurableSource {
