@@ -255,10 +255,13 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
 
-        // Check for login requirement via URL or DOM
-        if (response.request.url.toString().contains("Account/Login", ignoreCase = true) ||
-            document.selectFirst("div.login-page-wrapper, .login-card") != null
-        ) {
+        // Check for login requirement - multiple possible selectors
+        if (document.selectFirst("div.login-page-wrapper, .login-card, .login-welcome") != null) {
+            throw Exception("Nguồn này cần đăng nhập để xem. Vui lòng nhập cookie xác thực trong cài đặt nguồn")
+        }
+
+        // Check if redirected to login page by URL
+        if (response.request.url.toString().contains("/Account/Login")) {
             throw Exception("Nguồn này cần đăng nhập để xem. Vui lòng nhập cookie xác thực trong cài đặt nguồn")
         }
 
@@ -266,8 +269,9 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
         val pages = document.select(".reading-detail .page-chapter img[data-index]")
             .mapIndexed { i, img -> Page(i, imageUrl = img.absUrl("src")) }
 
+        // If no pages found, likely login required or content unavailable
         if (pages.isEmpty()) {
-            throw Exception("Không tìm thấy ảnh. Có thể cần đăng nhập hoặc cấu trúc web đã thay đổi.")
+            throw Exception("Không tìm thấy ảnh. Có thể cần đăng nhập - vui lòng nhập cookie xác thực trong cài đặt nguồn")
         }
 
         return pages
