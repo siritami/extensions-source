@@ -255,14 +255,22 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
 
-        // Check for login requirement
-        if (document.selectFirst("div.login-page-wrapper, .login-card") != null) {
+        // Check for login requirement via URL or DOM
+        if (response.request.url.toString().contains("Account/Login", ignoreCase = true) ||
+            document.selectFirst("div.login-page-wrapper, .login-card") != null
+        ) {
             throw Exception("Nguồn này cần đăng nhập để xem. Vui lòng nhập cookie xác thực trong cài đặt nguồn")
         }
 
         // Use data-index attribute to exclude ads/banners
-        return document.select(".reading-detail .page-chapter img[data-index]")
+        val pages = document.select(".reading-detail .page-chapter img[data-index]")
             .mapIndexed { i, img -> Page(i, imageUrl = img.absUrl("src")) }
+
+        if (pages.isEmpty()) {
+            throw Exception("Không tìm thấy ảnh. Có thể cần đăng nhập hoặc cấu trúc web đã thay đổi.")
+        }
+
+        return pages
     }
 
     override fun imageUrlParse(response: Response): String {
