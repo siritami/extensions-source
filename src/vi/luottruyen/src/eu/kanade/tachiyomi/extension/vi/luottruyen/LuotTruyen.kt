@@ -283,8 +283,14 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
 
-        return document.select(".reading-detail .page-chapter img[data-index]")
+        val pages = document.select(".reading-detail .page-chapter img[data-index]")
             .mapIndexed { i, img -> Page(i, imageUrl = img.absUrl("src")) }
+
+        if (pages.isEmpty()) {
+            throw Exception("Không có cookie được cài đặt hoặc hết hạn. Vui lòng thêm cookie trong cài đặt nguồn")
+        }
+
+        return pages
     }
 
     override fun imageUrlParse(response: Response): String {
