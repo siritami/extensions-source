@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.nodes.Element
 import java.util.Calendar
 
 class LuotTruyen : HttpSource() {
@@ -29,26 +30,23 @@ class LuotTruyen : HttpSource() {
     // ============================== Popular ===============================
 
     override fun popularMangaRequest(page: Int): Request {
-        return GET("$baseUrl/tim-truyen?status=-1&sort=10&page=$page", headers)
+        return GET("$baseUrl/tim-truyen?status=-1&sort=10" + if (page > 1) "&page=$page" else "", headers)
     }
 
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
 
-        val mangaList = document.select("div.item, div.item-manga, .items .item").map { element ->
+        val mangaList = document.select("div.items div.item").map { element ->
             SManga.create().apply {
-                val linkElement = element.selectFirst("a[href*='/truyen-tranh/']")!!
-                setUrlWithoutDomain(linkElement.attr("href"))
-                title = element.selectFirst("h3 a, .title a, figcaption h3")!!.text()
-                thumbnail_url = element.selectFirst("img")?.let {
-                    it.absUrl("data-src")
-                        .ifEmpty { it.absUrl("src") }
-                        .ifEmpty { it.attr("data-original") }
+                element.select("h3 a").let {
+                    title = it.text()
+                    setUrlWithoutDomain(it.attr("abs:href"))
                 }
+                thumbnail_url = imageOrNull(element.selectFirst("div.image img"))
             }
         }
 
-        val hasNextPage = document.selectFirst("a.next-page, a[rel=next], .pagination a:contains(»)") != null
+        val hasNextPage = document.selectFirst("a.next-page, a[rel=next]") != null
 
         return MangasPage(mangaList, hasNextPage)
     }
@@ -56,7 +54,7 @@ class LuotTruyen : HttpSource() {
     // =============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request {
-        return GET("$baseUrl/?page=$page&typegroup=0", headers)
+        return GET(baseUrl + if (page > 1) "?page=$page" else "", headers)
     }
 
     override fun latestUpdatesParse(response: Response): MangasPage {
@@ -69,7 +67,7 @@ class LuotTruyen : HttpSource() {
         if (query.isNotBlank()) {
             val url = "$baseUrl/tim-truyen".toHttpUrl().newBuilder().apply {
                 addQueryParameter("keyword", query)
-                addQueryParameter("page", page.toString())
+                if (page > 1) addQueryParameter("page", page.toString())
             }.build()
             return GET(url, headers)
         }
@@ -99,7 +97,7 @@ class LuotTruyen : HttpSource() {
 
         if (!genreSlug.isNullOrBlank()) {
             val url = "$baseUrl/tim-truyen/$genreSlug".toHttpUrl().newBuilder().apply {
-                addQueryParameter("page", page.toString())
+                if (page > 1) addQueryParameter("page", page.toString())
             }.build()
             return GET(url, headers)
         }
@@ -111,7 +109,7 @@ class LuotTruyen : HttpSource() {
             if (!statusValue.isNullOrBlank()) {
                 addQueryParameter("status", statusValue)
             }
-            addQueryParameter("page", page.toString())
+            if (page > 1) addQueryParameter("page", page.toString())
         }.build()
 
         return GET(url, headers)
@@ -127,22 +125,22 @@ class LuotTruyen : HttpSource() {
         val document = response.asJsoup()
 
         return SManga.create().apply {
-            title = document.selectFirst("h1.title-detail, h1.info-title, .title-manga")!!.text()
-            thumbnail_url = document.selectFirst("div.col-image img, .info-cover img")?.let {
-                it.absUrl("data-src")
-                    .ifEmpty { it.absUrl("src") }
+            document.selectFirst("article#item-detail")?.let { info ->
+                author = info.selectFirst("li.author p.col-xs-8")?.text()
+                status = info.selectFirst("li.status p.col-xs-8")?.text().toStatus()
+                genre = info.select("li.kind p.col-xs-8 a").joinToString { it.text() }
+                description = info.select("div.detail-content p").joinToString("\n") { it.text() }
+                thumbnail_url = imageOrNull(info.selectFirst("div.col-image img"))
             }
-            author = document.selectFirst("li.author p.col-xs-8, .info-item:contains(Tác giả) a")?.text()
-            genre = document.select("li.kind p.col-xs-8 a, .info-item:contains(Thể loại) a").joinToString { it.text() }
+        }
+    }
 
-            val statusText = document.selectFirst("li.status p.col-xs-8, .info-item:contains(Trạng thái)")?.text() ?: ""
-            status = when {
-                statusText.contains("Hoàn thành", ignoreCase = true) -> SManga.COMPLETED
-                statusText.contains("Đang tiến hành", ignoreCase = true) -> SManga.ONGOING
-                else -> SManga.UNKNOWN
-            }
-
-            description = document.selectFirst("div.detail-content p, .story-detail-info")?.text()
+    private fun String?.toStatus(): Int {
+        return when {
+            this == null -> SManga.UNKNOWN
+            this.contains("Đang tiến hành", ignoreCase = true) -> SManga.ONGOING
+            this.contains("Hoàn thành", ignoreCase = true) -> SManga.COMPLETED
+            else -> SManga.UNKNOWN
         }
     }
 
@@ -151,14 +149,13 @@ class LuotTruyen : HttpSource() {
     override fun chapterListParse(response: Response): List<SChapter> {
         val document = response.asJsoup()
 
-        return document.select("div.list-chapter li, ul.list-chapters li, .chapter-list li").map { element ->
+        return document.select("div.list-chapter li.row:not(.heading)").map { element ->
             SChapter.create().apply {
-                val linkElement = element.selectFirst("a")!!
-                setUrlWithoutDomain(linkElement.attr("href"))
-                name = linkElement.text().trim()
-
-                val dateText = element.selectFirst("div.col-xs-4, .chapter-time, time")?.text()
-                date_upload = parseRelativeDate(dateText)
+                element.selectFirst("a")?.let {
+                    name = it.text()
+                    setUrlWithoutDomain(it.attr("href"))
+                }
+                date_upload = parseRelativeDate(element.selectFirst("div.col-xs-4")?.text())
             }
         }
     }
@@ -193,19 +190,29 @@ class LuotTruyen : HttpSource() {
             throw Exception("Nguồn này cần đăng nhập để xem. Vui lòng đăng nhập qua Webview trước")
         }
 
-        val images = document.select("div.reading-detail img, div.page-chapter img, #view-chapter img")
-            .ifEmpty { document.select(".chapter-content img, .reading-content img, .content-chapter img") }
-
-        return images.mapIndexed { index, element ->
-            val imageUrl = element.attr("data-src")
-                .ifEmpty { element.attr("src") }
-                .ifEmpty { element.attr("data-original") }
-            Page(index, imageUrl = imageUrl)
-        }
+        return document.select("div.page-chapter > img, li.blocks-gallery-item img")
+            .mapNotNull { img -> imageOrNull(img) }
+            .distinct()
+            .mapIndexed { i, image -> Page(i, imageUrl = image) }
     }
 
     override fun imageUrlParse(response: Response): String {
         throw UnsupportedOperationException()
+    }
+
+    // ============================== Utilities =============================
+
+    private fun imageOrNull(element: Element?): String? {
+        if (element == null) return null
+        return when {
+            element.hasAttr("data-original") && element.attr("data-original").isNotBlank() ->
+                element.absUrl("data-original")
+            element.hasAttr("data-src") && element.attr("data-src").isNotBlank() ->
+                element.absUrl("data-src")
+            element.hasAttr("src") && element.attr("src").isNotBlank() ->
+                element.absUrl("src")
+            else -> null
+        }
     }
 
     // ============================== Filters ===============================
