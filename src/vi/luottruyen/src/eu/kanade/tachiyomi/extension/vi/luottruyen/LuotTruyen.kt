@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.asObservableSuccess
 import keiyoushi.utils.getPreferences
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -200,6 +201,43 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
 
     // ============================== Chapters ==============================
 
+    override fun fetchChapterList(manga: SManga): rx.Observable<List<SChapter>> {
+        return client.newCall(GET(baseUrl + manga.url, headers))
+            .asObservableSuccess()
+            .map { response ->
+                val document = response.asJsoup()
+                // Check if user is logged in by looking for MemberID element
+                val isLoggedIn = document.selectFirst("input#MemberID") != null
+
+                if (!isLoggedIn) {
+                    throw Exception("Cần thêm cookie trong cài đặt nguồn để đọc truyện")
+                }
+
+                val storyId = manga.url.substringAfterLast("-")
+                val formBody = FormBody.Builder()
+                    .add("StoryID", storyId)
+                    .build()
+
+                val chapterHeaders = headersBuilder()
+                    .add("X-Requested-With", "XMLHttpRequest")
+                    .add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                    .build()
+
+                val chapterResponse = client.newCall(POST("$baseUrl/Story/ListChapterByStoryID", chapterHeaders, formBody)).execute()
+                val chapterDocument = chapterResponse.asJsoup()
+
+                chapterDocument.select("li.row:not(.heading)").map { element ->
+                    SChapter.create().apply {
+                        element.selectFirst("div.chapter a, a")?.let {
+                            name = it.text()
+                            setUrlWithoutDomain(it.attr("href"))
+                        }
+                        date_upload = parseRelativeDate(element.selectFirst("div.col-xs-4")?.text())
+                    }
+                }
+            }
+    }
+
     override fun chapterListRequest(manga: SManga): Request {
         // Extract story ID from manga URL (e.g., /truyen-tranh/manga-name-12345 -> 12345)
         val storyId = manga.url.substringAfterLast("-")
@@ -255,26 +293,8 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
 
-        // Check for login requirement - multiple possible selectors
-        if (document.selectFirst("div.login-page-wrapper, .login-card, .login-welcome") != null) {
-            throw Exception("Nguồn này cần đăng nhập để xem. Vui lòng nhập cookie xác thực trong cài đặt nguồn")
-        }
-
-        // Check if redirected to login page by URL
-        if (response.request.url.toString().contains("/Account/Login")) {
-            throw Exception("Nguồn này cần đăng nhập để xem. Vui lòng nhập cookie xác thực trong cài đặt nguồn")
-        }
-
-        // Use data-index attribute to exclude ads/banners
-        val pages = document.select(".reading-detail .page-chapter img[data-index]")
+        return document.select(".reading-detail .page-chapter img[data-index]")
             .mapIndexed { i, img -> Page(i, imageUrl = img.absUrl("src")) }
-
-        // If no pages found, likely login required or content unavailable
-        if (pages.isEmpty()) {
-            throw Exception("Không tìm thấy ảnh. Có thể cần đăng nhập - vui lòng nhập cookie xác thực trong cài đặt nguồn")
-        }
-
-        return pages
     }
 
     override fun imageUrlParse(response: Response): String {
