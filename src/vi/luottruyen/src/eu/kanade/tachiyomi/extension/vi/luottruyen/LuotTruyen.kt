@@ -14,7 +14,6 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.asObservableSuccess
 import keiyoushi.utils.getPreferences
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -202,40 +201,42 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
     // ============================== Chapters ==============================
 
     override fun fetchChapterList(manga: SManga): rx.Observable<List<SChapter>> {
-        return client.newCall(GET(baseUrl + manga.url, headers))
-            .asObservableSuccess()
-            .map { response ->
-                val document = response.asJsoup()
-                // Check if user is logged in by looking for MemberID element
-                val isLoggedIn = document.selectFirst("input#MemberID") != null
+        return rx.Observable.fromCallable {
+            // First, fetch the manga page to check login status
+            val mangaResponse = client.newCall(GET(baseUrl + manga.url, headers)).execute()
+            val document = mangaResponse.asJsoup()
 
-                if (!isLoggedIn) {
-                    throw Exception("Cần thêm cookie trong cài đặt nguồn để đọc truyện")
-                }
+            // Check if user is logged in by looking for MemberID element
+            val isLoggedIn = document.selectFirst("input#MemberID") != null
 
-                val storyId = manga.url.substringAfterLast("-")
-                val formBody = FormBody.Builder()
-                    .add("StoryID", storyId)
-                    .build()
+            if (!isLoggedIn) {
+                throw Exception("Cần thêm cookie trong cài đặt nguồn để đọc truyện")
+            }
 
-                val chapterHeaders = headersBuilder()
-                    .add("X-Requested-With", "XMLHttpRequest")
-                    .add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                    .build()
+            // Fetch chapters
+            val storyId = manga.url.substringAfterLast("-")
+            val formBody = FormBody.Builder()
+                .add("StoryID", storyId)
+                .build()
 
-                val chapterResponse = client.newCall(POST("$baseUrl/Story/ListChapterByStoryID", chapterHeaders, formBody)).execute()
-                val chapterDocument = chapterResponse.asJsoup()
+            val chapterHeaders = headersBuilder()
+                .add("X-Requested-With", "XMLHttpRequest")
+                .add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                .build()
 
-                chapterDocument.select("li.row:not(.heading)").map { element ->
-                    SChapter.create().apply {
-                        element.selectFirst("div.chapter a, a")?.let {
-                            name = it.text()
-                            setUrlWithoutDomain(it.attr("href"))
-                        }
-                        date_upload = parseRelativeDate(element.selectFirst("div.col-xs-4")?.text())
+            val chapterResponse = client.newCall(POST("$baseUrl/Story/ListChapterByStoryID", chapterHeaders, formBody)).execute()
+            val chapterDocument = chapterResponse.asJsoup()
+
+            chapterDocument.select("li.row:not(.heading)").map { element ->
+                SChapter.create().apply {
+                    element.selectFirst("div.chapter a, a")?.let {
+                        name = it.text()
+                        setUrlWithoutDomain(it.attr("href"))
                     }
+                    date_upload = parseRelativeDate(element.selectFirst("div.col-xs-4")?.text())
                 }
             }
+        }
     }
 
     override fun chapterListRequest(manga: SManga): Request {
