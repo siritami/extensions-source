@@ -98,10 +98,20 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
     override fun latestUpdatesParse(response: Response): MangasPage {
         val document = response.asJsoup()
 
-        // Check if user is logged in by looking for MemberID element with a valid value
+        // Check if user is logged in using multiple methods
+        // Method 1: Check MemberID element value (non-empty and not "0")
         val memberIdElement = document.selectFirst("input#MemberID")
         val memberIdValue = memberIdElement?.attr("value")?.trim() ?: ""
-        val isLoggedIn = memberIdValue.isNotEmpty() && memberIdValue != "0"
+        val hasValidMemberId = memberIdValue.isNotEmpty() && memberIdValue != "0"
+
+        // Method 2: Check for "Xin chào" greeting (only shown when logged in)
+        val hasGreeting = document.selectFirst("a.user-name, .dangnhap-submenu")?.text()?.contains("Xin chào") == true ||
+            document.html().contains("Xin chào")
+
+        // Method 3: Check for logout link "Thoát" (only shown when logged in)
+        val hasLogoutLink = document.selectFirst("a[href*='logout'], a:contains(Thoát)") != null
+
+        val isLoggedIn = hasValidMemberId || hasGreeting || hasLogoutLink
 
         if (!isLoggedIn) {
             throw Exception("Thiếu cookie hoặc cookie hết hạn, cần thêm cookie trong cài đặt nguồn để đọc truyện")
