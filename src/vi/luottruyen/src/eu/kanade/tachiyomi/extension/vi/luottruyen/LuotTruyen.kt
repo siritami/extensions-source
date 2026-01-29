@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.luottruyen
 
 import android.content.SharedPreferences
-import android.util.Base64
 import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
@@ -284,34 +283,13 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
 
-        val pages = document.select(".reading-detail .page-chapter img[data-index]")
-            .mapIndexed { i, img -> Page(i, imageUrl = img.absUrl("src")) }
+        val images = document.select(".reading-detail .page-chapter img[data-index]")
 
-        if (pages.isEmpty()) {
-            val errorMessage = "Không có cookie được cài đặt hoặc hết hạn.\nVui lòng thêm cookie trong cài đặt nguồn."
-            val errorImageUrl = createErrorImage(errorMessage)
-            return listOf(Page(0, imageUrl = errorImageUrl))
+        if (images.isEmpty()) {
+            throw Exception("Không có cookie được cài đặt hoặc hết hạn. Vui lòng thêm cookie trong cài đặt nguồn")
         }
 
-        return pages
-    }
-
-    private fun createErrorImage(message: String): String {
-        val lines = message.split("\n")
-        val svgHeight = 200 + (lines.size * 30)
-        val textElements = lines.mapIndexed { index, line ->
-            """<text x="400" y="${120 + index * 40}" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#ff6b6b">$line</text>"""
-        }.joinToString("")
-
-        val svg = """
-            <svg xmlns="http://www.w3.org/2000/svg" width="800" height="$svgHeight">
-                <rect width="100%" height="100%" fill="#1a1a2e"/>
-                <text x="400" y="60" text-anchor="middle" font-family="Arial, sans-serif" font-size="32" fill="#e94560">⚠ Lỗi</text>
-                $textElements
-            </svg>
-        """.trimIndent()
-
-        return "data:image/svg+xml;base64,${Base64.encodeToString(svg.toByteArray(), Base64.NO_WRAP)}"
+        return images.mapIndexed { i, img -> Page(i, imageUrl = img.absUrl("src")) }
     }
 
     override fun imageUrlParse(response: Response): String {
