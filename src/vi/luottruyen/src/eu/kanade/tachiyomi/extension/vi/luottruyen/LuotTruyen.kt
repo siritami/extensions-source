@@ -36,17 +36,17 @@ class LuotTruyen : HttpSource() {
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
 
-        val mangaList = document.select("div.items div.item").map { element ->
+        val mangaList = document.select("div.item").map { element ->
             SManga.create().apply {
-                element.select("h3 a").let {
+                element.selectFirst("figcaption h3 a, a.jtip")!!.let {
                     title = it.text()
                     setUrlWithoutDomain(it.attr("abs:href"))
                 }
-                thumbnail_url = imageOrNull(element.selectFirst("div.image img"))
+                thumbnail_url = imageOrNull(element.selectFirst("div.image a img"))
             }
         }
 
-        val hasNextPage = document.selectFirst("a.next-page, a[rel=next]") != null
+        val hasNextPage = document.selectFirst("li.next:not(.disabled) a, li:not(.disabled).next a") != null
 
         return MangasPage(mangaList, hasNextPage)
     }
@@ -139,6 +139,7 @@ class LuotTruyen : HttpSource() {
         return when {
             this == null -> SManga.UNKNOWN
             this.contains("Đang tiến hành", ignoreCase = true) -> SManga.ONGOING
+            this.contains("Đang cập nhật", ignoreCase = true) -> SManga.ONGOING
             this.contains("Hoàn thành", ignoreCase = true) -> SManga.COMPLETED
             else -> SManga.UNKNOWN
         }
@@ -151,7 +152,7 @@ class LuotTruyen : HttpSource() {
 
         return document.select("div.list-chapter li.row:not(.heading)").map { element ->
             SChapter.create().apply {
-                element.selectFirst("a")?.let {
+                element.selectFirst("div.chapter a")?.let {
                     name = it.text()
                     setUrlWithoutDomain(it.attr("href"))
                 }
