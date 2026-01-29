@@ -1,7 +1,12 @@
 package eu.kanade.tachiyomi.extension.vi.luottruyen
 
+import android.content.SharedPreferences
+import android.widget.Toast
+import androidx.preference.EditTextPreference
+import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -9,13 +14,18 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.getPreferences
+import okhttp3.Cookie
+import okhttp3.CookieJar
 import okhttp3.FormBody
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import java.util.Calendar
 
-class LuotTruyen : HttpSource() {
+class LuotTruyen : HttpSource(), ConfigurableSource {
 
     override val name = "LuotTruyen"
 
@@ -25,7 +35,32 @@ class LuotTruyen : HttpSource() {
 
     override val supportsLatest = true
 
-    override val client = network.cloudflareClient
+    private val preferences: SharedPreferences = getPreferences()
+
+    override val client: OkHttpClient = network.cloudflareClient.newBuilder()
+        .cookieJar(
+            object : CookieJar {
+                override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+                    // Do nothing - we don't need to save cookies
+                }
+
+                override fun loadForRequest(url: HttpUrl): List<Cookie> {
+                    val authCookie = preferences.getString(AUTH_COOKIE_PREF, "")
+                    if (authCookie.isNullOrBlank()) {
+                        return emptyList()
+                    }
+                    return listOf(
+                        Cookie.Builder()
+                            .domain(url.host)
+                            .path("/")
+                            .name(".truyen_AUTH")
+                            .value(authCookie)
+                            .build(),
+                    )
+                }
+            },
+        )
+        .build()
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
@@ -254,6 +289,42 @@ class LuotTruyen : HttpSource() {
 
     override fun imageUrlParse(response: Response): String {
         throw UnsupportedOperationException()
+    }
+
+    // ============================== Settings ==============================
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        EditTextPreference(screen.context).apply {
+            key = AUTH_COOKIE_PREF
+            title = AUTH_COOKIE_TITLE
+            summary = AUTH_COOKIE_SUMMARY
+            setDefaultValue("")
+            dialogTitle = AUTH_COOKIE_TITLE
+            dialogMessage = """
+                |Hướng dẫn lấy cookie:
+                |1. Mở trình duyệt (Chrome/Edge) trên máy tính
+                |2. Truy cập $baseUrl và đăng nhập bằng Google
+                |3. Nhấn F12 để mở DevTools
+                |4. Chọn tab Application (hoặc Storage)
+                |5. Ở menu bên trái, chọn Cookies → $baseUrl
+                |6. Tìm cookie tên ".truyen_AUTH"
+                |7. Sao chép giá trị (Value) và dán vào ô bên dưới
+                |
+                |Lưu ý: Cookie có thể hết hạn, cần cập nhật lại khi không đọc được.
+            """.trimMargin()
+
+            setOnPreferenceChangeListener { _, _ ->
+                Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
+                true
+            }
+        }.let(screen::addPreference)
+    }
+
+    companion object {
+        private const val AUTH_COOKIE_PREF = "authCookie"
+        private const val AUTH_COOKIE_TITLE = "Cookie xác thực (.truyen_AUTH)"
+        private const val AUTH_COOKIE_SUMMARY = "Nhập cookie để đọc truyện cần đăng nhập"
+        private const val RESTART_APP = "Khởi chạy lại ứng dụng để áp dụng thay đổi."
     }
 
     // ============================== Filters ===============================
