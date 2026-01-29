@@ -49,11 +49,7 @@ data class PageInfo(
 
 @Serializable
 data class MangaDetailResponse(
-    val channel: MangaChannel,
-)
-
-@Serializable
-data class ChapterListResponse(
+    val channel: MangaChannel? = null,
     val sources: List<Source> = emptyList(),
 )
 

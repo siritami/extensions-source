@@ -121,9 +121,11 @@ class NewTruyenTranh : HttpSource() {
     override fun mangaDetailsParse(response: Response): SManga {
         val result = response.parseAs<MangaDetailResponse>()
         return SManga.create().apply {
-            title = result.channel.name
-            thumbnail_url = result.channel.image.url
-            description = result.channel.description.takeIf { it.isNotBlank() }
+            result.channel?.let { channel ->
+                title = channel.name
+                thumbnail_url = channel.image.url
+                description = channel.description.takeIf { it.isNotBlank() }
+            }
             initialized = true
         }
     }
@@ -139,7 +141,7 @@ class NewTruyenTranh : HttpSource() {
     }
 
     override fun chapterListParse(response: Response): List<SChapter> {
-        val result = response.parseAs<ChapterListResponse>()
+        val result = response.parseAs<MangaDetailResponse>()
         val chapters = mutableListOf<SChapter>()
 
         result.sources.forEach { source ->
