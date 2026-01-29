@@ -23,6 +23,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import android.util.Base64
 import java.util.Calendar
 
 class LuotTruyen : HttpSource(), ConfigurableSource {
@@ -287,10 +288,30 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
             .mapIndexed { i, img -> Page(i, imageUrl = img.absUrl("src")) }
 
         if (pages.isEmpty()) {
-            throw Exception("Không có cookie được cài đặt hoặc hết hạn. Vui lòng thêm cookie trong cài đặt nguồn")
+            val errorMessage = "Không có cookie được cài đặt hoặc hết hạn.\nVui lòng thêm cookie trong cài đặt nguồn."
+            val errorImageUrl = createErrorImage(errorMessage)
+            return listOf(Page(0, imageUrl = errorImageUrl))
         }
 
         return pages
+    }
+
+    private fun createErrorImage(message: String): String {
+        val lines = message.split("\n")
+        val svgHeight = 200 + (lines.size * 30)
+        val textElements = lines.mapIndexed { index, line ->
+            """<text x="400" y="${120 + index * 40}" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#ff6b6b">$line</text>"""
+        }.joinToString("")
+
+        val svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="800" height="$svgHeight">
+                <rect width="100%" height="100%" fill="#1a1a2e"/>
+                <text x="400" y="60" text-anchor="middle" font-family="Arial, sans-serif" font-size="32" fill="#e94560">⚠ Lỗi</text>
+                $textElements
+            </svg>
+        """.trimIndent()
+
+        return "data:image/svg+xml;base64,${Base64.encodeToString(svg.toByteArray(), Base64.NO_WRAP)}"
     }
 
     override fun imageUrlParse(response: Response): String {
@@ -328,7 +349,7 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
 
     companion object {
         private const val AUTH_COOKIE_PREF = "authCookie"
-        private const val AUTH_COOKIE_TITLE = "Cookie xác thực (.truyen_AUTH)"
+        private const val AUTH_COOKIE_TITLE = "Cookie xác thực"
         private const val AUTH_COOKIE_SUMMARY = "Nhập cookie để đọc truyện cần đăng nhập"
         private const val RESTART_APP = "Khởi chạy lại ứng dụng để áp dụng thay đổi."
     }
