@@ -1,7 +1,12 @@
 package eu.kanade.tachiyomi.extension.vi.luottruyen
 
+import android.content.SharedPreferences
+import android.widget.Toast
+import androidx.preference.EditTextPreference
+import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -9,14 +14,16 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.getPreferences
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 import java.util.Calendar
 
-class LuotTruyen : HttpSource() {
+class LuotTruyen : HttpSource(), ConfigurableSource {
 
     override val name = "LuotTruyen"
 
@@ -25,6 +32,23 @@ class LuotTruyen : HttpSource() {
     override val baseUrl = "https://luottruyen1.com"
 
     override val supportsLatest = true
+
+    private val preferences: SharedPreferences = getPreferences()
+
+    override val client: OkHttpClient = network.cloudflareClient.newBuilder()
+        .addInterceptor { chain ->
+            val originalRequest = chain.request()
+            val cookie = getAuthCookie()
+            if (cookie.isNullOrBlank()) {
+                chain.proceed(originalRequest)
+            } else {
+                val newRequest = originalRequest.newBuilder()
+                    .header("Cookie", cookie)
+                    .build()
+                chain.proceed(newRequest)
+            }
+        }
+        .build()
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
@@ -249,7 +273,35 @@ class LuotTruyen : HttpSource() {
         }
     }
 
+    // ============================== Settings ==============================
+
+    private fun getAuthCookie(): String? = preferences.getString(PREF_AUTH_COOKIE, null)
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        EditTextPreference(screen.context).apply {
+            key = PREF_AUTH_COOKIE
+            title = "Cookie đăng nhập"
+            summary = "Nhập cookie để đọc truyện cần đăng nhập.\n" +
+                "Mở DevTools (F12) → Application → Cookies\n" +
+                "Sao chép giá trị của .truyen_AUTH và LoginToken"
+            dialogTitle = "Cookie đăng nhập"
+            dialogMessage = "Định dạng: .truyen_AUTH=xxx; LoginToken=email@gmail.com\n\n" +
+                "JavaScript để lấy cookie (chạy trong Console):\n" +
+                "document.cookie"
+            setOnPreferenceChangeListener { _, _ ->
+                Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
+                true
+            }
+        }.also(screen::addPreference)
+    }
+
     // ============================== Filters ===============================
 
     override fun getFilterList(): FilterList = getFilters()
+
+    companion object {
+        private const val PREF_AUTH_COOKIE = "auth_cookie"
+        private const val RESTART_APP = "Khởi chạy lại ứng dụng để áp dụng cookie."
+    }
 }
+
