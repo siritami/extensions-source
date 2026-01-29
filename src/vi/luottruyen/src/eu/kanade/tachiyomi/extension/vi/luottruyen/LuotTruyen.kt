@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.extension.vi.luottruyen
 
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -8,6 +9,7 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.asJsoup
+import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -54,7 +56,7 @@ class LuotTruyen : HttpSource() {
     // =============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request {
-        return GET(baseUrl + if (page > 1) "?page=$page" else "", headers)
+        return GET("$baseUrl/?page=$page&typegroup=0", headers)
     }
 
     override fun latestUpdatesParse(response: Response): MangasPage {
@@ -147,12 +149,28 @@ class LuotTruyen : HttpSource() {
 
     // ============================== Chapters ==============================
 
+    override fun chapterListRequest(manga: SManga): Request {
+        // Extract story ID from manga URL (e.g., /truyen-tranh/manga-name-12345 -> 12345)
+        val storyId = manga.url.substringAfterLast("-")
+
+        val formBody = FormBody.Builder()
+            .add("StoryID", storyId)
+            .build()
+
+        val chapterHeaders = headersBuilder()
+            .add("X-Requested-With", "XMLHttpRequest")
+            .add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            .build()
+
+        return POST("$baseUrl/Story/ListChapterByStoryID", chapterHeaders, formBody)
+    }
+
     override fun chapterListParse(response: Response): List<SChapter> {
         val document = response.asJsoup()
 
-        return document.select("div.list-chapter li.row:not(.heading)").map { element ->
+        return document.select("li.row:not(.heading)").map { element ->
             SChapter.create().apply {
-                element.selectFirst("div.chapter a")?.let {
+                element.selectFirst("div.chapter a, a")?.let {
                     name = it.text()
                     setUrlWithoutDomain(it.attr("href"))
                 }
