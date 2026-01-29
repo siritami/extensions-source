@@ -57,7 +57,8 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
                         .build(),
                 )
             }
-        })
+        },
+    )
         .build()
 
     override fun headersBuilder() = super.headersBuilder()
@@ -279,10 +280,10 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
             dialogMessage = """
                 |Hướng dẫn lấy cookie:
                 |1. Mở trình duyệt (Chrome/Edge) trên máy tính
-                |2. Truy cập ${baseUrl} và đăng nhập bằng Google
+                |2. Truy cập $baseUrl và đăng nhập bằng Google
                 |3. Nhấn F12 để mở DevTools
                 |4. Chọn tab Application (hoặc Storage)
-                |5. Ở menu bên trái, chọn Cookies → ${baseUrl}
+                |5. Ở menu bên trái, chọn Cookies → $baseUrl
                 |6. Tìm cookie tên ".truyen_AUTH"
                 |7. Sao chép giá trị (Value) và dán vào ô bên dưới
                 |
