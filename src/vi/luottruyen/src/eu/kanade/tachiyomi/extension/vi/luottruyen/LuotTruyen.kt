@@ -98,6 +98,15 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
     override fun latestUpdatesParse(response: Response): MangasPage {
         val document = response.asJsoup()
 
+        // Check if user is logged in by looking for MemberID element with a valid value
+        val memberIdElement = document.selectFirst("input#MemberID")
+        val memberIdValue = memberIdElement?.attr("value")?.trim() ?: ""
+        val isLoggedIn = memberIdValue.isNotEmpty() && memberIdValue != "0"
+
+        if (!isLoggedIn) {
+            throw Exception("Thiếu cookie hoặc cookie hết hạn, cần thêm cookie trong cài đặt nguồn để đọc truyện")
+        }
+
         // Use #ctl00_divCenter to exclude slider items from owl-carousel
         val mangaList = document.select("#ctl00_divCenter .row > .item").map { element ->
             SManga.create().apply {
@@ -199,45 +208,6 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
     }
 
     // ============================== Chapters ==============================
-
-    override fun fetchChapterList(manga: SManga): rx.Observable<List<SChapter>> {
-        return rx.Observable.fromCallable {
-            // First, fetch the manga page to check login status
-            val mangaResponse = client.newCall(GET(baseUrl + manga.url, headers)).execute()
-            val document = mangaResponse.asJsoup()
-
-            // Check if user is logged in by looking for MemberID element
-            val isLoggedIn = document.selectFirst("input#MemberID") != null
-
-            if (!isLoggedIn) {
-                throw Exception("Cần thêm cookie trong cài đặt nguồn để đọc truyện")
-            }
-
-            // Fetch chapters
-            val storyId = manga.url.substringAfterLast("-")
-            val formBody = FormBody.Builder()
-                .add("StoryID", storyId)
-                .build()
-
-            val chapterHeaders = headersBuilder()
-                .add("X-Requested-With", "XMLHttpRequest")
-                .add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                .build()
-
-            val chapterResponse = client.newCall(POST("$baseUrl/Story/ListChapterByStoryID", chapterHeaders, formBody)).execute()
-            val chapterDocument = chapterResponse.asJsoup()
-
-            chapterDocument.select("li.row:not(.heading)").map { element ->
-                SChapter.create().apply {
-                    element.selectFirst("div.chapter a, a")?.let {
-                        name = it.text()
-                        setUrlWithoutDomain(it.attr("href"))
-                    }
-                    date_upload = parseRelativeDate(element.selectFirst("div.col-xs-4")?.text())
-                }
-            }
-        }
-    }
 
     override fun chapterListRequest(manga: SManga): Request {
         // Extract story ID from manga URL (e.g., /truyen-tranh/manga-name-12345 -> 12345)
