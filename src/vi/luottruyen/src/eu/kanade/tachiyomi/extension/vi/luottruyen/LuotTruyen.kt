@@ -60,7 +60,22 @@ class LuotTruyen : HttpSource() {
     }
 
     override fun latestUpdatesParse(response: Response): MangasPage {
-        return popularMangaParse(response)
+        val document = response.asJsoup()
+
+        // Use #ctl00_divCenter to exclude slider items from owl-carousel
+        val mangaList = document.select("#ctl00_divCenter .row > .item").map { element ->
+            SManga.create().apply {
+                element.selectFirst("figcaption h3 a, a.jtip")!!.let {
+                    title = it.text()
+                    setUrlWithoutDomain(it.attr("abs:href"))
+                }
+                thumbnail_url = imageOrNull(element.selectFirst("div.image a img"))
+            }
+        }
+
+        val hasNextPage = document.selectFirst("li.next:not(.disabled) a, li:not(.disabled).next a") != null
+
+        return MangasPage(mangaList, hasNextPage)
     }
 
     // =============================== Search ===============================
