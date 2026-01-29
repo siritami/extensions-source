@@ -38,27 +38,28 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
     private val preferences: SharedPreferences = getPreferences()
 
     override val client: OkHttpClient = network.cloudflareClient.newBuilder()
-        .cookieJar(object : CookieJar {
-            override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-                // Do nothing - we don't need to save cookies
-            }
-
-            override fun loadForRequest(url: HttpUrl): List<Cookie> {
-                val authCookie = preferences.getString(AUTH_COOKIE_PREF, "")
-                if (authCookie.isNullOrBlank()) {
-                    return emptyList()
+        .cookieJar(
+            object : CookieJar {
+                override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+                    // Do nothing - we don't need to save cookies
                 }
-                return listOf(
-                    Cookie.Builder()
-                        .domain(url.host)
-                        .path("/")
-                        .name(".truyen_AUTH")
-                        .value(authCookie)
-                        .build(),
-                )
-            }
-        },
-    )
+
+                override fun loadForRequest(url: HttpUrl): List<Cookie> {
+                    val authCookie = preferences.getString(AUTH_COOKIE_PREF, "")
+                    if (authCookie.isNullOrBlank()) {
+                        return emptyList()
+                    }
+                    return listOf(
+                        Cookie.Builder()
+                            .domain(url.host)
+                            .path("/")
+                            .name(".truyen_AUTH")
+                            .value(authCookie)
+                            .build(),
+                    )
+                }
+            },
+        )
         .build()
 
     override fun headersBuilder() = super.headersBuilder()
