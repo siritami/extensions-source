@@ -3,8 +3,6 @@ package eu.kanade.tachiyomi.extension.vi.mimi
 import android.annotation.SuppressLint
 import android.app.Application
 import android.content.SharedPreferences
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -38,7 +36,6 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
-import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
@@ -218,8 +215,7 @@ class MiMi : HttpSource(), ConfigurableSource {
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun pageListParse(response: Response): List<Page> {
-        val result = response.parseAs<ChapterPages>()
-        val chapterId = response.request.url.queryParameter("id") ?: ""
+        val result = response.parseAs<ChapterResponse>()
 
         // Check if any page needs descrambling
         val needsDescrambling = result.pages.any { it.imageUrl.contains("scrambled") }
@@ -231,8 +227,14 @@ class MiMi : HttpSource(), ConfigurableSource {
             }
         }
 
-        // Need to use WebView to descramble images
-        val chapterUrl = "$baseUrl/g/0/chapter/Chap-0-$chapterId"
+        // Build the correct chapter URL for WebView
+        val chapterInfo = result.info
+        val mangaId = chapterInfo?.manga?.id ?: 0
+        val chapterId = chapterInfo?.id ?: 0
+        val chapterTitle = chapterInfo?.title?.replace(" ", "-") ?: "Chapter"
+        val chapterUrl = "$baseUrl/g/$mangaId/chapter/$chapterTitle-$chapterId"
+
+        // Use WebView to descramble images
         val descrambledImages = descrambleWithWebView(chapterUrl, result.pages.size)
 
         // Clear previous cache and set new one
@@ -274,9 +276,12 @@ class MiMi : HttpSource(), ConfigurableSource {
                     super.onPageFinished(view, url)
 
                     // Wait a bit for WASM to initialize and process images
-                    handler.postDelayed({
-                        view?.evaluateJavascript(extractImagesScript, null)
-                    }, 5000)
+                    handler.postDelayed(
+                        {
+                            view?.evaluateJavascript(extractImagesScript, null)
+                        },
+                        5000,
+                    )
                 }
             }
 

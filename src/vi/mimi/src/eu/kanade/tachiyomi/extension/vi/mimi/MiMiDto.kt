@@ -81,6 +81,28 @@ data class ChapterDto(
     val uploadDate: String? = null,
 )
 
+// Full chapter response with pages and info
+@Serializable
+data class ChapterResponse(
+    val pages: List<PageDto> = emptyList(),
+    val info: ChapterInfo? = null,
+    val next: Int? = null,
+    val prev: Int? = null,
+)
+
+@Serializable
+data class ChapterInfo(
+    val id: Int,
+    val title: String? = null,
+    val manga: MangaBasicInfo? = null,
+)
+
+@Serializable
+data class MangaBasicInfo(
+    val id: Int,
+    val title: String? = null,
+)
+
 @Serializable
 data class ChapterPages(
     val pages: List<PageDto> = emptyList(),
@@ -89,4 +111,5 @@ data class ChapterPages(
 @Serializable
 data class PageDto(
     val imageUrl: String,
+    val drm: String? = null,
 )
