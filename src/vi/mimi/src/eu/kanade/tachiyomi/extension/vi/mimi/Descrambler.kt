@@ -14,18 +14,11 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import eu.kanade.tachiyomi.network.GET
 import okhttp3.Headers
-import okhttp3.Interceptor
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.OkHttpClient
-import okhttp3.Protocol
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.ResponseBody.Companion.toResponseBody
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import java.io.ByteArrayOutputStream
+import java.util.concurrent.CountDownLatch
+import uy.kohesive.injekt.api.get
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
@@ -377,8 +370,9 @@ class Descrambler(private val headers: Headers) {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     // Block network images to speed up, but we unblock them for the actual fetch
-                    settings.blockNetworkImage = false 
-                    
+                    settings.blockNetworkImage = false
+
+
                     webChromeClient = object : WebChromeClient() {
                         override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
                             // Log console messages for debugging
@@ -389,7 +383,7 @@ class Descrambler(private val headers: Headers) {
                     webViewClient = object : WebViewClient() {
                         override fun shouldInterceptRequest(
                             view: WebView?,
-                            request: WebResourceRequest?
+                            request: WebResourceRequest?,
                         ): WebResourceResponse? {
                             // Let everything load normally for now
                             return super.shouldInterceptRequest(view, request)
