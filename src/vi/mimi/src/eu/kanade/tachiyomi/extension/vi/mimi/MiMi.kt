@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.extension.vi.mimi
 
+import android.webkit.CookieManager
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -14,9 +16,11 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Interceptor
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
+import java.io.IOException
 import java.util.Calendar
 
 class MiMi : HttpSource() {
@@ -29,9 +33,28 @@ class MiMi : HttpSource() {
 
     override val supportsLatest = true
 
-    override val client = network.cloudflareClient
+    override val client = network.cloudflareClient.newBuilder()
+        .addInterceptor(::authCheckInterceptor)
+        .rateLimit(3)
+        .build()
 
     private val json: Json by injectLazy()
+
+    private fun authCheckInterceptor(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+
+        // Only check auth for requests to this domain
+        if (request.url.host != baseUrl.toHttpUrl().host) {
+            return chain.proceed(request)
+        }
+
+        val cookies = CookieManager.getInstance()?.getCookie(baseUrl)
+        if (cookies.isNullOrEmpty() || !cookies.contains("authState")) {
+            throw IOException("Nguồn này cần đăng nhập qua WebView để sử dụng")
+        }
+
+        return chain.proceed(request)
+    }
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
