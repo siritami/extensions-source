@@ -17,11 +17,15 @@ import keiyoushi.utils.getPreferences
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
+import kotlin.experimental.xor
 
 class MiMi : HttpSource(), ConfigurableSource {
 
@@ -41,8 +45,36 @@ class MiMi : HttpSource(), ConfigurableSource {
 
     private val preferences: SharedPreferences = getPreferences()
 
+    private val imageDescrambler: Interceptor = Interceptor { chain ->
+        val request = chain.request()
+        val response = chain.proceed(request)
+
+        val drmHash = request.url.fragment
+        if (drmHash.isNullOrEmpty()) {
+            return@Interceptor response
+        }
+
+        val urlString = request.url.toString()
+        if (!urlString.contains("/scrambled/")) {
+            return@Interceptor response
+        }
+
+        try {
+            val oldBody = response.body.bytes()
+            val hashBytes = drmHash.decodeHex()
+            val descrambled = descrambleImage(oldBody, hashBytes)
+            val newBody = descrambled.toResponseBody("image/png".toMediaTypeOrNull())
+            response.newBuilder()
+                .body(newBody)
+                .build()
+        } catch (e: Exception) {
+            response
+        }
+    }
+
     override val client = network.cloudflareClient.newBuilder()
         .rateLimit(3)
+        .addInterceptor(imageDescrambler)
         .build()
 
     override fun headersBuilder() = super.headersBuilder()
@@ -168,7 +200,12 @@ class MiMi : HttpSource(), ConfigurableSource {
     override fun pageListParse(response: Response): List<Page> {
         val result = response.parseAs<ChapterPages>()
         return result.pages.mapIndexed { index, page ->
-            Page(index, imageUrl = page.imageUrl)
+            val imageUrl = if (!page.drm.isNullOrEmpty()) {
+                "${page.imageUrl}#${page.drm}"
+            } else {
+                page.imageUrl
+            }
+            Page(index, imageUrl = imageUrl)
         }
     }
 
@@ -180,6 +217,19 @@ class MiMi : HttpSource(), ConfigurableSource {
 
     private inline fun <reified T> Response.parseAs(): T {
         return json.decodeFromString<T>(body.string())
+    }
+
+    private fun String.decodeHex(): ByteArray {
+        check(length % 2 == 0) { "Must have an even length" }
+        return chunked(2)
+            .map { it.toInt(16).toByte() }
+            .toByteArray()
+    }
+
+    private fun descrambleImage(imageByteArray: ByteArray, hashByteArray: ByteArray): ByteArray {
+        return imageByteArray.mapIndexed { idx, byte ->
+            byte xor hashByteArray[idx % hashByteArray.size]
+        }.toByteArray()
     }
 
     // ============================== Preferences ======================================
