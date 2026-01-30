@@ -1,15 +1,10 @@
 package eu.kanade.tachiyomi.extension.vi.mimi
 
-import android.annotation.SuppressLint
-import android.app.Application
 import android.content.SharedPreferences
-import android.os.Handler
-import android.os.Looper
-import android.util.Base64
-import android.view.View
-import android.webkit.JavascriptInterface
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Rect
 import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
@@ -23,23 +18,18 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import keiyoushi.utils.getPreferences
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 class MiMi : HttpSource(), ConfigurableSource {
 
@@ -59,10 +49,6 @@ class MiMi : HttpSource(), ConfigurableSource {
 
     private val preferences: SharedPreferences = getPreferences()
 
-    // Cache for descrambled images from WebView
-    @Volatile
-    private var descrambledImagesCache: Map<Int, ByteArray> = emptyMap()
-
     override val client = network.cloudflareClient.newBuilder()
         .rateLimit(3)
         .addInterceptor(::imageInterceptor)
@@ -71,29 +57,124 @@ class MiMi : HttpSource(), ConfigurableSource {
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
 
-    // ============================== Image Interceptor ======================================
+    // ============================== Image Descrambling ======================================
+
+    // MiMi uses fixed block size of 426x240
+    private val blockWidth = 426
+    private val blockHeight = 240
 
     private fun imageInterceptor(chain: Interceptor.Chain): Response {
         val request = chain.request()
+        val response = chain.proceed(request)
 
-        // Check if this is a descrambled image request (data URL)
-        val fragment = request.url.fragment
-        if (fragment != null && fragment.startsWith("mimi_cache:")) {
-            val pageIndex = fragment.removePrefix("mimi_cache:").toIntOrNull() ?: 0
-            val cachedData = descrambledImagesCache[pageIndex]
+        // Check if this is a descramble request (marked with fragment)
+        val fragment = request.url.fragment ?: return response
 
-            if (cachedData != null) {
-                return Response.Builder()
-                    .request(request)
-                    .protocol(Protocol.HTTP_1_1)
-                    .code(200)
-                    .message("OK")
-                    .body(cachedData.toResponseBody("image/jpeg".toMediaType()))
-                    .build()
-            }
+        if (!fragment.startsWith("mimi_drm:")) {
+            return response
         }
 
-        return chain.proceed(request)
+        // Parse the DRM key from fragment
+        val drmHex = fragment.removePrefix("mimi_drm:")
+
+        // Read the image bytes
+        val imageBytes = response.body.bytes()
+        val scrambledBitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+            ?: return response.newBuilder()
+                .body(imageBytes.toResponseBody("image/jpeg".toMediaType()))
+                .build()
+
+        // Descramble the image
+        val descrambledBitmap = descrambleImage(scrambledBitmap, drmHex)
+
+        // Convert back to bytes
+        val outputStream = ByteArrayOutputStream()
+        descrambledBitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
+        val descrambledBytes = outputStream.toByteArray()
+        descrambledBitmap.recycle()
+        scrambledBitmap.recycle()
+
+        return response.newBuilder()
+            .body(descrambledBytes.toResponseBody("image/jpeg".toMediaType()))
+            .build()
+    }
+
+    /**
+     * Descramble an image using the DRM key.
+     * The image is divided into a grid of 426x240 blocks which are then rearranged.
+     */
+    private fun descrambleImage(scrambled: Bitmap, drmHex: String): Bitmap {
+        val width = scrambled.width
+        val height = scrambled.height
+
+        // Calculate grid dimensions
+        val cols = (width + blockWidth - 1) / blockWidth
+        val rows = (height + blockHeight - 1) / blockHeight
+        val totalBlocks = cols * rows
+
+        // Generate permutation from DRM key
+        val permutation = generatePermutation(drmHex, totalBlocks)
+
+        // Create output bitmap
+        val descrambled = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(descrambled)
+
+        // Rearrange blocks
+        for (destIdx in 0 until totalBlocks) {
+            val srcIdx = permutation[destIdx]
+
+            val srcCol = srcIdx % cols
+            val srcRow = srcIdx / cols
+            val destCol = destIdx % cols
+            val destRow = destIdx / cols
+
+            // Calculate actual block dimensions (handle edge blocks)
+            val srcX = srcCol * blockWidth
+            val srcY = srcRow * blockHeight
+            val destX = destCol * blockWidth
+            val destY = destRow * blockHeight
+
+            val actualWidth = minOf(blockWidth, width - srcX)
+            val actualHeight = minOf(blockHeight, height - srcY)
+
+            val srcRect = Rect(srcX, srcY, srcX + actualWidth, srcY + actualHeight)
+            val destRect = Rect(destX, destY, destX + actualWidth, destY + actualHeight)
+
+            canvas.drawBitmap(scrambled, srcRect, destRect, null)
+        }
+
+        return descrambled
+    }
+
+    /**
+     * Generate a permutation array from the DRM hex string.
+     * Returns an array where result[destIdx] = srcIdx
+     */
+    private fun generatePermutation(drmHex: String, totalBlocks: Int): IntArray {
+        // Convert hex to bytes
+        val drmBytes = drmHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+        // Seed derivation: XOR first 4 bytes with bytes 4-7
+        var seed = 0L
+        for (i in 0 until minOf(8, drmBytes.size)) {
+            seed = seed or ((drmBytes[i].toInt() and 0xFF).toLong() shl (i * 8))
+        }
+
+        // Use Fisher-Yates shuffle with a simple LCG PRNG
+        val indices = (0 until totalBlocks).toMutableList()
+        var state = seed.toUInt()
+
+        for (i in (totalBlocks - 1) downTo 1) {
+            // LCG: next = (a * state + c) mod m
+            state = (state * 1103515245u + 12345u) and 0x7FFFFFFFu
+            val j = (state % (i.toUInt() + 1u)).toInt()
+            val temp = indices[i]
+            indices[i] = indices[j]
+            indices[j] = temp
+        }
+
+        // The permutation maps: dest[i] should get source[indices[i]]
+        return indices.toIntArray()
     }
 
     // ============================== Popular ======================================
@@ -213,178 +294,18 @@ class MiMi : HttpSource(), ConfigurableSource {
         return GET("$apiUrl/manga/chapter?id=$chapterId", headers)
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
     override fun pageListParse(response: Response): List<Page> {
         val result = response.parseAs<ChapterResponse>()
 
-        // Check if any page needs descrambling
-        val needsDescrambling = result.pages.any { it.imageUrl.contains("scrambled") }
-
-        if (!needsDescrambling) {
-            // No descrambling needed, return direct URLs
-            return result.pages.mapIndexed { index, page ->
-                Page(index, imageUrl = page.imageUrl)
-            }
-        }
-
-        // Build the correct chapter URL for WebView
-        val chapterInfo = result.info
-        val mangaId = chapterInfo?.manga?.id ?: 0
-        val chapterId = chapterInfo?.id ?: 0
-        val chapterTitle = chapterInfo?.title?.replace(" ", "-") ?: "Chapter"
-        val chapterUrl = "$baseUrl/g/$mangaId/chapter/$chapterTitle-$chapterId"
-
-        // Use WebView to descramble images
-        val descrambledImages = descrambleWithWebView(chapterUrl, result.pages.size)
-
-        // Clear previous cache and set new one
-        descrambledImagesCache = descrambledImages
-
         return result.pages.mapIndexed { index, page ->
-            if (descrambledImages.containsKey(index)) {
-                // Use cached descrambled image
-                Page(index, imageUrl = "$baseUrl/descrambled/$chapterId/$index.jpg#mimi_cache:$index")
+            val imageUrl = if (page.drm != null && page.imageUrl.contains("scrambled")) {
+                // Add DRM key as URL fragment for the interceptor
+                "${page.imageUrl}#mimi_drm:${page.drm}"
             } else {
-                // Fallback to original URL
-                Page(index, imageUrl = page.imageUrl)
+                page.imageUrl
             }
+            Page(index, imageUrl = imageUrl)
         }
-    }
-
-    /**
-     * Load the chapter page in WebView and extract descrambled images.
-     */
-    @SuppressLint("SetJavaScriptEnabled")
-    private fun descrambleWithWebView(chapterUrl: String, pageCount: Int): Map<Int, ByteArray> {
-        val handler = Handler(Looper.getMainLooper())
-        val latch = CountDownLatch(1)
-        val jsInterface = DescrambleInterface(latch, pageCount)
-        var webView: WebView? = null
-
-        handler.post {
-            val wv = WebView(Injekt.get<Application>())
-            webView = wv
-            wv.settings.javaScriptEnabled = true
-            wv.settings.domStorageEnabled = true
-            wv.settings.loadsImagesAutomatically = true
-            wv.settings.blockNetworkImage = false
-            wv.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-            wv.addJavascriptInterface(jsInterface, "MiMiInterface")
-
-            wv.webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    super.onPageFinished(view, url)
-
-                    // Wait a bit for WASM to initialize and process images
-                    handler.postDelayed(
-                        {
-                            view?.evaluateJavascript(extractImagesScript, null)
-                        },
-                        5000,
-                    )
-                }
-            }
-
-            wv.loadUrl(chapterUrl)
-        }
-
-        // Wait up to 60 seconds for all images
-        latch.await(60L, TimeUnit.SECONDS)
-        handler.post { webView?.destroy() }
-
-        return jsInterface.getImages()
-    }
-
-    private val extractImagesScript = """
-        (function() {
-            try {
-                // Find all canvas elements that contain the descrambled images
-                const canvases = document.querySelectorAll('canvas');
-                const results = [];
-
-                canvases.forEach((canvas, index) => {
-                    try {
-                        if (canvas.width > 100 && canvas.height > 100) {
-                            const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-                            results.push({
-                                index: index,
-                                data: dataUrl.split(',')[1]
-                            });
-                        }
-                    } catch (e) {
-                        console.error('Canvas export error:', e);
-                    }
-                });
-
-                // Also check for any img elements that might have been processed
-                const imgs = document.querySelectorAll('img[src*="scrambled"]');
-                imgs.forEach((img, index) => {
-                    // These are the source images, we need the canvas versions
-                });
-
-                if (results.length > 0) {
-                    window.MiMiInterface.onImagesReady(JSON.stringify(results));
-                } else {
-                    // Try again after more delay
-                    setTimeout(function() {
-                        const canvases2 = document.querySelectorAll('canvas');
-                        const results2 = [];
-                        canvases2.forEach((canvas, index) => {
-                            try {
-                                if (canvas.width > 100 && canvas.height > 100) {
-                                    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-                                    results2.push({
-                                        index: index,
-                                        data: dataUrl.split(',')[1]
-                                    });
-                                }
-                            } catch (e) {}
-                        });
-                        window.MiMiInterface.onImagesReady(JSON.stringify(results2));
-                    }, 5000);
-                }
-            } catch (e) {
-                window.MiMiInterface.onError(e.toString());
-            }
-        })();
-    """.trimIndent()
-
-    @Suppress("UNUSED")
-    private class DescrambleInterface(
-        private val latch: CountDownLatch,
-        private val expectedCount: Int,
-    ) {
-        private val images = mutableMapOf<Int, ByteArray>()
-        private var error: String? = null
-
-        fun getImages(): Map<Int, ByteArray> = images.toMap()
-
-        @JavascriptInterface
-        fun onImagesReady(jsonData: String) {
-            try {
-                val results = Json.decodeFromString<List<ImageResult>>(jsonData)
-                results.forEach { result ->
-                    try {
-                        val bytes = Base64.decode(result.data, Base64.DEFAULT)
-                        images[result.index] = bytes
-                    } catch (e: Exception) {
-                        // Skip this image
-                    }
-                }
-            } catch (e: Exception) {
-                error = e.message
-            }
-            latch.countDown()
-        }
-
-        @JavascriptInterface
-        fun onError(errorMessage: String) {
-            error = errorMessage
-            latch.countDown()
-        }
-
-        @Serializable
-        data class ImageResult(val index: Int, val data: String)
     }
 
     override fun imageUrlParse(response: Response): String {
