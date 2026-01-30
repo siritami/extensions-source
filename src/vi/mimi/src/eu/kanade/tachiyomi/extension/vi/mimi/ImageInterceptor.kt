@@ -61,10 +61,17 @@ class ImageInterceptor : Interceptor {
         val descrambledBitmap = Bitmap.createBitmap(width, height, originalBitmap.config)
         val canvas = Canvas(descrambledBitmap)
 
-        // Rearrange tiles according to the permutation
-        // permutation[i] = destination index for tile at source index i
-        for (srcIndex in 0 until TILE_COUNT) {
-            val dstIndex = permutation[srcIndex]
+        // Compute inverse permutation: inversePermutation[dst] = src
+        // This tells us: for each destination position, which source position to read from
+        val inversePermutation = IntArray(TILE_COUNT)
+        for (src in 0 until TILE_COUNT) {
+            inversePermutation[permutation[src]] = src
+        }
+
+        // Rearrange tiles according to the INVERSE permutation
+        // For each destination position, find where the tile comes from in the scrambled image
+        for (dstIndex in 0 until TILE_COUNT) {
+            val srcIndex = inversePermutation[dstIndex]
 
             val srcX = (srcIndex % GRID_SIZE) * tileWidth
             val srcY = (srcIndex / GRID_SIZE) * tileHeight
