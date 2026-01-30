@@ -1,10 +1,15 @@
 package eu.kanade.tachiyomi.extension.vi.mimi
 
+import android.app.Application
 import android.content.SharedPreferences
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
+import android.util.Base64
+import android.view.View
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
@@ -21,15 +26,16 @@ import keiyoushi.utils.getPreferences
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Interceptor
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.ResponseBody.Companion.toResponseBody
+import rx.Observable
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
-import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class MiMi : HttpSource(), ConfigurableSource {
 
@@ -49,53 +55,8 @@ class MiMi : HttpSource(), ConfigurableSource {
 
     private val preferences: SharedPreferences = getPreferences()
 
-    private val imageDescrambler: Interceptor = Interceptor { chain ->
-        val request = chain.request()
-        val response = chain.proceed(request)
-
-        val fragment = request.url.fragment
-        if (fragment.isNullOrEmpty()) {
-            return@Interceptor response
-        }
-
-        val urlString = request.url.toString()
-        if (!urlString.contains("/scrambled/")) {
-            return@Interceptor response
-        }
-
-        try {
-            // Fragment format: "pageIndex:drmHexString"
-            val parts = fragment.split(":", limit = 2)
-            if (parts.size != 2) {
-                return@Interceptor response
-            }
-
-            val pageIndex = parts[0].toIntOrNull() ?: 0
-            val drmHex = parts[1]
-            val hashBytes = drmHex.decodeHex()
-
-            val scrambledImg = BitmapFactory.decodeStream(response.body.byteStream())
-                ?: return@Interceptor response
-
-            val descrambledImg = descrambleImage(scrambledImg, hashBytes, pageIndex)
-
-            val output = ByteArrayOutputStream()
-            descrambledImg.compress(Bitmap.CompressFormat.JPEG, 90, output)
-            scrambledImg.recycle()
-            descrambledImg.recycle()
-
-            val body = output.toByteArray().toResponseBody("image/jpeg".toMediaType())
-            response.newBuilder()
-                .body(body)
-                .build()
-        } catch (e: Exception) {
-            response
-        }
-    }
-
     override val client = network.cloudflareClient.newBuilder()
         .rateLimit(3)
-        .addInterceptor(imageDescrambler)
         .build()
 
     override fun headersBuilder() = super.headersBuilder()
@@ -218,16 +179,107 @@ class MiMi : HttpSource(), ConfigurableSource {
         return GET("$apiUrl/manga/chapter?id=$chapterId", headers)
     }
 
+    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> {
+        // First, get the page list from API to check if pages have DRM
+        val chapterId = chapter.url.substringAfterLast("/")
+        val apiResponse = client.newCall(GET("$apiUrl/manga/chapter?id=$chapterId", headers)).execute()
+        val result = apiResponse.parseAs<ChapterPages>()
+
+        // Check if any page has DRM (scrambled)
+        val hasScrambledPages = result.pages.any { !it.drm.isNullOrEmpty() }
+
+        if (!hasScrambledPages) {
+            // No DRM, return pages directly
+            val pages = result.pages.mapIndexed { index, page ->
+                Page(index, imageUrl = page.imageUrl)
+            }
+            return Observable.just(pages)
+        }
+
+        // Has scrambled pages - use WebView to descramble
+        return fetchPagesViaWebView(chapter)
+    }
+
+    private fun fetchPagesViaWebView(chapter: SChapter): Observable<List<Page>> {
+        val chapterUrl = "$baseUrl${chapter.url}"
+        val interfaceName = "MiMiInterface"
+
+        val handler = Handler(Looper.getMainLooper())
+        val latch = CountDownLatch(1)
+        val jsInterface = JsInterface(latch)
+        var webView: WebView? = null
+
+        handler.post {
+            val innerWv = WebView(Injekt.get<Application>())
+
+            webView = innerWv
+            innerWv.settings.domStorageEnabled = true
+            innerWv.settings.javaScriptEnabled = true
+            innerWv.settings.blockNetworkImage = false
+            innerWv.settings.userAgentString = headers["User-Agent"]
+            innerWv.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+            innerWv.addJavascriptInterface(jsInterface, interfaceName)
+
+            innerWv.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+
+                    // Wait a bit for WASM to finish descrambling
+                    handler.postDelayed({
+                        view?.evaluateJavascript(
+                            """
+                            (function() {
+                                try {
+                                    var canvases = document.querySelectorAll('canvas');
+                                    var images = [];
+                                    for (var i = 0; i < canvases.length; i++) {
+                                        try {
+                                            var canvas = canvases[i];
+                                            if (canvas.width > 100 && canvas.height > 100) {
+                                                var dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+                                                images.push(dataUrl);
+                                            }
+                                        } catch(e) {}
+                                    }
+                                    return JSON.stringify(images);
+                                } catch(e) {
+                                    return JSON.stringify([]);
+                                }
+                            })()
+                            """.trimIndent(),
+                        ) { result ->
+                            jsInterface.passPayload(result)
+                        }
+                    }, 3000) // Wait 3 seconds for WASM to descramble
+                }
+            }
+
+            innerWv.loadUrl(chapterUrl, headers.toMap())
+        }
+
+        // Wait up to 30 seconds for the WebView to complete
+        latch.await(30, TimeUnit.SECONDS)
+        handler.post { webView?.destroy() }
+
+        if (latch.count == 1L) {
+            throw Exception("Timeout waiting for page descrambling")
+        }
+
+        val pages = jsInterface.images.mapIndexed { index, imageData ->
+            Page(index, imageUrl = imageData)
+        }
+
+        if (pages.isEmpty()) {
+            throw Exception("No images found in chapter")
+        }
+
+        return Observable.just(pages)
+    }
+
     override fun pageListParse(response: Response): List<Page> {
         val result = response.parseAs<ChapterPages>()
         return result.pages.mapIndexed { index, page ->
-            val imageUrl = if (!page.drm.isNullOrEmpty()) {
-                // Include page index in fragment for descrambling: "pageIndex:drmHex"
-                "${page.imageUrl}#$index:${page.drm}"
-            } else {
-                page.imageUrl
-            }
-            Page(index, imageUrl = imageUrl)
+            Page(index, imageUrl = page.imageUrl)
         }
     }
 
@@ -235,111 +287,40 @@ class MiMi : HttpSource(), ConfigurableSource {
         throw UnsupportedOperationException()
     }
 
+    // ============================== WebView Helper ======================================
+
+    internal class JsInterface(private val latch: CountDownLatch) {
+        var images: List<String> = listOf()
+            private set
+
+        @JavascriptInterface
+        @Suppress("UNUSED")
+        fun passPayload(rawData: String) {
+            try {
+                // Remove quotes from JSON string result
+                val jsonString = rawData.trim().removeSurrounding("\"").replace("\\\"", "\"")
+                images = json.decodeFromString<List<String>>(jsonString)
+                latch.countDown()
+            } catch (_: Exception) {
+                // Try alternative parsing
+                try {
+                    images = json.decodeFromString<List<String>>(rawData)
+                    latch.countDown()
+                } catch (_: Exception) {
+                    latch.countDown()
+                }
+            }
+        }
+
+        companion object {
+            private val json: Json by injectLazy()
+        }
+    }
+
     // ============================== Helpers ======================================
 
     private inline fun <reified T> Response.parseAs(): T {
         return json.decodeFromString<T>(body.string())
-    }
-
-    private fun String.decodeHex(): ByteArray {
-        check(length % 2 == 0) { "Must have an even length" }
-        return chunked(2)
-            .map { it.toInt(16).toByte() }
-            .toByteArray()
-    }
-
-    /**
-     * Extract permutation using Fisher-Yates shuffle seeded by DRM key bytes.
-     * The DRM key bytes are used as a sequence of random values to drive the shuffle.
-     *
-     * Analysis shows:
-     * - DRM byte 0: version/type indicator (0x41, 0x42, 0x44, 0x47)
-     * - Remaining bytes: used to seed/drive the permutation algorithm
-     * - Page index may also affect the permutation
-     */
-    private fun extractPermutation(drmKey: ByteArray, pageIndex: Int): IntArray {
-        // Start with identity permutation [0, 1, 2, 3, 4, 5, 6, 7, 8]
-        val permutation = IntArray(9) { it }
-
-        if (drmKey.size < 20) {
-            return permutation
-        }
-
-        // Use Fisher-Yates shuffle with DRM bytes as the "random" sequence
-        // The DRM key combined with page index determines the shuffle
-        val shuffleBytes = ByteArray(9)
-        for (i in 0 until 9) {
-            // Use bytes from position 5+i, XOR with page index for variation
-            val byte = drmKey[5 + i].toInt() and 0xFF
-            shuffleBytes[i] = ((byte xor pageIndex) and 0xFF).toByte()
-        }
-
-        // Fisher-Yates shuffle using shuffleBytes as the random source
-        for (i in 8 downTo 1) {
-            // Use the shuffle byte to determine swap index
-            val j = (shuffleBytes[8 - i].toInt() and 0xFF) % (i + 1)
-            // Swap permutation[i] and permutation[j]
-            val temp = permutation[i]
-            permutation[i] = permutation[j]
-            permutation[j] = temp
-        }
-
-        return permutation
-    }
-
-    /**
-     * Descramble an image that has been split into a 3x3 grid of tiles.
-     * The DRM key combined with page index determines the tile permutation.
-     */
-    private fun descrambleImage(scrambledImg: Bitmap, drmKey: ByteArray, pageIndex: Int): Bitmap {
-        val width = scrambledImg.width
-        val height = scrambledImg.height
-
-        // Grid is always 3x3 (9 tiles)
-        val cols = 3
-        val rows = 3
-        val tileWidth = width / cols
-        val tileHeight = height / rows
-
-        val descrambledImg = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(descrambledImg)
-
-        // Extract permutation directly from DRM key and page index
-        val permutation = extractPermutation(drmKey, pageIndex)
-
-        // permutation[srcIdx] = destIdx means source tile srcIdx goes to destination destIdx
-        // To descramble, we need to reverse this: for each destIdx, find which srcIdx goes there
-        val inversePermutation = IntArray(9)
-        for (srcIdx in 0 until 9) {
-            val destIdx = permutation[srcIdx]
-            inversePermutation[destIdx] = srcIdx
-        }
-
-        // Now draw tiles: for each destination position, get the source tile
-        for (destIdx in 0 until 9) {
-            val srcIdx = inversePermutation[destIdx]
-
-            val srcCol = srcIdx % cols
-            val srcRow = srcIdx / cols
-            val destCol = destIdx % cols
-            val destRow = destIdx / cols
-
-            val srcRect = Rect(
-                srcCol * tileWidth,
-                srcRow * tileHeight,
-                (srcCol + 1) * tileWidth,
-                (srcRow + 1) * tileHeight,
-            )
-            val destRect = Rect(
-                destCol * tileWidth,
-                destRow * tileHeight,
-                (destCol + 1) * tileWidth,
-                (destRow + 1) * tileHeight,
-            )
-            canvas.drawBitmap(scrambledImg, srcRect, destRect, null)
-        }
-
-        return descrambledImg
     }
 
     // ============================== Preferences ======================================
