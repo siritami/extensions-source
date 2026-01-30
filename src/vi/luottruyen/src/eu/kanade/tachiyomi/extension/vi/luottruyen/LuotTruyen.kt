@@ -31,13 +31,33 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
 
     override val lang = "vi"
 
-    override val baseUrl = "https://luottruyen1.com"
+    private val defaultBaseUrl = "https://luottruyen1.com"
+
+    override val baseUrl by lazy { getPrefBaseUrl() }
 
     override val supportsLatest = true
 
     private val preferences: SharedPreferences = getPreferences()
 
+    private var hasCheckedRedirect = false
+
     override val client: OkHttpClient = network.cloudflareClient.newBuilder()
+        .addInterceptor { chain ->
+            val originalRequest = chain.request()
+            val response = chain.proceed(originalRequest)
+            if (!hasCheckedRedirect && preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
+                hasCheckedRedirect = true
+                val originalHost = defaultBaseUrl.toHttpUrl().host
+                val newHost = response.request.url.host
+                if (newHost != originalHost) {
+                    val newBaseUrl = "${response.request.url.scheme}://$newHost"
+                    preferences.edit()
+                        .putString(BASE_URL_PREF, newBaseUrl)
+                        .apply()
+                }
+            }
+            response
+        }
         .cookieJar(
             object : CookieJar {
                 override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
@@ -61,6 +81,17 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
             },
         )
         .build()
+
+    init {
+        preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
+            if (prefDefaultBaseUrl != defaultBaseUrl) {
+                preferences.edit()
+                    .putString(BASE_URL_PREF, defaultBaseUrl)
+                    .putString(DEFAULT_BASE_URL_PREF, defaultBaseUrl)
+                    .apply()
+            }
+        }
+    }
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
@@ -285,10 +316,6 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
 
         val images = document.select(".reading-detail .page-chapter img[data-index]")
 
-        if (images.isEmpty()) {
-            throw Exception("Không có cookie được cài đặt hoặc hết hạn. Vui lòng thêm cookie trong cài đặt nguồn")
-        }
-
         return images.mapIndexed { i, img -> Page(i, imageUrl = img.absUrl("src")) }
     }
 
@@ -299,6 +326,27 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
     // ============================== Settings ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        EditTextPreference(screen.context).apply {
+            key = BASE_URL_PREF
+            title = BASE_URL_PREF_TITLE
+            summary = BASE_URL_PREF_SUMMARY
+            setDefaultValue(defaultBaseUrl)
+            dialogTitle = BASE_URL_PREF_TITLE
+            dialogMessage = "Default: $defaultBaseUrl"
+
+            setOnPreferenceChangeListener { _, _ ->
+                Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
+                true
+            }
+        }.let(screen::addPreference)
+
+        androidx.preference.SwitchPreferenceCompat(screen.context).apply {
+            key = AUTO_CHANGE_DOMAIN_PREF
+            title = AUTO_CHANGE_DOMAIN_TITLE
+            summary = AUTO_CHANGE_DOMAIN_SUMMARY
+            setDefaultValue(false)
+        }.let(screen::addPreference)
+
         EditTextPreference(screen.context).apply {
             key = AUTH_COOKIE_PREF
             title = AUTH_COOKIE_TITLE
@@ -325,7 +373,18 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
         }.let(screen::addPreference)
     }
 
+    private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, defaultBaseUrl)!!
+
     companion object {
+        private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
+        private const val BASE_URL_PREF = "overrideBaseUrl"
+        private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
+        private const val BASE_URL_PREF_SUMMARY = "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
+
+        private const val AUTO_CHANGE_DOMAIN_PREF = "autoChangeDomain"
+        private const val AUTO_CHANGE_DOMAIN_TITLE = "Tự động cập nhật domain"
+        private const val AUTO_CHANGE_DOMAIN_SUMMARY = "Khi mở ứng dụng, ứng dụng sẽ tự động cập nhật domain mới nếu website chuyển hướng."
+
         private const val AUTH_COOKIE_PREF = "authCookie"
         private const val AUTH_COOKIE_TITLE = "Cookie xác thực"
         private const val AUTH_COOKIE_SUMMARY = "Nhập cookie để đọc truyện cần đăng nhập"
