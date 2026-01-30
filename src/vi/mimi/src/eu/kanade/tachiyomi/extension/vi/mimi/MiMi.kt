@@ -69,11 +69,11 @@ class MiMi : HttpSource(), ConfigurableSource {
             if (parts.size != 2) {
                 return@Interceptor response
             }
-            
+
             val pageIndex = parts[0].toIntOrNull() ?: 0
             val drmHex = parts[1]
             val hashBytes = drmHex.decodeHex()
-            
+
             val scrambledImg = BitmapFactory.decodeStream(response.body.byteStream())
                 ?: return@Interceptor response
 
@@ -249,68 +249,42 @@ class MiMi : HttpSource(), ConfigurableSource {
     }
 
     /**
-     * XorShift32 pseudo-random number generator.
-     * Used to generate deterministic permutations from a seed.
+     * Extract permutation using Fisher-Yates shuffle seeded by DRM key bytes.
+     * The DRM key bytes are used as a sequence of random values to drive the shuffle.
+     *
+     * Analysis shows:
+     * - DRM byte 0: version/type indicator (0x41, 0x42, 0x44, 0x47)
+     * - Remaining bytes: used to seed/drive the permutation algorithm
+     * - Page index may also affect the permutation
      */
-    private fun xorshift32(seed: UInt): UInt {
-        var n = seed
-        n = n xor (n shl 13)
-        n = n xor (n shr 17)
-        n = n xor (n shl 5)
-        return n
-    }
+    private fun extractPermutation(drmKey: ByteArray, pageIndex: Int): IntArray {
+        // Start with identity permutation [0, 1, 2, 3, 4, 5, 6, 7, 8]
+        val permutation = IntArray(9) { it }
 
-    /**
-     * Generate tile permutation from seed.
-     * Uses xorshift32 to create a deterministic shuffle.
-     * Returns array where result[srcIdx] = destIdx
-     */
-    private fun generatePermutation(seed: Long, gridSize: Int = 3): IntArray {
-        val totalTiles = gridSize * gridSize
-        var seed32 = seed.toUInt()
-        val pairs = mutableListOf<Pair<UInt, Int>>()
-
-        for (i in 0 until totalTiles) {
-            seed32 = xorshift32(seed32)
-            pairs.add(seed32 to i)
+        if (drmKey.size < 20) {
+            return permutation
         }
 
-        pairs.sortBy { it.first }
-        
-        // Create permutation: permutation[srcIdx] = destIdx
-        val permutation = IntArray(totalTiles)
-        pairs.forEachIndexed { destIdx, (_, srcIdx) ->
-            permutation[srcIdx] = destIdx
+        // Use Fisher-Yates shuffle with DRM bytes as the "random" sequence
+        // The DRM key combined with page index determines the shuffle
+        val shuffleBytes = ByteArray(9)
+        for (i in 0 until 9) {
+            // Use bytes from position 5+i, XOR with page index for variation
+            val byte = drmKey[5 + i].toInt() and 0xFF
+            shuffleBytes[i] = ((byte xor pageIndex) and 0xFF).toByte()
         }
-        
+
+        // Fisher-Yates shuffle using shuffleBytes as the random source
+        for (i in 8 downTo 1) {
+            // Use the shuffle byte to determine swap index
+            val j = (shuffleBytes[8 - i].toInt() and 0xFF) % (i + 1)
+            // Swap permutation[i] and permutation[j]
+            val temp = permutation[i]
+            permutation[i] = permutation[j]
+            permutation[j] = temp
+        }
+
         return permutation
-    }
-
-    /**
-     * Extract a seed from the DRM key bytes and page index.
-     * The algorithm combines the DRM key with the page index to produce unique seeds per page.
-     */
-    private fun extractSeed(drmKey: ByteArray, pageIndex: Int): Long {
-        if (drmKey.size < 8) return pageIndex.toLong()
-
-        // Combine DRM bytes with page index
-        // Use first 4 bytes as base, XOR with page index, then use next 4 bytes
-        var seed = 0L
-        
-        // First 4 bytes as lower 32 bits
-        for (i in 0 until 4) {
-            seed = seed or ((drmKey[i].toLong() and 0xFF) shl (i * 8))
-        }
-        
-        // XOR with page index
-        seed = seed xor (pageIndex.toLong() shl 16)
-        
-        // Next 4 bytes as upper bits, also mixed with page index
-        for (i in 4 until 8) {
-            seed = seed or (((drmKey[i].toLong() and 0xFF) xor pageIndex.toLong()) shl (i * 8))
-        }
-        
-        return seed
     }
 
     /**
@@ -330,9 +304,8 @@ class MiMi : HttpSource(), ConfigurableSource {
         val descrambledImg = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(descrambledImg)
 
-        // Generate permutation from seed
-        val seed = extractSeed(drmKey, pageIndex)
-        val permutation = generatePermutation(seed, cols)
+        // Extract permutation directly from DRM key and page index
+        val permutation = extractPermutation(drmKey, pageIndex)
 
         // permutation[srcIdx] = destIdx means source tile srcIdx goes to destination destIdx
         // To descramble, we need to reverse this: for each destIdx, find which srcIdx goes there
@@ -345,7 +318,7 @@ class MiMi : HttpSource(), ConfigurableSource {
         // Now draw tiles: for each destination position, get the source tile
         for (destIdx in 0 until 9) {
             val srcIdx = inversePermutation[destIdx]
-            
+
             val srcCol = srcIdx % cols
             val srcRow = srcIdx / cols
             val destCol = destIdx % cols
