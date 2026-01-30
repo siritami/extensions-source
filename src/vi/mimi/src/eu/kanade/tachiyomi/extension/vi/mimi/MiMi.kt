@@ -186,15 +186,15 @@ class MiMi : HttpSource(), ConfigurableSource {
         // Try using first 8 bytes XOR'ed with page index
         var seed = 0L
         for (i in 0 until minOf(8, drmBytes.size)) {
-            seed = seed xor ((drmBytes[i].toLong() and 0xFF) shl (i * 8))
+            seed = seed xor ((drmBytes[i].toLong() and 0xFFL) shl (i * 8))
         }
         // Incorporate page index into seed
-        seed = seed xor ((pageIndex.toLong() and 0xFFFF) shl 48)
-        seed = seed xor (pageIndex.toLong() * 0x5851F42D4C957F2DL)
+        seed = seed xor ((pageIndex.toLong() and 0xFFFFL) shl 48)
+        seed = seed xor (pageIndex.toLong() * 0x5851F42DL)
 
         // Use Fisher-Yates shuffle with xorshift64 PRNG (common in Rust)
         val indices = (0 until totalBlocks).toMutableList()
-        var state = if (seed != 0L) seed else 0x853C49E6748FEA9BL
+        var state = if (seed != 0L) seed else 0x748FEA9BL
 
         for (i in (totalBlocks - 1) downTo 1) {
             // xorshift64
