@@ -3,8 +3,6 @@ package eu.kanade.tachiyomi.extension.vi.mimi
 import android.annotation.SuppressLint
 import android.app.Application
 import android.content.SharedPreferences
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -35,7 +33,6 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
-import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
@@ -175,22 +172,27 @@ class MiMi : HttpSource(), ConfigurableSource {
             webView.settings.domStorageEnabled = true
             webView.settings.allowFileAccess = false
 
-            webView.addJavascriptInterface(object {
-                @JavascriptInterface
-                fun onResult(base64: String) {
-                    try {
-                        result = Base64.decode(base64, Base64.DEFAULT)
-                    } catch (e: Exception) {
-                        // Decode failed
+            webView.addJavascriptInterface(
+                object : Any() {
+                    @JavascriptInterface
+                    @Suppress("unused")
+                    fun onResult(base64: String) {
+                        try {
+                            result = Base64.decode(base64, Base64.DEFAULT)
+                        } catch (e: Exception) {
+                            // Decode failed
+                        }
+                        latch.countDown()
                     }
-                    latch.countDown()
-                }
 
-                @JavascriptInterface
-                fun onError(message: String) {
-                    latch.countDown()
-                }
-            }, "Android")
+                    @JavascriptInterface
+                    @Suppress("unused")
+                    fun onError(message: String) {
+                        latch.countDown()
+                    }
+                },
+                "Android",
+            )
 
             webView.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
