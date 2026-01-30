@@ -53,8 +53,8 @@ class MiMi : HttpSource(), ConfigurableSource {
         val request = chain.request()
         val response = chain.proceed(request)
 
-        val drmHash = request.url.fragment
-        if (drmHash.isNullOrEmpty()) {
+        val fragment = request.url.fragment
+        if (fragment.isNullOrEmpty()) {
             return@Interceptor response
         }
 
@@ -64,11 +64,20 @@ class MiMi : HttpSource(), ConfigurableSource {
         }
 
         try {
-            val hashBytes = drmHash.decodeHex()
+            // Fragment format: "pageIndex:drmHexString"
+            val parts = fragment.split(":", limit = 2)
+            if (parts.size != 2) {
+                return@Interceptor response
+            }
+            
+            val pageIndex = parts[0].toIntOrNull() ?: 0
+            val drmHex = parts[1]
+            val hashBytes = drmHex.decodeHex()
+            
             val scrambledImg = BitmapFactory.decodeStream(response.body.byteStream())
                 ?: return@Interceptor response
 
-            val descrambledImg = descrambleImage(scrambledImg, hashBytes)
+            val descrambledImg = descrambleImage(scrambledImg, hashBytes, pageIndex)
 
             val output = ByteArrayOutputStream()
             descrambledImg.compress(Bitmap.CompressFormat.JPEG, 90, output)
@@ -213,7 +222,8 @@ class MiMi : HttpSource(), ConfigurableSource {
         val result = response.parseAs<ChapterPages>()
         return result.pages.mapIndexed { index, page ->
             val imageUrl = if (!page.drm.isNullOrEmpty()) {
-                "${page.imageUrl}#${page.drm}"
+                // Include page index in fragment for descrambling: "pageIndex:drmHex"
+                "${page.imageUrl}#$index:${page.drm}"
             } else {
                 page.imageUrl
             }
@@ -251,10 +261,11 @@ class MiMi : HttpSource(), ConfigurableSource {
     }
 
     /**
-     * Generate tile coordinates mapping from source to destination.
-     * Uses xorshift32 to create a deterministic shuffle based on the seed.
+     * Generate tile permutation from seed.
+     * Uses xorshift32 to create a deterministic shuffle.
+     * Returns array where result[srcIdx] = destIdx
      */
-    private fun getUnscrambledCoords(seed: Long, gridSize: Int = 3): List<Pair<Int, Int>> {
+    private fun generatePermutation(seed: Long, gridSize: Int = 3): IntArray {
         val totalTiles = gridSize * gridSize
         var seed32 = seed.toUInt()
         val pairs = mutableListOf<Pair<UInt, Int>>()
@@ -265,35 +276,48 @@ class MiMi : HttpSource(), ConfigurableSource {
         }
 
         pairs.sortBy { it.first }
-        val sortedIndices = pairs.map { it.second }
-
-        // Returns list of (sourceIndex, destIndex) pairs
-        return sortedIndices.mapIndexed { destIndex, srcIndex ->
-            srcIndex to destIndex
+        
+        // Create permutation: permutation[srcIdx] = destIdx
+        val permutation = IntArray(totalTiles)
+        pairs.forEachIndexed { destIdx, (_, srcIdx) ->
+            permutation[srcIdx] = destIdx
         }
+        
+        return permutation
     }
 
     /**
-     * Extract a seed from the DRM key bytes.
-     * The key is 256 bytes, we use the first 8 bytes as a 64-bit seed.
+     * Extract a seed from the DRM key bytes and page index.
+     * The algorithm combines the DRM key with the page index to produce unique seeds per page.
      */
-    private fun extractSeed(drmKey: ByteArray): Long {
-        if (drmKey.size < 8) return 0L
+    private fun extractSeed(drmKey: ByteArray, pageIndex: Int): Long {
+        if (drmKey.size < 8) return pageIndex.toLong()
 
-        // Use bytes 0-7 as a little-endian 64-bit integer
+        // Combine DRM bytes with page index
+        // Use first 4 bytes as base, XOR with page index, then use next 4 bytes
         var seed = 0L
-        for (i in 0 until 8) {
+        
+        // First 4 bytes as lower 32 bits
+        for (i in 0 until 4) {
             seed = seed or ((drmKey[i].toLong() and 0xFF) shl (i * 8))
         }
+        
+        // XOR with page index
+        seed = seed xor (pageIndex.toLong() shl 16)
+        
+        // Next 4 bytes as upper bits, also mixed with page index
+        for (i in 4 until 8) {
+            seed = seed or (((drmKey[i].toLong() and 0xFF) xor pageIndex.toLong()) shl (i * 8))
+        }
+        
         return seed
     }
 
     /**
      * Descramble an image that has been split into a 3x3 grid of tiles.
-     * The DRM key is used to derive a seed for the xorshift PRNG,
-     * which determines the tile permutation.
+     * The DRM key combined with page index determines the tile permutation.
      */
-    private fun descrambleImage(scrambledImg: Bitmap, drmKey: ByteArray): Bitmap {
+    private fun descrambleImage(scrambledImg: Bitmap, drmKey: ByteArray, pageIndex: Int): Bitmap {
         val width = scrambledImg.width
         val height = scrambledImg.height
 
@@ -306,11 +330,22 @@ class MiMi : HttpSource(), ConfigurableSource {
         val descrambledImg = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(descrambledImg)
 
-        // Extract seed from DRM key and generate permutation
-        val seed = extractSeed(drmKey)
-        val coords = getUnscrambledCoords(seed, cols)
+        // Generate permutation from seed
+        val seed = extractSeed(drmKey, pageIndex)
+        val permutation = generatePermutation(seed, cols)
 
-        for ((srcIdx, destIdx) in coords) {
+        // permutation[srcIdx] = destIdx means source tile srcIdx goes to destination destIdx
+        // To descramble, we need to reverse this: for each destIdx, find which srcIdx goes there
+        val inversePermutation = IntArray(9)
+        for (srcIdx in 0 until 9) {
+            val destIdx = permutation[srcIdx]
+            inversePermutation[destIdx] = srcIdx
+        }
+
+        // Now draw tiles: for each destination position, get the source tile
+        for (destIdx in 0 until 9) {
+            val srcIdx = inversePermutation[destIdx]
+            
             val srcCol = srcIdx % cols
             val srcRow = srcIdx / cols
             val destCol = destIdx % cols
