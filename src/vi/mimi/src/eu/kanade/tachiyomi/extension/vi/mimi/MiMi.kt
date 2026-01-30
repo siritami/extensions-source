@@ -1,6 +1,10 @@
 package eu.kanade.tachiyomi.extension.vi.mimi
 
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Rect
 import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
@@ -18,14 +22,14 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import uy.kohesive.injekt.injectLazy
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
-import kotlin.experimental.xor
 
 class MiMi : HttpSource(), ConfigurableSource {
 
@@ -60,12 +64,20 @@ class MiMi : HttpSource(), ConfigurableSource {
         }
 
         try {
-            val oldBody = response.body.bytes()
             val hashBytes = drmHash.decodeHex()
-            val descrambled = descrambleImage(oldBody, hashBytes)
-            val newBody = descrambled.toResponseBody("image/png".toMediaTypeOrNull())
+            val scrambledImg = BitmapFactory.decodeStream(response.body.byteStream())
+                ?: return@Interceptor response
+
+            val descrambledImg = descrambleImage(scrambledImg, hashBytes)
+
+            val output = ByteArrayOutputStream()
+            descrambledImg.compress(Bitmap.CompressFormat.JPEG, 90, output)
+            scrambledImg.recycle()
+            descrambledImg.recycle()
+
+            val body = output.toByteArray().toResponseBody("image/jpeg".toMediaType())
             response.newBuilder()
-                .body(newBody)
+                .body(body)
                 .build()
         } catch (e: Exception) {
             response
@@ -226,10 +238,100 @@ class MiMi : HttpSource(), ConfigurableSource {
             .toByteArray()
     }
 
-    private fun descrambleImage(imageByteArray: ByteArray, hashByteArray: ByteArray): ByteArray {
-        return imageByteArray.mapIndexed { idx, byte ->
-            byte xor hashByteArray[idx % hashByteArray.size]
-        }.toByteArray()
+    /**
+     * XorShift32 pseudo-random number generator.
+     * Used to generate deterministic permutations from a seed.
+     */
+    private fun xorshift32(seed: UInt): UInt {
+        var n = seed
+        n = n xor (n shl 13)
+        n = n xor (n shr 17)
+        n = n xor (n shl 5)
+        return n
+    }
+
+    /**
+     * Generate tile coordinates mapping from source to destination.
+     * Uses xorshift32 to create a deterministic shuffle based on the seed.
+     */
+    private fun getUnscrambledCoords(seed: Long, gridSize: Int = 3): List<Pair<Int, Int>> {
+        val totalTiles = gridSize * gridSize
+        var seed32 = seed.toUInt()
+        val pairs = mutableListOf<Pair<UInt, Int>>()
+
+        for (i in 0 until totalTiles) {
+            seed32 = xorshift32(seed32)
+            pairs.add(seed32 to i)
+        }
+
+        pairs.sortBy { it.first }
+        val sortedIndices = pairs.map { it.second }
+
+        // Returns list of (sourceIndex, destIndex) pairs
+        return sortedIndices.mapIndexed { destIndex, srcIndex ->
+            srcIndex to destIndex
+        }
+    }
+
+    /**
+     * Extract a seed from the DRM key bytes.
+     * The key is 256 bytes, we use the first 8 bytes as a 64-bit seed.
+     */
+    private fun extractSeed(drmKey: ByteArray): Long {
+        if (drmKey.size < 8) return 0L
+
+        // Use bytes 0-7 as a little-endian 64-bit integer
+        var seed = 0L
+        for (i in 0 until 8) {
+            seed = seed or ((drmKey[i].toLong() and 0xFF) shl (i * 8))
+        }
+        return seed
+    }
+
+    /**
+     * Descramble an image that has been split into a 3x3 grid of tiles.
+     * The DRM key is used to derive a seed for the xorshift PRNG,
+     * which determines the tile permutation.
+     */
+    private fun descrambleImage(scrambledImg: Bitmap, drmKey: ByteArray): Bitmap {
+        val width = scrambledImg.width
+        val height = scrambledImg.height
+
+        // Grid is always 3x3 (9 tiles)
+        val cols = 3
+        val rows = 3
+        val tileWidth = width / cols
+        val tileHeight = height / rows
+
+        val descrambledImg = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(descrambledImg)
+
+        // Extract seed from DRM key and generate permutation
+        val seed = extractSeed(drmKey)
+        val coords = getUnscrambledCoords(seed, cols)
+
+        for ((srcIdx, destIdx) in coords) {
+            val srcCol = srcIdx % cols
+            val srcRow = srcIdx / cols
+            val destCol = destIdx % cols
+            val destRow = destIdx / cols
+
+            val srcRect = Rect(
+                srcCol * tileWidth,
+                srcRow * tileHeight,
+                (srcCol + 1) * tileWidth,
+                (srcRow + 1) * tileHeight,
+            )
+            val destRect = Rect(
+                destCol * tileWidth,
+                destRow * tileHeight,
+                (destCol + 1) * tileWidth,
+                (destRow + 1) * tileHeight,
+            )
+            canvas.drawBitmap(scrambledImg, srcRect, destRect, null)
+        }
+
+        return descrambledImg
     }
 
     // ============================== Preferences ======================================
