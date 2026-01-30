@@ -19,7 +19,6 @@ import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -43,11 +42,9 @@ class MiMi : HttpSource(), ConfigurableSource {
     private val preferences: SharedPreferences = getPreferences()
 
     override val client = network.cloudflareClient.newBuilder()
-        .addInterceptor(ImageInterceptor())
         .rateLimit(3)
+        .addInterceptor(ImageInterceptor())
         .build()
-
-    private val descrambler by lazy { Descrambler(headers) }
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
@@ -172,39 +169,12 @@ class MiMi : HttpSource(), ConfigurableSource {
     override fun pageListParse(response: Response): List<Page> {
         val result = response.parseAs<ChapterPages>()
         return result.pages.mapIndexed { index, page ->
-            val url = if (page.drm != null) "${page.imageUrl}#drm=${page.drm}" else page.imageUrl
-            Page(index, imageUrl = url)
-        }
-    }
-
-    private inner class ImageInterceptor : Interceptor {
-        override fun intercept(chain: Interceptor.Chain): Response {
-            val request = chain.request()
-            val url = request.url.toString()
-            
-            if (url.contains("#drm=")) {
-                val imageUrl = url.substringBefore("#drm=")
-                val drm = url.substringAfter("#drm=")
-                
-                try {
-                    val bitmap = descrambler.descramble(imageUrl, drm)
-                    val stream = java.io.ByteArrayOutputStream()
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
-                    val body = stream.toByteArray().toResponseBody("image/png".toMediaTypeOrNull())
-                    
-                    return Response.Builder()
-                        .code(200)
-                        .protocol(Protocol.HTTP_1_1)
-                        .request(request)
-                        .message("OK")
-                        .body(body)
-                        .build()
-                } catch (e: Exception) {
-                    throw java.io.IOException("Failed to descramble image: ${e.message}", e)
-                }
+            val imageUrl = if (page.drm != null) {
+                "${page.imageUrl}#drm=${page.drm}"
+            } else {
+                page.imageUrl
             }
-            
-            return chain.proceed(request)
+            Page(index, imageUrl = imageUrl)
         }
     }
 
