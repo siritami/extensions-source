@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.vi.mimi
 
-import android.webkit.CookieManager
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -42,14 +41,15 @@ class MiMi : HttpSource() {
 
     private fun authCheckInterceptor(chain: Interceptor.Chain): Response {
         val request = chain.request()
+        val url = request.url
 
         // Only check auth for requests to this domain
-        if (request.url.host != baseUrl.toHttpUrl().host) {
+        if (url.host != baseUrl.toHttpUrl().host) {
             return chain.proceed(request)
         }
 
-        val cookies = CookieManager.getInstance()?.getCookie(baseUrl)
-        if (cookies.isNullOrEmpty() || !cookies.contains("authState")) {
+        val cookie = client.cookieJar.loadForRequest(url).find { it.name == "authState" }
+        if (cookie == null) {
             throw IOException("Nguồn này cần đăng nhập qua WebView để sử dụng")
         }
 
