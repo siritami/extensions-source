@@ -187,7 +187,7 @@ class MiMi : HttpSource(), ConfigurableSource {
 
                     @JavascriptInterface
                     @Suppress("unused")
-                    fun onError(message: String) {
+                    fun onError(@Suppress("UNUSED_PARAMETER") message: String) {
                         latch.countDown()
                     }
                 },
