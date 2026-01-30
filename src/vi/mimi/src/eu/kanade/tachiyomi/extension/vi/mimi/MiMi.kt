@@ -2,10 +2,8 @@ package eu.kanade.tachiyomi.extension.vi.mimi
 
 import android.app.Application
 import android.content.SharedPreferences
-import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
-import android.util.Base64
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -250,7 +248,7 @@ class MiMi : HttpSource(), ConfigurableSource {
                         ) { result ->
                             jsInterface.passPayload(result)
                         }
-                    }, 3000) // Wait 3 seconds for WASM to descramble
+                    }, 3000,) // Wait 3 seconds for WASM to descramble
                 }
             }
 
