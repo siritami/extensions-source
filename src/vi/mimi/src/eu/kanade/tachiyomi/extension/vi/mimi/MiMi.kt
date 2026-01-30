@@ -7,22 +7,18 @@ import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.HttpSource
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import eu.kanade.tachiyomi.source.online.ParsedHttpSource
+import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
+import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 import java.io.IOException
 import java.util.Calendar
 
-class MiMi : HttpSource() {
+class MiMi : ParsedHttpSource() {
 
     override val name = "MiMi"
 
@@ -36,8 +32,6 @@ class MiMi : HttpSource() {
         .addInterceptor(::authCheckInterceptor)
         .rateLimit(3)
         .build()
-
-    private val json: Json by injectLazy()
 
     private fun authCheckInterceptor(chain: Interceptor.Chain): Response {
         val request = chain.request()
@@ -70,10 +64,15 @@ class MiMi : HttpSource() {
         return GET(url, headers)
     }
 
-    override fun popularMangaParse(response: Response): MangasPage {
-        val nuxtData = extractNuxtData(response.body.string())
-        return parseMangaList(nuxtData)
+    override fun popularMangaSelector() = "a.btn-popcl"
+
+    override fun popularMangaFromElement(element: Element) = SManga.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
+        title = element.selectFirst("h2")?.text() ?: ""
+        thumbnail_url = element.selectFirst("img")?.absUrl("src")
     }
+
+    override fun popularMangaNextPageSelector() = "button[aria-label='Next Page']:not([disabled])"
 
     // ============================== Latest ======================================
 
@@ -86,7 +85,11 @@ class MiMi : HttpSource() {
         return GET(url, headers)
     }
 
-    override fun latestUpdatesParse(response: Response): MangasPage = popularMangaParse(response)
+    override fun latestUpdatesSelector() = popularMangaSelector()
+
+    override fun latestUpdatesFromElement(element: Element) = popularMangaFromElement(element)
+
+    override fun latestUpdatesNextPageSelector() = popularMangaNextPageSelector()
 
     // ============================== Search ======================================
 
@@ -110,7 +113,11 @@ class MiMi : HttpSource() {
         return GET(url.build(), headers)
     }
 
-    override fun searchMangaParse(response: Response): MangasPage = popularMangaParse(response)
+    override fun searchMangaSelector() = popularMangaSelector()
+
+    override fun searchMangaFromElement(element: Element) = popularMangaFromElement(element)
+
+    override fun searchMangaNextPageSelector() = popularMangaNextPageSelector()
 
     // ============================== Filters ======================================
 
@@ -118,72 +125,31 @@ class MiMi : HttpSource() {
 
     // ============================== Details ======================================
 
-    override fun getMangaUrl(manga: SManga) = baseUrl + manga.url
-
-    override fun mangaDetailsRequest(manga: SManga): Request {
-        return GET(getMangaUrl(manga), headers)
-    }
-
-    override fun mangaDetailsParse(response: Response): SManga = SManga.create().apply {
-        val nuxtData = extractNuxtData(response.body.string())
-        val mangaId = response.request.url.pathSegments.last()
-        val mangaInfo = nuxtData["manga-info-$mangaId"]?.jsonObject
-            ?: throw Exception("Manga info not found")
-
-        title = mangaInfo["title"]!!.jsonPrimitive.content
-        thumbnail_url = mangaInfo["coverUrl"]?.jsonPrimitive?.content
-
-        author = mangaInfo["authors"]?.jsonArray?.joinToString { it.jsonObject["name"]!!.jsonPrimitive.content }
-
-        genre = mangaInfo["genres"]?.jsonArray?.joinToString { it.jsonObject["name"]!!.jsonPrimitive.content }
-
-        description = buildString {
-            mangaInfo["description"]?.jsonPrimitive?.content?.let { append(it) }
-            mangaInfo["differentNames"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }?.let {
-                append("\n\nTên khác: $it")
-            }
-            mangaInfo["parody"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }?.let {
-                append("\n\nParody: $it")
-            }
-        }.ifEmpty { null }
-
+    override fun mangaDetailsParse(document: Document) = SManga.create().apply {
+        title = document.selectFirst("h1")?.text() ?: ""
+        thumbnail_url = document.selectFirst("img.object-cover")?.absUrl("src")
+        author = document.select("a[href*='/artist/']").joinToString { it.text() }
+        genre = document.select("a[href*='/genres/']").joinToString { it.text() }
+        description = document.selectFirst("div.prose, div.description")?.text()
         status = SManga.UNKNOWN
     }
 
     // ============================== Chapters ======================================
 
-    override fun getChapterUrl(chapter: SChapter) = baseUrl + chapter.url
+    override fun chapterListSelector() = "a[href*='/chapter/']"
 
-    override fun chapterListRequest(manga: SManga): Request {
-        return GET(getMangaUrl(manga), headers)
-    }
-
-    override fun chapterListParse(response: Response): List<SChapter> {
-        val nuxtData = extractNuxtData(response.body.string())
-        val mangaId = response.request.url.pathSegments.last()
-        val chapterList = nuxtData["chapter-list-$mangaId"]?.jsonArray
-            ?: return emptyList()
-
-        return chapterList.mapIndexed { index, element ->
-            val chapterObj = element.jsonObject
-            SChapter.create().apply {
-                val chapterId = chapterObj["id"]!!.jsonPrimitive.content
-                val chapterTitle = chapterObj["title"]!!.jsonPrimitive.content
-                url = "/g/$mangaId/chapter/$chapterTitle-$chapterId"
-                name = chapterTitle
-                chapter_number = (chapterList.size - index).toFloat()
-
-                val dateStr = chapterObj["createdAt"]?.jsonPrimitive?.content
-                date_upload = dateStr.toDate()
-            }
-        }
+    override fun chapterFromElement(element: Element) = SChapter.create().apply {
+        setUrlWithoutDomain(element.attr("href"))
+        name = element.selectFirst("span, div")?.text() ?: element.text()
+        val dateText = element.selectFirst("span:contains(ago), span:contains(trước)")?.text()
+        date_upload = dateText.toDate()
     }
 
     private fun String?.toDate(): Long {
         this ?: return 0L
 
         // Handle relative time format (e.g., 12s ago, 49m ago, 15h ago, 4d ago)
-        if (this.contains("ago", ignoreCase = true)) {
+        if (this.contains("ago", ignoreCase = true) || this.contains("trước", ignoreCase = true)) {
             return try {
                 val calendar = Calendar.getInstance()
 
@@ -192,6 +158,9 @@ class MiMi : HttpSource() {
                     Regex("""(\d+)\s*m""", RegexOption.IGNORE_CASE) to Calendar.MINUTE,
                     Regex("""(\d+)\s*h""", RegexOption.IGNORE_CASE) to Calendar.HOUR_OF_DAY,
                     Regex("""(\d+)\s*d""", RegexOption.IGNORE_CASE) to Calendar.DAY_OF_MONTH,
+                    Regex("""(\d+)\s*giờ""", RegexOption.IGNORE_CASE) to Calendar.HOUR_OF_DAY,
+                    Regex("""(\d+)\s*ngày""", RegexOption.IGNORE_CASE) to Calendar.DAY_OF_MONTH,
+                    Regex("""(\d+)\s*phút""", RegexOption.IGNORE_CASE) to Calendar.MINUTE,
                 )
 
                 for ((pattern, field) in patterns) {
@@ -221,60 +190,14 @@ class MiMi : HttpSource() {
 
     // ============================== Pages ======================================
 
-    override fun pageListRequest(chapter: SChapter): Request {
-        return GET(getChapterUrl(chapter), headers)
-    }
-
-    override fun pageListParse(response: Response): List<Page> {
-        val nuxtData = extractNuxtData(response.body.string())
-        val chapterId = response.request.url.pathSegments.last().substringAfterLast("-")
-        val chapterData = nuxtData["chapter-$chapterId"]?.jsonObject
-            ?: throw Exception("Chapter data not found")
-
-        val pages = chapterData["pages"]?.jsonArray
-            ?: throw Exception("Pages not found")
-
-        return pages.mapIndexed { index, element ->
-            val pageObj = element.jsonObject
-            val imageUrl = pageObj["imageUrl"]?.jsonPrimitive?.content
-                ?: pageObj["url"]?.jsonPrimitive?.content
-                ?: throw Exception("Image URL not found")
+    override fun pageListParse(document: Document): List<Page> {
+        return document.select("img.w-full, .image-container img").mapIndexed { index, element ->
+            val imageUrl = element.absUrl("src").ifEmpty { element.absUrl("data-src") }
             Page(index, imageUrl = imageUrl)
         }
     }
 
-    override fun imageUrlParse(response: Response): String {
+    override fun imageUrlParse(document: Document): String {
         throw UnsupportedOperationException()
-    }
-
-    // ============================== Utilities ======================================
-
-    private fun extractNuxtData(html: String): JsonObject {
-        val nuxtDataRegex = Regex("""window\.__NUXT__\s*=\s*(\{.+?\})\s*(?:</script>|;)""", RegexOption.DOT_MATCHES_ALL)
-        val match = nuxtDataRegex.find(html)
-            ?: throw Exception("Nuxt data not found")
-
-        val jsonString = match.groupValues[1]
-        val nuxtObj = json.parseToJsonElement(jsonString).jsonObject
-        return nuxtObj["data"]?.jsonObject ?: throw Exception("Data not found in Nuxt object")
-    }
-
-    private fun parseMangaList(nuxtData: JsonObject): MangasPage {
-        val searchResults = nuxtData.entries.find { it.key.startsWith("search-results") }?.value?.jsonObject
-            ?: nuxtData.entries.find { it.key.startsWith("manga-list") }?.value?.jsonObject
-
-        val mangas = (searchResults?.get("data") as? JsonArray)?.map { element ->
-            val mangaObj = element.jsonObject
-            SManga.create().apply {
-                val id = mangaObj["id"]!!.jsonPrimitive.content
-                url = "/g/$id"
-                title = mangaObj["title"]!!.jsonPrimitive.content
-                thumbnail_url = mangaObj["coverUrl"]?.jsonPrimitive?.content
-            }
-        } ?: emptyList()
-
-        val hasNextPage = searchResults?.get("hasNextPage")?.jsonPrimitive?.content?.toBoolean() ?: false
-
-        return MangasPage(mangas, hasNextPage)
     }
 }
