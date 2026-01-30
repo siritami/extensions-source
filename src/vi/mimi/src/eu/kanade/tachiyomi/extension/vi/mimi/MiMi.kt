@@ -169,7 +169,7 @@ class MiMi : HttpSource() {
     // ============================== Helpers ======================================
 
     private inline fun <reified T> Response.parseAs(): T {
-        return json.decodeFromString(body.string())
+        return json.decodeFromString<T>(body.string())
     }
 
     // ============================== DTOs ======================================
