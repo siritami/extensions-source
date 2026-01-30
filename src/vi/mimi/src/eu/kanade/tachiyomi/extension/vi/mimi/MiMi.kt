@@ -1,14 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.mimi
 
-import android.annotation.SuppressLint
-import android.app.Application
 import android.content.SharedPreferences
-import android.os.Handler
-import android.os.Looper
-import android.util.Base64
-import android.webkit.JavascriptInterface
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
@@ -25,18 +17,12 @@ import keiyoushi.utils.getPreferences
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Interceptor
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.ResponseBody.Companion.toResponseBody
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 class MiMi : HttpSource(), ConfigurableSource {
 
@@ -56,182 +42,15 @@ class MiMi : HttpSource(), ConfigurableSource {
 
     private val preferences: SharedPreferences = getPreferences()
 
-    private val context by lazy { Injekt.get<Application>() }
-
     override val client = network.cloudflareClient.newBuilder()
+        .addInterceptor(ImageInterceptor())
         .rateLimit(3)
-        .addInterceptor(::imageInterceptor)
         .build()
+
+    private val descrambler by lazy { Descrambler(headers) }
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
-
-    // ============================== Image Descrambling ======================================
-
-    private fun imageInterceptor(chain: Interceptor.Chain): Response {
-        val request = chain.request()
-        val response = chain.proceed(request)
-
-        // Check if this is a descramble request (marked with fragment)
-        val fragment = request.url.fragment ?: return response
-
-        if (!fragment.startsWith("mimi_drm:")) {
-            return response
-        }
-
-        // Parse the DRM key from fragment
-        val drmHex = fragment.removePrefix("mimi_drm:")
-
-        // Read the original image bytes
-        val imageBytes = response.body.bytes()
-
-        // Descramble using WebView + WASM
-        val descrambledBytes = descrambleWithWebView(imageBytes, drmHex)
-            ?: return response.newBuilder()
-                .body(imageBytes.toResponseBody("image/jpeg".toMediaType()))
-                .build()
-
-        return response.newBuilder()
-            .body(descrambledBytes.toResponseBody("image/jpeg".toMediaType()))
-            .build()
-    }
-
-    @SuppressLint("SetJavaScriptEnabled")
-    private fun descrambleWithWebView(imageBytes: ByteArray, drmHex: String): ByteArray? {
-        val latch = CountDownLatch(1)
-        var result: ByteArray? = null
-
-        val handler = Handler(Looper.getMainLooper())
-
-        // Convert image to base64 for embedding in HTML
-        val imageBase64 = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
-
-        // Create HTML that loads the WASM and descrambles
-        val html = """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <script src="https://mimimoe.moe/_nuxt/CgImvNOL.js"></script>
-            </head>
-            <body>
-                <img id="scrambled" style="display:none">
-                <canvas id="canvas"></canvas>
-                <script>
-                    (async function() {
-                        try {
-                            // Load the scrambled image
-                            const img = document.getElementById('scrambled');
-                            img.src = 'data:image/jpeg;base64,$imageBase64';
-                            
-                            await new Promise((resolve, reject) => {
-                                img.onload = resolve;
-                                img.onerror = reject;
-                            });
-                            
-                            const canvas = document.getElementById('canvas');
-                            canvas.width = img.naturalWidth;
-                            canvas.height = img.naturalHeight;
-                            const ctx = canvas.getContext('2d');
-                            
-                            // Draw original scrambled image first
-                            ctx.drawImage(img, 0, 0);
-                            
-                            // Wait for WASM to be ready
-                            let attempts = 0;
-                            while (!window.wasmDescrambler && attempts < 50) {
-                                await new Promise(r => setTimeout(r, 100));
-                                attempts++;
-                            }
-                            
-                            if (window.wasmDescrambler && window.wasmDescrambler.descramble_image) {
-                                // Call the WASM descramble function
-                                window.wasmDescrambler.descramble_image(ctx, '$drmHex', img.naturalWidth, img.naturalHeight);
-                            } else {
-                                // Fallback: try to find the descrambler in other locations
-                                const scripts = document.querySelectorAll('script');
-                                // The WASM might auto-initialize from the script
-                            }
-                            
-                            // Get the result
-                            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-                            const base64 = dataUrl.split(',')[1];
-                            Android.onResult(base64);
-                        } catch (e) {
-                            Android.onError(e.message || 'Unknown error');
-                        }
-                    })();
-                </script>
-            </body>
-            </html>
-        """.trimIndent()
-
-        handler.post {
-            val webView = WebView(context)
-            webView.settings.javaScriptEnabled = true
-            webView.settings.domStorageEnabled = true
-            webView.settings.allowFileAccess = false
-
-            webView.addJavascriptInterface(
-                object : Any() {
-                    @JavascriptInterface
-                    @Suppress("unused")
-                    fun onResult(base64: String) {
-                        try {
-                            result = Base64.decode(base64, Base64.DEFAULT)
-                        } catch (e: Exception) {
-                            // Decode failed
-                        }
-                        latch.countDown()
-                    }
-
-                    @JavascriptInterface
-                    @Suppress("unused")
-                    fun onError(@Suppress("UNUSED_PARAMETER") message: String) {
-                        latch.countDown()
-                    }
-                },
-                "Android",
-            )
-
-            webView.webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    // Wait a bit for WASM to load and execute
-                    handler.postDelayed({
-                        if (latch.count > 0) {
-                            // Timeout - try to get whatever is on canvas
-                            webView.evaluateJavascript(
-                                """
-                                (function() {
-                                    try {
-                                        const canvas = document.getElementById('canvas');
-                                        if (canvas) {
-                                            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-                                            const base64 = dataUrl.split(',')[1];
-                                            Android.onResult(base64);
-                                        } else {
-                                            Android.onError('No canvas');
-                                        }
-                                    } catch(e) {
-                                        Android.onError(e.message);
-                                    }
-                                })();
-                                """.trimIndent(),
-                                null,
-                            )
-                        }
-                    }, 3000,)
-                }
-            }
-
-            webView.loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null)
-        }
-
-        // Wait for result with timeout
-        latch.await(10, TimeUnit.SECONDS)
-
-        return result
-    }
 
     // ============================== Popular ======================================
 
@@ -352,15 +171,40 @@ class MiMi : HttpSource(), ConfigurableSource {
 
     override fun pageListParse(response: Response): List<Page> {
         val result = response.parseAs<ChapterPages>()
-
         return result.pages.mapIndexed { index, page ->
-            val imageUrl = if (page.drm != null && page.imageUrl.contains("scrambled")) {
-                // Add DRM key as URL fragment for the interceptor
-                "${page.imageUrl}#mimi_drm:${page.drm}"
-            } else {
-                page.imageUrl
+            val url = if (page.drm != null) "${page.imageUrl}#drm=${page.drm}" else page.imageUrl
+            Page(index, imageUrl = url)
+        }
+    }
+
+    private inner class ImageInterceptor : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val request = chain.request()
+            val url = request.url.toString()
+            
+            if (url.contains("#drm=")) {
+                val imageUrl = url.substringBefore("#drm=")
+                val drm = url.substringAfter("#drm=")
+                
+                try {
+                    val bitmap = descrambler.descramble(imageUrl, drm)
+                    val stream = java.io.ByteArrayOutputStream()
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
+                    val body = stream.toByteArray().toResponseBody("image/png".toMediaTypeOrNull())
+                    
+                    return Response.Builder()
+                        .code(200)
+                        .protocol(Protocol.HTTP_1_1)
+                        .request(request)
+                        .message("OK")
+                        .body(body)
+                        .build()
+                } catch (e: Exception) {
+                    throw java.io.IOException("Failed to descramble image: ${e.message}", e)
+                }
             }
-            Page(index, imageUrl = imageUrl)
+            
+            return chain.proceed(request)
         }
     }
 
