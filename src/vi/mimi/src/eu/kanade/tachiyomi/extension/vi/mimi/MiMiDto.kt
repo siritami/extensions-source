@@ -89,5 +89,4 @@ data class ChapterPages(
 @Serializable
 data class PageDto(
     val imageUrl: String,
-    val drm: String? = null,
 )

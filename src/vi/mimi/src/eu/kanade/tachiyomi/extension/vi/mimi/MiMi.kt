@@ -43,7 +43,6 @@ class MiMi : HttpSource(), ConfigurableSource {
 
     override val client = network.cloudflareClient.newBuilder()
         .rateLimit(3)
-        .addInterceptor(ImageInterceptor())
         .build()
 
     override fun headersBuilder() = super.headersBuilder()
@@ -169,12 +168,7 @@ class MiMi : HttpSource(), ConfigurableSource {
     override fun pageListParse(response: Response): List<Page> {
         val result = response.parseAs<ChapterPages>()
         return result.pages.mapIndexed { index, page ->
-            val imageUrl = if (page.drm != null) {
-                "${page.imageUrl}#drm=${page.drm}"
-            } else {
-                page.imageUrl
-            }
-            Page(index, imageUrl = imageUrl)
+            Page(index, imageUrl = page.imageUrl)
         }
     }
 
