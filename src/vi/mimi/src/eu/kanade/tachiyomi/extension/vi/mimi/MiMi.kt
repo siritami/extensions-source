@@ -1,9 +1,12 @@
 package eu.kanade.tachiyomi.extension.vi.mimi
 
+import android.annotation.SuppressLint
 import android.app.Application
 import android.content.SharedPreferences
+import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -21,15 +24,19 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import keiyoushi.utils.getPreferences
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.Response
-import rx.Observable
+import okhttp3.ResponseBody.Companion.toResponseBody
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
@@ -55,10 +62,166 @@ class MiMi : HttpSource(), ConfigurableSource {
 
     override val client = network.cloudflareClient.newBuilder()
         .rateLimit(3)
+        .addInterceptor(::imageInterceptor)
         .build()
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
+
+    // ============================== Image Interceptor ======================================
+
+    private fun imageInterceptor(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        val response = chain.proceed(request)
+
+        // Check if this is a descramble request (marked with fragment)
+        val fragment = request.url.fragment ?: return response
+
+        if (!fragment.startsWith("mimi_descramble:")) {
+            return response
+        }
+
+        // Parse the descramble parameters
+        val params = fragment.removePrefix("mimi_descramble:")
+        val parts = params.split(":")
+        if (parts.size < 3) return response
+
+        val pageIndex = parts[0].toIntOrNull() ?: return response
+        val chapterId = parts[1]
+        val drmKey = parts[2]
+
+        // Load the scrambled image
+        val scrambledBytes = response.body.bytes()
+        val scrambledBitmap = BitmapFactory.decodeByteArray(scrambledBytes, 0, scrambledBytes.size)
+            ?: return response
+
+        // Get the descrambled image using WebView
+        val descrambledBytes = descrambleWithWebView(scrambledBytes, drmKey, pageIndex)
+            ?: return response.newBuilder()
+                .body(scrambledBytes.toResponseBody("image/jpeg".toMediaType()))
+                .build()
+
+        return response.newBuilder()
+            .body(descrambledBytes.toResponseBody("image/jpeg".toMediaType()))
+            .build()
+    }
+
+    /**
+     * Use WebView to run MiMi's WASM descrambling algorithm.
+     * This executes the site's own JavaScript to properly descramble the image.
+     */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun descrambleWithWebView(imageBytes: ByteArray, drmKey: String, pageIndex: Int): ByteArray? {
+        val handler = Handler(Looper.getMainLooper())
+        val latch = CountDownLatch(1)
+        val jsInterface = DescrambleInterface(latch)
+        var webView: WebView? = null
+
+        // Convert image to base64 for passing to JavaScript
+        val imageBase64 = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
+
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <script src="$baseUrl/_nuxt/aSdLPkDj.CaSpbFQb.wasm"></script>
+                <script src="$baseUrl/_nuxt/CgImvNOL.js"></script>
+            </head>
+            <body>
+                <canvas id="output" style="display:none;"></canvas>
+                <script>
+                (async function() {
+                    try {
+                        // Wait for WASM to be ready
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+
+                        // Create image from base64
+                        const img = new Image();
+                        await new Promise((resolve, reject) => {
+                            img.onload = resolve;
+                            img.onerror = reject;
+                            img.src = 'data:image/jpeg;base64,$imageBase64';
+                        });
+
+                        // Create canvas
+                        const canvas = document.getElementById('output');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+
+                        // Get WASM instance and descramble
+                        if (typeof window.s !== 'undefined' && window.s.descramble_image) {
+                            // Use the WASM descramble function
+                            await window.s.descramble_image(canvas, img, '$drmKey', $pageIndex);
+                        } else {
+                            // Fallback: try manual descrambling with intercepted drawImage
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0);
+                        }
+
+                        // Convert to base64 and return
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+                        window.MiMiInterface.onSuccess(dataUrl.split(',')[1]);
+                    } catch (e) {
+                        window.MiMiInterface.onError(e.toString());
+                    }
+                })();
+                </script>
+            </body>
+            </html>
+        """.trimIndent()
+
+        handler.post {
+            val wv = WebView(Injekt.get<Application>())
+            webView = wv
+            wv.settings.javaScriptEnabled = true
+            wv.settings.domStorageEnabled = true
+            wv.settings.allowFileAccess = true
+            wv.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+            wv.addJavascriptInterface(jsInterface, "MiMiInterface")
+
+            wv.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                }
+            }
+
+            wv.loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null)
+        }
+
+        // Wait up to 30 seconds for the result
+        latch.await(30L, TimeUnit.SECONDS)
+        handler.post { webView?.destroy() }
+
+        if (jsInterface.resultBase64.isNullOrEmpty()) {
+            return null
+        }
+
+        return try {
+            Base64.decode(jsInterface.resultBase64, Base64.DEFAULT)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    @Suppress("UNUSED")
+    private class DescrambleInterface(private val latch: CountDownLatch) {
+        var resultBase64: String? = null
+            private set
+        var error: String? = null
+            private set
+
+        @JavascriptInterface
+        fun onSuccess(base64Data: String) {
+            resultBase64 = base64Data
+            latch.countDown()
+        }
+
+        @JavascriptInterface
+        fun onError(errorMessage: String) {
+            error = errorMessage
+            latch.countDown()
+        }
+    }
 
     // ============================== Popular ======================================
 
@@ -177,142 +340,23 @@ class MiMi : HttpSource(), ConfigurableSource {
         return GET("$apiUrl/manga/chapter?id=$chapterId", headers)
     }
 
-    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> {
-        // First, get the page list from API to check if pages have DRM
-        val chapterId = chapter.url.substringAfterLast("/")
-        val apiResponse = client.newCall(GET("$apiUrl/manga/chapter?id=$chapterId", headers)).execute()
-        val result = apiResponse.parseAs<ChapterPages>()
-
-        // Check if any page has DRM (scrambled)
-        val hasScrambledPages = result.pages.any { !it.drm.isNullOrEmpty() }
-
-        if (!hasScrambledPages) {
-            // No DRM, return pages directly
-            val pages = result.pages.mapIndexed { index, page ->
-                Page(index, imageUrl = page.imageUrl)
-            }
-            return Observable.just(pages)
-        }
-
-        // Has scrambled pages - use WebView to descramble
-        return fetchPagesViaWebView(chapter)
-    }
-
-    private fun fetchPagesViaWebView(chapter: SChapter): Observable<List<Page>> {
-        val chapterUrl = "$baseUrl${chapter.url}"
-        val interfaceName = "MiMiInterface"
-
-        val handler = Handler(Looper.getMainLooper())
-        val latch = CountDownLatch(1)
-        val jsInterface = JsInterface(latch)
-        var webView: WebView? = null
-
-        handler.post {
-            val innerWv = WebView(Injekt.get<Application>())
-
-            webView = innerWv
-            innerWv.settings.domStorageEnabled = true
-            innerWv.settings.javaScriptEnabled = true
-            innerWv.settings.blockNetworkImage = false
-            innerWv.settings.userAgentString = headers["User-Agent"]
-            innerWv.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-            innerWv.addJavascriptInterface(jsInterface, interfaceName)
-
-            innerWv.webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    super.onPageFinished(view, url)
-
-                    // Wait a bit for WASM to finish descrambling
-                    handler.postDelayed({
-                        view?.evaluateJavascript(
-                            """
-                            (function() {
-                                try {
-                                    var canvases = document.querySelectorAll('canvas');
-                                    var images = [];
-                                    for (var i = 0; i < canvases.length; i++) {
-                                        try {
-                                            var canvas = canvases[i];
-                                            if (canvas.width > 100 && canvas.height > 100) {
-                                                var dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-                                                images.push(dataUrl);
-                                            }
-                                        } catch(e) {}
-                                    }
-                                    return JSON.stringify(images);
-                                } catch(e) {
-                                    return JSON.stringify([]);
-                                }
-                            })()
-                            """.trimIndent(),
-                        ) { result ->
-                            jsInterface.passPayload(result)
-                        }
-                    }, 3000,) // Wait 3 seconds for WASM to descramble
-                }
-            }
-
-            innerWv.loadUrl(chapterUrl, headers.toMap())
-        }
-
-        // Wait up to 30 seconds for the WebView to complete
-        latch.await(30, TimeUnit.SECONDS)
-        handler.post { webView?.destroy() }
-
-        if (latch.count == 1L) {
-            throw Exception("Timeout waiting for page descrambling")
-        }
-
-        val pages = jsInterface.images.mapIndexed { index, imageData ->
-            Page(index, imageUrl = imageData)
-        }
-
-        if (pages.isEmpty()) {
-            throw Exception("No images found in chapter")
-        }
-
-        return Observable.just(pages)
-    }
-
     override fun pageListParse(response: Response): List<Page> {
-        val result = response.parseAs<ChapterPages>()
+        val result = response.parseAs<ChapterPagesWithDrm>()
+        val chapterId = response.request.url.queryParameter("id") ?: ""
+
         return result.pages.mapIndexed { index, page ->
-            Page(index, imageUrl = page.imageUrl)
+            val imageUrl = if (page.drm != null && page.imageUrl.contains("scrambled")) {
+                // Add descramble info as URL fragment
+                "${page.imageUrl}#mimi_descramble:$index:$chapterId:${page.drm}"
+            } else {
+                page.imageUrl
+            }
+            Page(index, imageUrl = imageUrl)
         }
     }
 
     override fun imageUrlParse(response: Response): String {
         throw UnsupportedOperationException()
-    }
-
-    // ============================== WebView Helper ======================================
-
-    internal class JsInterface(private val latch: CountDownLatch) {
-        var images: List<String> = listOf()
-            private set
-
-        @JavascriptInterface
-        @Suppress("UNUSED")
-        fun passPayload(rawData: String) {
-            try {
-                // Remove quotes from JSON string result
-                val jsonString = rawData.trim().removeSurrounding("\"").replace("\\\"", "\"")
-                images = json.decodeFromString<List<String>>(jsonString)
-                latch.countDown()
-            } catch (_: Exception) {
-                // Try alternative parsing
-                try {
-                    images = json.decodeFromString<List<String>>(rawData)
-                    latch.countDown()
-                } catch (_: Exception) {
-                    latch.countDown()
-                }
-            }
-        }
-
-        companion object {
-            private val json: Json by injectLazy()
-        }
     }
 
     // ============================== Helpers ======================================
@@ -360,3 +404,14 @@ class MiMi : HttpSource(), ConfigurableSource {
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
     }
 }
+
+@Serializable
+data class ChapterPagesWithDrm(
+    val pages: List<PageWithDrm> = emptyList(),
+)
+
+@Serializable
+data class PageWithDrm(
+    val imageUrl: String,
+    val drm: String? = null,
+)
