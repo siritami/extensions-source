@@ -220,7 +220,7 @@ class MiMi : HttpSource(), ConfigurableSource {
                                 null,
                             )
                         }
-                    }, 3000)
+                    }, 3000,)
                 }
             }
 
