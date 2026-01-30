@@ -74,8 +74,13 @@ class MiMi : HttpSource(), ConfigurableSource {
             return response
         }
 
-        // Parse the DRM key from fragment
-        val drmHex = fragment.removePrefix("mimi_drm:")
+        // Parse the page index and DRM key from fragment
+        // Format: mimi_drm:pageIndex:drmHex
+        val params = fragment.removePrefix("mimi_drm:").split(":", limit = 2)
+        if (params.size < 2) return response
+
+        val pageIndex = params[0].toIntOrNull() ?: 0
+        val drmHex = params[1]
 
         // Read the image bytes
         val imageBytes = response.body.bytes()
@@ -85,7 +90,7 @@ class MiMi : HttpSource(), ConfigurableSource {
                 .build()
 
         // Descramble the image
-        val descrambledBitmap = descrambleImage(scrambledBitmap, drmHex)
+        val descrambledBitmap = descrambleImage(scrambledBitmap, drmHex, pageIndex)
 
         // Convert back to bytes
         val outputStream = ByteArrayOutputStream()
@@ -100,10 +105,10 @@ class MiMi : HttpSource(), ConfigurableSource {
     }
 
     /**
-     * Descramble an image using the DRM key.
+     * Descramble an image using the DRM key and page index.
      * The image is divided into a grid of 426x240 blocks which are then rearranged.
      */
-    private fun descrambleImage(scrambled: Bitmap, drmHex: String): Bitmap {
+    private fun descrambleImage(scrambled: Bitmap, drmHex: String, pageIndex: Int): Bitmap {
         val width = scrambled.width
         val height = scrambled.height
 
@@ -112,16 +117,26 @@ class MiMi : HttpSource(), ConfigurableSource {
         val rows = (height + blockHeight - 1) / blockHeight
         val totalBlocks = cols * rows
 
-        // Generate permutation from DRM key
-        val permutation = generatePermutation(drmHex, totalBlocks)
+        // Generate permutation from DRM key and page index
+        val permutation = generatePermutation(drmHex, pageIndex, totalBlocks)
 
         // Create output bitmap
         val descrambled = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(descrambled)
 
-        // Rearrange blocks
+        // The permutation maps: source block srcIdx goes to destination permutation[srcIdx]
+        // We need the inverse: for each destination, which source block?
+        val inversePermutation = IntArray(totalBlocks)
+        for (srcIdx in 0 until totalBlocks) {
+            val destIdx = permutation[srcIdx]
+            if (destIdx in 0 until totalBlocks) {
+                inversePermutation[destIdx] = srcIdx
+            }
+        }
+
+        // Rearrange blocks - destination gets content from source
         for (destIdx in 0 until totalBlocks) {
-            val srcIdx = permutation[destIdx]
+            val srcIdx = inversePermutation[destIdx]
 
             val srcCol = srcIdx % cols
             val srcRow = srcIdx / cols
@@ -147,33 +162,52 @@ class MiMi : HttpSource(), ConfigurableSource {
     }
 
     /**
-     * Generate a permutation array from the DRM hex string.
-     * Returns an array where result[destIdx] = srcIdx
+     * Generate a permutation array from the DRM hex string and page index.
+     * Returns an array where result[srcIdx] = destIdx (source block goes to destination)
+     *
+     * The algorithm incorporates the page index into the seed since the same DRM key
+     * produces different permutations on different pages.
      */
-    private fun generatePermutation(drmHex: String, totalBlocks: Int): IntArray {
+    private fun generatePermutation(drmHex: String, pageIndex: Int, totalBlocks: Int): IntArray {
         // Convert hex to bytes
-        val drmBytes = drmHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        val drmBytes = drmHex.chunked(2).mapNotNull {
+            try {
+                it.toInt(16).toByte()
+            } catch (e: Exception) {
+                null
+            }
+        }.toByteArray()
 
-        // Seed derivation: XOR first 4 bytes with bytes 4-7
-        var seed = 0L
-        for (i in 0 until minOf(8, drmBytes.size)) {
-            seed = seed or ((drmBytes[i].toInt() and 0xFF).toLong() shl (i * 8))
+        if (drmBytes.isEmpty()) {
+            return IntArray(totalBlocks) { it }
         }
 
-        // Use Fisher-Yates shuffle with a simple LCG PRNG
+        // Seed derivation: combine DRM bytes with page index
+        // Try using first 8 bytes XOR'ed with page index
+        var seed = 0L
+        for (i in 0 until minOf(8, drmBytes.size)) {
+            seed = seed xor ((drmBytes[i].toLong() and 0xFF) shl (i * 8))
+        }
+        // Incorporate page index into seed
+        seed = seed xor ((pageIndex.toLong() and 0xFFFF) shl 48)
+        seed = seed xor (pageIndex.toLong() * 0x5851F42D4C957F2DL)
+
+        // Use Fisher-Yates shuffle with xorshift64 PRNG (common in Rust)
         val indices = (0 until totalBlocks).toMutableList()
-        var state = seed.toUInt()
+        var state = if (seed != 0L) seed else 0x853C49E6748FEA9BL
 
         for (i in (totalBlocks - 1) downTo 1) {
-            // LCG: next = (a * state + c) mod m
-            state = (state * 1103515245u + 12345u) and 0x7FFFFFFFu
-            val j = (state % (i.toUInt() + 1u)).toInt()
+            // xorshift64
+            state = state xor (state shl 13)
+            state = state xor (state ushr 7)
+            state = state xor (state shl 17)
+
+            val j = ((state and Long.MAX_VALUE) % (i + 1)).toInt()
             val temp = indices[i]
             indices[i] = indices[j]
             indices[j] = temp
         }
 
-        // The permutation maps: dest[i] should get source[indices[i]]
         return indices.toIntArray()
     }
 
@@ -299,8 +333,8 @@ class MiMi : HttpSource(), ConfigurableSource {
 
         return result.pages.mapIndexed { index, page ->
             val imageUrl = if (page.drm != null && page.imageUrl.contains("scrambled")) {
-                // Add DRM key as URL fragment for the interceptor
-                "${page.imageUrl}#mimi_drm:${page.drm}"
+                // Add page index and DRM key as URL fragment for the interceptor
+                "${page.imageUrl}#mimi_drm:$index:${page.drm}"
             } else {
                 page.imageUrl
             }
