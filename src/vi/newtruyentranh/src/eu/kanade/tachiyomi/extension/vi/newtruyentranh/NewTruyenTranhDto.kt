@@ -14,7 +14,7 @@ class MangaListResponse(
 class MangaChannel(
     val id: String,
     val name: String,
-    val description: String? = null,
+    val description: String = "",
     val image: ImageData,
     @SerialName("remote_data")
     val remoteData: RemoteData,
