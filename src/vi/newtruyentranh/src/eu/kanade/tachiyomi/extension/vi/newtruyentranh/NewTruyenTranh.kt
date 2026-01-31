@@ -25,7 +25,7 @@ class NewTruyenTranh : HttpSource() {
         .add("Origin", baseUrl)
 
     // ============================== Popular ===============================
-    override fun popularMangaRequest(page: Int) = searchMangaRequest(page, "", FilterList(), "10") // Top all
+    override fun popularMangaRequest(page: Int) = buildSearchRequest(page, "", FilterList(), "10") // Top all
 
     override fun popularMangaParse(response: Response): MangasPage {
         val result = response.parseAs<MangaListResponse>()
@@ -37,12 +37,12 @@ class NewTruyenTranh : HttpSource() {
     }
 
     // ============================== Latest ================================
-    override fun latestUpdatesRequest(page: Int) = searchMangaRequest(page, "", FilterList(), "0") // Newest
+    override fun latestUpdatesRequest(page: Int) = buildSearchRequest(page, "", FilterList(), "0") // Newest
 
     override fun latestUpdatesParse(response: Response) = popularMangaParse(response)
 
     // ============================== Search ================================
-    private fun searchMangaRequest(page: Int, query: String, filters: FilterList, defaultSort: String): Request {
+    private fun buildSearchRequest(page: Int, query: String, filters: FilterList, defaultSort: String): Request {
         var genreSlug: String? = null
         var sortValue: String? = null
         var statusValue: String? = null
@@ -90,7 +90,7 @@ class NewTruyenTranh : HttpSource() {
     }
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList) =
-        searchMangaRequest(page, query, filters, "0")
+        buildSearchRequest(page, query, filters, "0")
 
     override fun searchMangaParse(response: Response) = popularMangaParse(response)
 
