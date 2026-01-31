@@ -8,7 +8,6 @@ import android.graphics.Canvas
 import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
-import android.util.Base64
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -58,10 +57,10 @@ class ImageInterceptor : Interceptor {
         // Descramble the image
         val body = response.body ?: return response
         val imageBytes = body.bytes()
-        
+
         // Get the tile mapping from WebView (or use fallback)
         val mapping = getTileMapping(drmHex)
-        
+
         // Descramble the image using the mapping
         val descrambledBytes = descrambleImage(imageBytes, mapping)
 
