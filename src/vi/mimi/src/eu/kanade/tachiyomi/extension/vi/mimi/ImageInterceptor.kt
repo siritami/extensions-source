@@ -76,24 +76,23 @@ class ImageInterceptor : Interceptor {
         // Create list of original indices [0, 1, 2, 3, 4, 5, 6, 7, 8]
         val originalIndices = (0 until TILE_COUNT).toMutableList()
 
-        // Shuffle to get the scrambled order
+        // Shuffle to get the mapping: shuffledIndices[dstIndex] = srcIndex
+        // This means: final tile at dstIndex comes from scrambled tile at srcIndex
         val shuffledIndices = rng.shuffle(originalIndices)
 
-        // shuffledIndices[i] = original position of the tile that is now at position i in the scrambled image
-        // To descramble: tile at scrambled position i should go to final position shuffledIndices[i]
-
-        for (scrambledIndex in 0 until TILE_COUNT) {
-            val originalIndex = shuffledIndices[scrambledIndex]
+        // For each destination position, read from the source position indicated by the shuffle
+        for (dstIndex in 0 until TILE_COUNT) {
+            val srcIndex = shuffledIndices[dstIndex]
 
             // Source coordinates (from scrambled image)
-            val srcCol = scrambledIndex % GRID_SIZE
-            val srcRow = scrambledIndex / GRID_SIZE
+            val srcCol = srcIndex % GRID_SIZE
+            val srcRow = srcIndex / GRID_SIZE
             val srcX = srcCol * tileWidth
             val srcY = srcRow * tileHeight
 
             // Destination coordinates (in result image)
-            val dstCol = originalIndex % GRID_SIZE
-            val dstRow = originalIndex / GRID_SIZE
+            val dstCol = dstIndex % GRID_SIZE
+            val dstRow = dstIndex / GRID_SIZE
             val dstX = dstCol * tileWidth
             val dstY = dstRow * tileHeight
 
