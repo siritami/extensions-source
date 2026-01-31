@@ -42,6 +42,7 @@ class MiMi : HttpSource(), ConfigurableSource {
     private val preferences: SharedPreferences = getPreferences()
 
     override val client = network.cloudflareClient.newBuilder()
+        .addInterceptor(ImageInterceptor())
         .rateLimit(3)
         .build()
 
@@ -168,7 +169,16 @@ class MiMi : HttpSource(), ConfigurableSource {
     override fun pageListParse(response: Response): List<Page> {
         val result = response.parseAs<ChapterPages>()
         return result.pages.mapIndexed { index, page ->
-            Page(index, imageUrl = page.imageUrl)
+            val imageUrl = if (page.drm != null && page.imageUrl.contains("/scrambled/")) {
+                // Append DRM data as query parameter for scrambled images
+                page.imageUrl.toHttpUrl().newBuilder()
+                    .addQueryParameter(ImageInterceptor.DRM_PARAM, page.drm)
+                    .build()
+                    .toString()
+            } else {
+                page.imageUrl
+            }
+            Page(index, imageUrl = imageUrl)
         }
     }
 
