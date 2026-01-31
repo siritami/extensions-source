@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit
 class ImageInterceptor : Interceptor {
     companion object {
         const val DRM_PARAM = "mimi_drm"
+        const val CHAPTER_URL_PARAM = "mimi_chapter_url"
         private const val GRID_SIZE = 3
         private const val TILE_COUNT = GRID_SIZE * GRID_SIZE
         private val JPEG_MEDIA_TYPE = "image/jpeg".toMediaType()
@@ -44,10 +45,12 @@ class ImageInterceptor : Interceptor {
 
         // Check if this is a scrambled image with DRM data
         val drmHex = url.queryParameter(DRM_PARAM) ?: return chain.proceed(request)
+        val chapterUrl = url.queryParameter(CHAPTER_URL_PARAM) ?: "https://mimimoe.moe/"
 
-        // Remove the DRM param and proceed with the real request
+        // Remove the DRM and chapter URL params and proceed with the real request
         val cleanUrl = url.newBuilder()
             .removeAllQueryParameters(DRM_PARAM)
+            .removeAllQueryParameters(CHAPTER_URL_PARAM)
             .build()
         val cleanRequest = request.newBuilder().url(cleanUrl).build()
         val response = chain.proceed(cleanRequest)
@@ -59,7 +62,7 @@ class ImageInterceptor : Interceptor {
         val imageBytes = body.bytes()
 
         // Get the tile mapping from WebView (or use fallback)
-        val mapping = getTileMapping(drmHex)
+        val mapping = getTileMapping(drmHex, chapterUrl)
 
         // Descramble the image using the mapping
         val descrambledBytes = descrambleImage(imageBytes, mapping)
@@ -74,7 +77,7 @@ class ImageInterceptor : Interceptor {
      * Falls back to identity mapping (no change) if WebView fails.
      */
     @SuppressLint("SetJavaScriptEnabled")
-    private fun getTileMapping(drmHex: String): IntArray {
+    private fun getTileMapping(drmHex: String, chapterUrl: String): IntArray {
         val latch = CountDownLatch(1)
         val result = intArrayOf(-1, -1, -1, -1, -1, -1, -1, -1, -1)
         val handler = Handler(Looper.getMainLooper())
@@ -97,8 +100,8 @@ class ImageInterceptor : Interceptor {
                     }
                 }
 
-                // Load the MiMi page to get access to the WASM module
-                wv.loadUrl("https://mimimoe.moe/")
+                // Load the actual chapter page to ensure WASM module is available
+                wv.loadUrl(chapterUrl)
             } catch (e: Exception) {
                 latch.countDown()
             }

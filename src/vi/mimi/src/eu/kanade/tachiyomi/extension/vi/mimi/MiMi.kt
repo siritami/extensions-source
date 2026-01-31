@@ -168,11 +168,16 @@ class MiMi : HttpSource(), ConfigurableSource {
 
     override fun pageListParse(response: Response): List<Page> {
         val result = response.parseAs<ChapterPages>()
+        // Extract chapter ID from the API request URL to build proper chapter page URL
+        val chapterId = response.request.url.queryParameter("id") ?: ""
+        val chapterPageUrl = "$baseUrl/chapter/$chapterId"
+
         return result.pages.mapIndexed { index, page ->
             val imageUrl = if (page.drm != null && page.imageUrl.contains("/scrambled/")) {
-                // Append DRM data as query parameter for scrambled images
+                // Append DRM data and chapter URL as query parameters for scrambled images
                 page.imageUrl.toHttpUrl().newBuilder()
                     .addQueryParameter(ImageInterceptor.DRM_PARAM, page.drm)
+                    .addQueryParameter(ImageInterceptor.CHAPTER_URL_PARAM, chapterPageUrl)
                     .build()
                     .toString()
             } else {
