@@ -25,7 +25,9 @@ import okhttp3.Request
 import okhttp3.Response
 import java.util.Calendar
 
-class LuotTruyen : HttpSource(), ConfigurableSource {
+class LuotTruyen :
+    HttpSource(),
+    ConfigurableSource {
 
     override val name = "LuotTruyen"
 
@@ -98,9 +100,7 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
 
     // ============================== Popular ===============================
 
-    override fun popularMangaRequest(page: Int): Request {
-        return GET("$baseUrl/tim-truyen?status=-1&sort=10" + if (page > 1) "&page=$page" else "", headers)
-    }
+    override fun popularMangaRequest(page: Int): Request = GET("$baseUrl/tim-truyen?status=-1&sort=10" + if (page > 1) "&page=$page" else "", headers)
 
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
@@ -122,9 +122,7 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        return GET("$baseUrl/?page=$page&typegroup=0", headers)
-    }
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/?page=$page&typegroup=0", headers)
 
     override fun latestUpdatesParse(response: Response): MangasPage {
         val document = response.asJsoup()
@@ -167,14 +165,17 @@ class LuotTruyen : HttpSource(), ConfigurableSource {
                         genreSlug = filter.toUriPart()
                     }
                 }
+
                 is SortFilter -> {
                     if (filter.state != 0) {
                         sortValue = filter.toUriPart()
                     }
                 }
+
                 is StatusFilter -> {
                     statusValue = filter.toUriPart()
                 }
+
                 else -> {}
             }
         }
