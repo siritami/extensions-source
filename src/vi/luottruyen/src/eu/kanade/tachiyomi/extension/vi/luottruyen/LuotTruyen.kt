@@ -200,9 +200,7 @@ class LuotTruyen :
         return GET(url, headers)
     }
 
-    override fun searchMangaParse(response: Response): MangasPage {
-        return popularMangaParse(response)
-    }
+    override fun searchMangaParse(response: Response): MangasPage = popularMangaParse(response)
 
     // =============================== Details ==============================
 
@@ -220,42 +218,38 @@ class LuotTruyen :
         }
     }
 
-    private fun String?.toStatus(): Int {
-        return when {
-            this == null -> SManga.UNKNOWN
-            this.contains("Đang tiến hành", ignoreCase = true) -> SManga.ONGOING
-            this.contains("Đang cập nhật", ignoreCase = true) -> SManga.ONGOING
-            this.contains("Hoàn thành", ignoreCase = true) -> SManga.COMPLETED
-            else -> SManga.UNKNOWN
-        }
+    private fun String?.toStatus(): Int = when {
+        this == null -> SManga.UNKNOWN
+        this.contains("Đang tiến hành", ignoreCase = true) -> SManga.ONGOING
+        this.contains("Đang cập nhật", ignoreCase = true) -> SManga.ONGOING
+        this.contains("Hoàn thành", ignoreCase = true) -> SManga.COMPLETED
+        else -> SManga.UNKNOWN
     }
 
     // ============================== Chapters ==============================
 
-    override fun fetchChapterList(manga: SManga): rx.Observable<List<SChapter>> {
-        return rx.Observable.fromCallable {
-            // Fetch chapters
-            val storyId = manga.url.substringAfterLast("-")
-            val formBody = FormBody.Builder()
-                .add("StoryID", storyId)
-                .build()
+    override fun fetchChapterList(manga: SManga): rx.Observable<List<SChapter>> = rx.Observable.fromCallable {
+        // Fetch chapters
+        val storyId = manga.url.substringAfterLast("-")
+        val formBody = FormBody.Builder()
+            .add("StoryID", storyId)
+            .build()
 
-            val chapterHeaders = headersBuilder()
-                .add("X-Requested-With", "XMLHttpRequest")
-                .add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                .build()
+        val chapterHeaders = headersBuilder()
+            .add("X-Requested-With", "XMLHttpRequest")
+            .add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            .build()
 
-            val chapterResponse = client.newCall(POST("$baseUrl/Story/ListChapterByStoryID", chapterHeaders, formBody)).execute()
-            val chapterDocument = chapterResponse.asJsoup()
+        val chapterResponse = client.newCall(POST("$baseUrl/Story/ListChapterByStoryID", chapterHeaders, formBody)).execute()
+        val chapterDocument = chapterResponse.asJsoup()
 
-            chapterDocument.select("li.row:not(.heading)").map { element ->
-                SChapter.create().apply {
-                    element.selectFirst("div.chapter a, a")?.let {
-                        name = it.text()
-                        setUrlWithoutDomain(it.attr("href"))
-                    }
-                    date_upload = parseRelativeDate(element.selectFirst("div.col-xs-4")?.text())
+        chapterDocument.select("li.row:not(.heading)").map { element ->
+            SChapter.create().apply {
+                element.selectFirst("div.chapter a, a")?.let {
+                    name = it.text()
+                    setUrlWithoutDomain(it.attr("href"))
                 }
+                date_upload = parseRelativeDate(element.selectFirst("div.col-xs-4")?.text())
             }
         }
     }
