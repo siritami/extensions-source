@@ -314,9 +314,7 @@ class LuotTruyen :
         return images.mapIndexed { i, img -> Page(i, imageUrl = img.absUrl("src")) }
     }
 
-    override fun imageUrlParse(response: Response): String {
-        throw UnsupportedOperationException()
-    }
+    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
 
