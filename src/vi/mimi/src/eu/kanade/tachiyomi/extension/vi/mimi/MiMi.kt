@@ -1,9 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.mimi
 
 import android.content.SharedPreferences
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
 import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
@@ -20,13 +17,9 @@ import keiyoushi.utils.getPreferences
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Interceptor
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.Response
-import okhttp3.ResponseBody.Companion.toResponseBody
 import uy.kohesive.injekt.injectLazy
-import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -50,7 +43,7 @@ class MiMi : HttpSource(), ConfigurableSource {
 
     override val client = network.cloudflareClient.newBuilder()
         .rateLimit(3)
-        .addInterceptor(::imageDescrambleInterceptor)
+        .addInterceptor(MiMiImageDescrambler())
         .build()
 
     override fun headersBuilder() = super.headersBuilder()
@@ -177,41 +170,11 @@ class MiMi : HttpSource(), ConfigurableSource {
         val result = response.parseAs<ChapterPages>()
         return result.pages.mapIndexed { index, page ->
             val imageUrl = if (page.drm != null) {
-                "${page.imageUrl}#$DRM_FRAGMENT_PREFIX${page.drm}"
+                "${page.imageUrl}#${MiMiImageDescrambler.DRM_PREFIX}${page.drm}"
             } else {
                 page.imageUrl
             }
             Page(index, imageUrl = imageUrl)
-        }
-    }
-
-    private fun imageDescrambleInterceptor(chain: Interceptor.Chain): Response {
-        val request = chain.request()
-        val response = chain.proceed(request)
-
-        val fragment = request.url.fragment
-        if (fragment == null || !fragment.startsWith(DRM_FRAGMENT_PREFIX)) {
-            return response
-        }
-
-        val drmHex = fragment.removePrefix(DRM_FRAGMENT_PREFIX)
-        return try {
-            val drmPlaintext = MiMiImageDecryptor.decryptDrm(drmHex)
-            val originalBytes = response.body.bytes()
-            val scrambled = BitmapFactory.decodeByteArray(originalBytes, 0, originalBytes.size)
-                ?: return response
-
-            val unscrambled = MiMiImageDecryptor.unscramble(scrambled, drmPlaintext)
-            scrambled.recycle()
-
-            val out = ByteArrayOutputStream()
-            unscrambled.compress(Bitmap.CompressFormat.JPEG, 90, out)
-            unscrambled.recycle()
-
-            val newBody = out.toByteArray().toResponseBody("image/jpeg".toMediaType())
-            response.newBuilder().body(newBody).build()
-        } catch (_: Exception) {
-            response
         }
     }
 
@@ -262,6 +225,5 @@ class MiMi : HttpSource(), ConfigurableSource {
         private const val BASE_URL_PREF = "overrideBaseUrl"
         private const val BASE_URL_PREF_SUMMARY =
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
-        private const val DRM_FRAGMENT_PREFIX = "drm="
     }
 }
