@@ -37,7 +37,7 @@ class YuriGarden : HttpSource() {
 
     override val client = network.cloudflareClient.newBuilder()
         .addInterceptor(ImageDescrambler())
-        .rateLimitHost(apiUrl.toHttpUrl(), 20, 1, TimeUnit.MINUTES)
+        .rateLimitHost(apiUrl.toHttpUrl(), 15, 1, TimeUnit.MINUTES)
         .build()
 
     private fun apiHeaders() = headersBuilder()

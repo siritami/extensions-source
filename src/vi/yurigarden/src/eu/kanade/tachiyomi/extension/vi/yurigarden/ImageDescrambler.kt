@@ -98,7 +98,7 @@ class ImageDescrambler : Interceptor {
         val checkChar = encoded.last()
         val value = base58Decode(data)
 
-        require(ALPHABET[value % 58] == checkChar) { "Checksum mismatch" }
+        require(ALPHABET[(value % 58).toInt()] == checkChar) { "Checksum mismatch" }
 
         return lehmerDecode(value, parts)
     }
