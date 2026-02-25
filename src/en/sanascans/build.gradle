@@ -1,0 +1,8 @@
+ext {
+    extName = 'Sana Scans'
+    extClass = '.SanaScans'
+    extVersionCode = 16
+    isNsfw = false
+}
+
+apply from: "$rootDir/common.gradle"
