@@ -39,3 +39,14 @@ class ChapterData(
     val volume: Int? = null,
     val publishedAt: Long = 0L,
 )
+
+@Serializable
+class ChapterDetail(
+    val pages: List<PageData> = emptyList(),
+)
+
+@Serializable
+class PageData(
+    val url: String,
+    val key: String? = null,
+)

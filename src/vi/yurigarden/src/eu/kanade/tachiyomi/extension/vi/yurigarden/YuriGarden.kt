@@ -36,6 +36,7 @@ class YuriGarden : HttpSource() {
         .add("Origin", baseUrl)
 
     override val client = network.cloudflareClient.newBuilder()
+        .addInterceptor(ImageDescrambler())
         .rateLimitHost(apiUrl.toHttpUrl(), 20, 1, TimeUnit.MINUTES)
         .build()
 
@@ -163,6 +164,9 @@ class YuriGarden : HttpSource() {
 
     // ============================== Chapters ==============================
 
+    private fun chapterId(chapter: SChapter): String =
+        chapter.url.substringAfterLast("/")
+
     override fun chapterListRequest(manga: SManga): Request =
         GET("$apiUrl/chapters/comic/${mangaId(manga)}", apiHeaders())
 
@@ -180,13 +184,34 @@ class YuriGarden : HttpSource() {
             }
     }
 
+    override fun getChapterUrl(chapter: SChapter): String =
+        "$baseUrl${chapter.url}"
+
     // ============================== Pages =================================
 
     override fun pageListRequest(chapter: SChapter): Request =
-        throw UnsupportedOperationException()
+        GET("$apiUrl/chapters/${chapterId(chapter)}", apiHeaders())
 
-    override fun pageListParse(response: Response): List<Page> =
-        throw UnsupportedOperationException()
+    override fun pageListParse(response: Response): List<Page> {
+        val result = response.parseAs<ChapterDetail>()
+
+        return result.pages.mapIndexed { index, page ->
+            val rawUrl = page.url.replace("_credit", "")
+            val imageUrl = if (rawUrl.startsWith("comics")) {
+                "$dbUrl/storage/v1/object/public/yuri-garden-store/$rawUrl"
+            } else {
+                rawUrl
+            }
+
+            val url = imageUrl.toHttpUrl().newBuilder().apply {
+                if (!page.key.isNullOrEmpty()) {
+                    fragment("KEY=${page.key}")
+                }
+            }.build().toString()
+
+            Page(index, imageUrl = url)
+        }
+    }
 
     override fun imageUrlParse(response: Response): String =
         throw UnsupportedOperationException()
