@@ -43,6 +43,7 @@ class YuriGarden : HttpSource() {
 
     private fun apiHeaders() = headersBuilder()
         .set("Referer", "$baseUrl/")
+        .set("User-Agent", "Kotatsu/9.0 (Android 16;;; en)")
         .add("x-app-origin", baseUrl)
         .add("x-custom-lang", "vi")
         .add("Accept", "application/json")
