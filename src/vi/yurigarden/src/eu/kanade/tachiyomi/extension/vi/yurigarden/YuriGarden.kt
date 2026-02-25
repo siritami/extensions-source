@@ -238,6 +238,6 @@ class YuriGarden : HttpSource() {
         json.decodeFromString<T>(body.string())
 
     companion object {
-        private const val LIMIT = 20
+        private const val LIMIT = 15
     }
 }
