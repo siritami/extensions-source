@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
@@ -197,19 +198,21 @@ class YuriGarden : HttpSource() {
 
         return result.pages.mapIndexed { index, page ->
             val rawUrl = page.url.replace("_credit", "")
-            val imageUrl = if (rawUrl.startsWith("comics")) {
-                "$dbUrl/storage/v1/object/public/yuri-garden-store/$rawUrl"
+
+            if (rawUrl.startsWith("comics")) {
+                val key = page.key
+                val url = "$dbUrl/storage/v1/object/public/yuri-garden-store/$rawUrl"
+                    .toHttpUrl().newBuilder().apply {
+                        if (!key.isNullOrEmpty()) {
+                            fragment("KEY=$key")
+                        }
+                    }.build().toString()
+
+                Page(index, imageUrl = url)
             } else {
-                rawUrl
+                val url = rawUrl.toHttpUrlOrNull()?.toString() ?: rawUrl
+                Page(index, imageUrl = url)
             }
-
-            val url = imageUrl.toHttpUrl().newBuilder().apply {
-                if (!page.key.isNullOrEmpty()) {
-                    fragment("KEY=${page.key}")
-                }
-            }.build().toString()
-
-            Page(index, imageUrl = url)
         }
     }
 
