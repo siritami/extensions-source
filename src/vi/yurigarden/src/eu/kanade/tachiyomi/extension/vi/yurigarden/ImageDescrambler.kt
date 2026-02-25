@@ -4,12 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Rect
-import app.cash.quickjs.QuickJs
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
-import org.json.JSONArray
 import java.io.ByteArrayOutputStream
 
 class ImageDescrambler : Interceptor {
@@ -27,39 +25,141 @@ class ImageDescrambler : Interceptor {
         val output = ByteArrayOutputStream()
         descrambled.compress(Bitmap.CompressFormat.JPEG, 90, output)
 
-        val responseBody = output.toByteArray()
-            .toResponseBody(MEDIA_TYPE)
-
         return response.newBuilder()
-            .body(responseBody)
+            .body(output.toByteArray().toResponseBody(MEDIA_TYPE))
             .build()
     }
 
     private fun unscrambleImage(bitmap: Bitmap, key: String): Bitmap {
-        val js = """
-            (function(Q0,Q1,Q2){"use strict";const A=(()=>{const L=[49,50,51,52,53,54,55,56,57,65,66,67,68,69,70,71,72,74,75,76,77,78,80,81,82,83,84,85,86,87,88,89,90,97,98,99,100,101,102,103,104,105,106,107,109,110,111,112,113,114,115,116,117,118,119,120,121,122];return L.map(c=>String.fromCharCode(c)).join("")})();const F=(()=>{let f=[1];for(let i=1;i<=10;i++)f[i]=f[i-1]*i;return f})();const _I=(E,P)=>{let n=[...Array(P).keys()],r=[];for(let a=P-1;a>=0;a--){let i=F[a],s=Math.floor(E/i);E%=i;r.push(n.splice(s,1)[0])}return r};const _S=str=>{let t=0;for(let ch of str){let r=A.indexOf(ch);if(r<0)throw Error("Invalid Base58 char");t=t*58+r}return t};const _U=(enc,p)=>{if(!/^H[1-9A-HJ-NP-Za-km-z]+$/.test(enc))throw Error("Bad Base58");let t=enc.slice(1,-1),n=enc.slice(-1),r=_S(t);if(A[r%58]!==n)throw Error("Checksum mismatch");return _I(r,p)};const _P=(h,p)=>{let n=Math.floor(h/p),r=h%p,a=[];for(let i=0;i<p;i++)a.push(n+(i<r?1:0));return a};const _D=e=>{let t=Array(e.length);e.forEach((v,i)=>t[v]=i);return t};const _X=(K,H,P)=>{let e=_U(K.slice(4),P),s=_D(e),u=_P(H-4*(P-1),P),m=e.map(i=>u[i]),pts=[0];for(let i=0;i<m.length;i++)pts[i+1]=pts[i]+m[i];let f=[];for(let i=0;i<m.length;i++)f.push({y:i?pts[i]+4*i:0,h:m[i]});return s.map(i=>f[i])};return JSON.stringify(_X(Q0,Q1,Q2))})("$key",${bitmap.height},10);
-        """.trimIndent()
+        val strips = computeStrips(key, bitmap.height, PARTS)
 
-        val result = QuickJs.create().use { it.evaluate(js) as String }
-        val arr = JSONArray(result)
-
-        val out = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(out)
+        val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
 
         var dy = 0
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            val sy = o.getInt("y")
-            val h = o.getInt("h")
-            val src = Rect(0, sy, bitmap.width, sy + h)
-            val dst = Rect(0, dy, bitmap.width, dy + h)
+        for (strip in strips) {
+            val src = Rect(0, strip.y, bitmap.width, strip.y + strip.h)
+            val dst = Rect(0, dy, bitmap.width, dy + strip.h)
             canvas.drawBitmap(bitmap, src, dst, null)
-            dy += h
+            dy += strip.h
         }
-        return out
+        return result
     }
 
+    /**
+     * Port of the JS descrambling algorithm from YuriGarden (kotatsu-parsers).
+     *
+     * JS: _X(K, H, P) where K=key, H=imageHeight, P=parts(10)
+     */
+    private fun computeStrips(key: String, height: Int, parts: Int): List<Strip> {
+        // JS: _U(K.slice(4), P) — decode permutation from key (skip first 4 chars)
+        val permutation = decodePermutation(key.substring(4), parts)
+
+        // JS: _D(e) — invert permutation
+        val inverse = invertPermutation(permutation)
+
+        // JS: _P(H - 4*(P-1), P) — distribute usable height
+        val stripHeights = distributeHeight(height - 4 * (parts - 1), parts)
+
+        // JS: m = e.map(i => u[i]) — map permutation to heights
+        val mappedHeights = permutation.map { stripHeights[it] }
+
+        // JS: pts[0]=0; pts[i+1]=pts[i]+m[i]
+        // JS: f[i] = {y: i ? pts[i]+4*i : 0, h: m[i]}
+        var cumulative = 0
+        val strips = mappedHeights.mapIndexed { i, h ->
+            val y = if (i == 0) 0 else cumulative + 4 * i
+            cumulative += h
+            Strip(y, h)
+        }
+
+        // JS: return s.map(i => f[i]) — strips in unscrambled order
+        return inverse.map { strips[it] }
+    }
+
+    /**
+     * JS: _U(enc, p) — decode Base58-encoded permutation with checksum
+     */
+    private fun decodePermutation(encoded: String, parts: Int): List<Int> {
+        val data = encoded.substring(1, encoded.length - 1)
+        val checkChar = encoded.last()
+        val value = base58Decode(data)
+
+        require(ALPHABET[(value % 58).toInt()] == checkChar) { "Checksum mismatch" }
+
+        return lehmerDecode(value, parts)
+    }
+
+    /**
+     * JS: _S(str) — decode Base58 string to number
+     */
+    private fun base58Decode(str: String): Long {
+        var result = 0L
+        for (ch in str) {
+            val index = ALPHABET.indexOf(ch)
+            result = result * 58 + index
+        }
+        return result
+    }
+
+    /**
+     * JS: _I(E, P) — convert factoradic number to permutation (Lehmer code)
+     */
+    private fun lehmerDecode(encoding: Long, size: Int): List<Int> {
+        var remaining = encoding
+        val available = (0 until size).toMutableList()
+        val result = mutableListOf<Int>()
+
+        for (i in size - 1 downTo 0) {
+            val factorial = FACTORIALS[i]
+            val index = (remaining / factorial).toInt()
+            remaining %= factorial
+            result.add(available.removeAt(index))
+        }
+        return result
+    }
+
+    /**
+     * JS: _D(e) — invert permutation
+     */
+    private fun invertPermutation(perm: List<Int>): List<Int> {
+        val inverse = IntArray(perm.size)
+        perm.forEachIndexed { i, v -> inverse[v] = i }
+        return inverse.toList()
+    }
+
+    /**
+     * JS: _P(h, p) — distribute height into parts
+     */
+    private fun distributeHeight(height: Int, parts: Int): List<Int> {
+        val base = height / parts
+        val remainder = height % parts
+        return List(parts) { i -> base + if (i < remainder) 1 else 0 }
+    }
+
+    private data class Strip(val y: Int, val h: Int)
+
     companion object {
+        private const val PARTS = 10
+
         private val MEDIA_TYPE = "image/jpeg".toMediaType()
+
+        // JS: A — custom Base58 alphabet from char codes
+        private val ALPHABET: String = intArrayOf(
+            49, 50, 51, 52, 53, 54, 55, 56, 57,
+            65, 66, 67, 68, 69, 70, 71, 72, 74, 75, 76, 77, 78,
+            80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90,
+            97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107,
+            109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119,
+            120, 121, 122,
+        ).map { it.toChar() }.joinToString("")
+
+        // JS: F — pre-computed factorials (0! to 10!)
+        private val FACTORIALS = LongArray(11).also { f ->
+            f[0] = 1L
+            for (i in 1..10) {
+                f[i] = f[i - 1] * i
+            }
+        }
     }
 }
