@@ -10,6 +10,12 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import java.io.ByteArrayOutputStream
 
+/**
+ * Algorithm overview:
+ * 1. Decode the scramble key (Base58 with checksum) into a permutation
+ * 2. Compute strip positions (image split into [PARTS] horizontal strips with 4px gaps)
+ * 3. Reassemble strips in the correct order using the inverse permutation
+ */
 class ImageDescrambler : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val response = chain.proceed(chain.request())
@@ -30,6 +36,9 @@ class ImageDescrambler : Interceptor {
             .build()
     }
 
+    /**
+     * Reassembles a scrambled image by drawing strips in the correct order.
+     */
     private fun unscrambleImage(bitmap: Bitmap, key: String): Bitmap {
         val strips = computeStrips(key, bitmap.height, PARTS)
 
@@ -47,25 +56,23 @@ class ImageDescrambler : Interceptor {
     }
 
     /**
-     * Port of the JS descrambling algorithm from YuriGarden (kotatsu-parsers).
+     * Computes the ordered list of strips to reconstruct the original image.
      *
-     * JS: _X(K, H, P) where K=key, H=imageHeight, P=parts(10)
+     * Corresponds to JS function `_X(K, H, P)` in the YuriGarden frontend:
+     * 1. Decode the key into a permutation (how strips were shuffled)
+     * 2. Compute each strip's height (total height minus 4px gaps, distributed evenly)
+     * 3. Calculate each strip's Y position in the scrambled image (including 4px gaps)
+     * 4. Return strips ordered by the inverse permutation (unscrambled order)
      */
     private fun computeStrips(key: String, height: Int, parts: Int): List<Strip> {
-        // JS: _U(K.slice(4), P) — decode permutation from key (skip first 4 chars)
         val permutation = decodePermutation(key.substring(4), parts)
-
-        // JS: _D(e) — invert permutation
         val inverse = invertPermutation(permutation)
-
-        // JS: _P(H - 4*(P-1), P) — distribute usable height
         val stripHeights = distributeHeight(height - 4 * (parts - 1), parts)
 
-        // JS: m = e.map(i => u[i]) — map permutation to heights
+        // Map permutation indices to their corresponding strip heights
         val mappedHeights = permutation.map { stripHeights[it] }
 
-        // JS: pts[0]=0; pts[i+1]=pts[i]+m[i]
-        // JS: f[i] = {y: i ? pts[i]+4*i : 0, h: m[i]}
+        // Build strip positions: each strip starts after the previous one + 4px gap
         var cumulative = 0
         val strips = mappedHeights.mapIndexed { i, h ->
             val y = if (i == 0) 0 else cumulative + 4 * i
@@ -73,12 +80,19 @@ class ImageDescrambler : Interceptor {
             Strip(y, h)
         }
 
-        // JS: return s.map(i => f[i]) — strips in unscrambled order
+        // Reorder strips using the inverse permutation to get the original order
         return inverse.map { strips[it] }
     }
 
     /**
-     * JS: _U(enc, p) — decode Base58-encoded permutation with checksum
+     * Decodes a Base58-encoded permutation string with checksum verification.
+     *
+     * Format: `H<base58_data><checksum_char>`
+     * - First char 'H' is a version marker (stripped by caller via substring(4))
+     * - Middle chars are Base58-encoded factoradic number
+     * - Last char is a checksum: `ALPHABET[value % 58]`
+     *
+     * Corresponds to JS function `_U(enc, p)`.
      */
     private fun decodePermutation(encoded: String, parts: Int): List<Int> {
         val data = encoded.substring(1, encoded.length - 1)
@@ -91,7 +105,9 @@ class ImageDescrambler : Interceptor {
     }
 
     /**
-     * JS: _S(str) — decode Base58 string to number
+     * Decodes a Base58 string into a numeric value using the custom alphabet.
+     *
+     * Corresponds to JS function `_S(str)`.
      */
     private fun base58Decode(str: String): Long {
         var result = 0L
@@ -103,7 +119,12 @@ class ImageDescrambler : Interceptor {
     }
 
     /**
-     * JS: _I(E, P) — convert factoradic number to permutation (Lehmer code)
+     * Converts a factoradic-encoded number into a permutation using Lehmer code.
+     *
+     * The factoradic number system represents each digit as an index into a
+     * shrinking list of available elements, producing a unique permutation.
+     *
+     * Corresponds to JS function `_I(E, P)`.
      */
     private fun lehmerDecode(encoding: Long, size: Int): List<Int> {
         var remaining = encoding
@@ -120,7 +141,9 @@ class ImageDescrambler : Interceptor {
     }
 
     /**
-     * JS: _D(e) — invert permutation
+     * Inverts a permutation: if `perm[i] = v`, then `inverse[v] = i`.
+     *
+     * Corresponds to JS function `_D(e)`.
      */
     private fun invertPermutation(perm: List<Int>): List<Int> {
         val inverse = IntArray(perm.size)
@@ -129,7 +152,10 @@ class ImageDescrambler : Interceptor {
     }
 
     /**
-     * JS: _P(h, p) — distribute height into parts
+     * Distributes total height evenly across [parts], with any remainder
+     * distributed one extra pixel to the first few strips.
+     *
+     * Corresponds to JS function `_P(h, p)`.
      */
     private fun distributeHeight(height: Int, parts: Int): List<Int> {
         val base = height / parts
@@ -140,11 +166,15 @@ class ImageDescrambler : Interceptor {
     private data class Strip(val y: Int, val h: Int)
 
     companion object {
+        /** Number of horizontal strips the image is divided into. */
         private const val PARTS = 10
 
         private val MEDIA_TYPE = "image/jpeg".toMediaType()
 
-        // JS: A — custom Base58 alphabet from char codes
+        /**
+         * Custom Base58 alphabet used by YuriGarden's scramble key encoding.
+         * Characters: 1-9, A-N, P-Z, a-k, m-z (excludes 0, O, l, I to avoid ambiguity).
+         */
         private val ALPHABET: String = intArrayOf(
             49, 50, 51, 52, 53, 54, 55, 56, 57,
             65, 66, 67, 68, 69, 70, 71, 72, 74, 75, 76, 77, 78,
@@ -154,7 +184,7 @@ class ImageDescrambler : Interceptor {
             120, 121, 122,
         ).map { it.toChar() }.joinToString("")
 
-        // JS: F — pre-computed factorials (0! to 10!)
+        /** Pre-computed factorials 0! through 10! for Lehmer code decoding. */
         private val FACTORIALS = LongArray(11).also { f ->
             f[0] = 1L
             for (i in 1..10) {
