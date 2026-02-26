@@ -191,8 +191,18 @@ class YuriGarden : HttpSource() {
 
     // ============================== Pages =================================
 
+    // Page API needs Kotatsu UA to get scramble keys compatible with ImageDescrambler.
+    // The encrypted API (browser UA) returns keys in a different format.
+    private fun pageApiHeaders() = headersBuilder()
+        .set("Referer", "$baseUrl/")
+        .set("User-Agent", "Kotatsu/9.0 (Android 16;;; en)")
+        .add("x-app-origin", baseUrl)
+        .add("x-custom-lang", "vi")
+        .add("Accept", "application/json")
+        .build()
+
     override fun pageListRequest(chapter: SChapter): Request =
-        GET("$apiUrl/chapters/${chapterId(chapter)}", apiHeaders())
+        GET("$apiUrl/chapters/${chapterId(chapter)}", pageApiHeaders())
 
     override fun pageListParse(response: Response): List<Page> {
         val result = decryptIfNeeded(response)
