@@ -50,3 +50,9 @@ class PageData(
     val url: String,
     val key: String? = null,
 )
+
+@Serializable
+class EncryptedResponse(
+    val encrypted: Boolean = false,
+    val data: String? = null,
+)

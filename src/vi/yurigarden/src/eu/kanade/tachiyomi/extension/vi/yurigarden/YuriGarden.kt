@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.yurigarden
 
+import eu.kanade.tachiyomi.lib.cryptoaes.CryptoAES
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -43,7 +44,6 @@ class YuriGarden : HttpSource() {
 
     private fun apiHeaders() = headersBuilder()
         .set("Referer", "$baseUrl/")
-        .set("User-Agent", "Kotatsu/9.0 (Android 16;;; en)")
         .add("x-app-origin", baseUrl)
         .add("x-custom-lang", "vi")
         .add("Accept", "application/json")
@@ -195,7 +195,7 @@ class YuriGarden : HttpSource() {
         GET("$apiUrl/chapters/${chapterId(chapter)}", apiHeaders())
 
     override fun pageListParse(response: Response): List<Page> {
-        val result = response.parseAs<ChapterDetail>()
+        val result = decryptIfNeeded(response)
 
         return result.pages.mapIndexed { index, page ->
             val rawUrl = page.url.replace("_credit", "")
@@ -214,6 +214,23 @@ class YuriGarden : HttpSource() {
                 val url = rawUrl.toHttpUrlOrNull()?.toString() ?: rawUrl
                 Page(index, imageUrl = url)
             }
+        }
+    }
+
+    private fun decryptIfNeeded(response: Response): ChapterDetail {
+        val body = response.body.string()
+
+        // Check if the response is encrypted
+        return if (body.contains("\"encrypted\"" )) {
+            val encrypted = json.decodeFromString<EncryptedResponse>(body)
+            if (encrypted.encrypted && !encrypted.data.isNullOrEmpty()) {
+                val decrypted = CryptoAES.decrypt(encrypted.data, AES_PASSWORD)
+                json.decodeFromString<ChapterDetail>(decrypted)
+            } else {
+                json.decodeFromString<ChapterDetail>(body)
+            }
+        } else {
+            json.decodeFromString<ChapterDetail>(body)
         }
     }
 
@@ -243,5 +260,6 @@ class YuriGarden : HttpSource() {
 
     companion object {
         private const val LIMIT = 15
+        private const val AES_PASSWORD = "V48Ue34jrwRsJSRA"
     }
 }
