@@ -191,8 +191,9 @@ class YuriGarden : HttpSource() {
 
     // ============================== Pages =================================
 
-    // Page API needs Kotatsu UA to get scramble keys compatible with ImageDescrambler.
-    // The encrypted API (browser UA) returns keys in a different format.
+    // Kotatsu UA returns plaintext JSON with stable scramble keys compatible
+    // with ImageDescrambler. The encrypted API (browser UA) returns dynamically
+    // obfuscated keys that change per request and require WASM to decode.
     private fun pageApiHeaders() = headersBuilder()
         .set("Referer", "$baseUrl/")
         .set("User-Agent", "Kotatsu/9.0 (Android 16;;; en)")
