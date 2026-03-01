@@ -130,7 +130,7 @@ class TuSachXinhXinh : HttpSource() {
                 SManga.create().apply {
                     title = result.title
                     setUrlWithoutDomain(result.link.removePrefix(baseUrl))
-                    thumbnail_url = result.img?.replace(THUMBNAIL_SIZE_REGEX, "")
+                    thumbnail_url = result.img?.replace(SMALL_THUMBNAIL_REGEX, "$1")
                 }
             }.distinctBy { it.url }
 
@@ -146,7 +146,6 @@ class TuSachXinhXinh : HttpSource() {
                 thumbnail_url = element.selectFirst("img.list-left-img")?.lazyImgUrl()
             }
         }
-        // Filter pages load all items at once (JS-based pagination only)
         return MangasPage(mangas, hasNextPage = false)
     }
 
@@ -235,6 +234,5 @@ class TuSachXinhXinh : HttpSource() {
 
         private val SMALL_THUMBNAIL_REGEX = Regex("-150x150(\\.[a-zA-Z]+)$")
 
-        private val THUMBNAIL_SIZE_REGEX = Regex("-\\d+x\\d+")
     }
 }
