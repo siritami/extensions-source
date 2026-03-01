@@ -33,7 +33,7 @@ class NewTruyenTranh : HttpSource(), ConfigurableSource {
     private val preferences = getPreferences()
 
     override val client = network.cloudflareClient.newBuilder()
-        .rateLimitHost(baseUrl.toHttpUrl(), 14, 1, TimeUnit.MINUTES)
+        .rateLimitHost(baseUrl.toHttpUrl(), 20, 1, TimeUnit.MINUTES)
         .addNetworkInterceptor {
             val request = it.request()
             val response = it.proceed(request)
