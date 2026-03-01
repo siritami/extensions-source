@@ -33,8 +33,11 @@ class TuSachXinhXinh : HttpSource() {
         .add("Referer", "$baseUrl/")
 
     private fun org.jsoup.nodes.Element.lazyImgUrl(): String? {
-        val url = absUrl("data-lazy-src").ifEmpty { absUrl("src") }.ifEmpty { return null }
-        return url.replace(THUMBNAIL_SIZE_REGEX, "")
+        val url = absUrl("data-lazy-src")
+            .ifEmpty { absUrl("src").takeUnless { it.startsWith("data:") } }
+            ?.ifEmpty { null }
+            ?: return null
+        return url.replace(SMALL_THUMBNAIL_REGEX, "$1")
     }
 
     // ========================= Popular ===========================
@@ -68,7 +71,7 @@ class TuSachXinhXinh : HttpSource() {
     private fun parseLatestPage(document: org.jsoup.nodes.Document): MangasPage {
         val mangas = document.select(".col-md-3.col-xs-6.comic-item")
             .filter { element ->
-                // Exclude "Tin tức mới" items by checking if the link points to manga
+                // Exclude non-manga items
                 val href = element.selectFirst("a")?.absUrl("href").orEmpty()
                 href.contains("/truyen-tranh/")
             }
@@ -110,7 +113,6 @@ class TuSachXinhXinh : HttpSource() {
 
         val document = response.asJsoup()
 
-        // Check if this is a filter page (single-list-comic) or latest page (comic-item)
         val listItems = document.select("ul.single-list-comic li.position-relative")
         if (listItems.isNotEmpty()) {
             return parseFilterPage(listItems)
@@ -148,10 +150,6 @@ class TuSachXinhXinh : HttpSource() {
         return MangasPage(mangas, hasNextPage = false)
     }
 
-    /**
-     * Get the first non-empty URI from any selected filter.
-     * Filters are evaluated in order: Genre > Group > SeriesType > Keyword.
-     */
     private fun FilterList.firstSelectedFilterUri(): String? {
         return filterIsInstance<UriPartFilter>()
             .map { it.toUriPart() }
@@ -164,7 +162,7 @@ class TuSachXinhXinh : HttpSource() {
         val document = response.asJsoup()
         return SManga.create().apply {
             title = document.selectFirst("h2.info-title")!!.text()
-            thumbnail_url = document.selectFirst("img.info-cover")?.lazyImgUrl()
+            thumbnail_url = document.selectFirst("div.col-sm-4 img.img-thumbnail")?.lazyImgUrl()
             author = document.selectFirst("strong:contains(Tác giả) + span")?.text()
             status = document.selectFirst("span.comic-stt")?.text()
                 ?.let { parseStatus(it) }
@@ -234,6 +232,8 @@ class TuSachXinhXinh : HttpSource() {
         }
 
         private val CHAPTER_NAME_REGEX = Regex("Chap\\s*\\d+(\\.\\d+)?", RegexOption.IGNORE_CASE)
+
+        private val SMALL_THUMBNAIL_REGEX = Regex("-150x150(\\.[a-zA-Z]+)$")
 
         private val THUMBNAIL_SIZE_REGEX = Regex("-\\d+x\\d+")
     }
