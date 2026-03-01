@@ -32,6 +32,11 @@ class TuSachXinhXinh : HttpSource() {
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
 
+    private fun org.jsoup.nodes.Element.lazyImgUrl(): String? {
+        val url = absUrl("data-lazy-src").ifEmpty { absUrl("src") }.ifEmpty { return null }
+        return url.replace(THUMBNAIL_SIZE_REGEX, "")
+    }
+
     // ========================= Popular ===========================
 
     override fun popularMangaRequest(page: Int) = GET("$baseUrl/nhieu-xem-nhat/", headers)
@@ -43,7 +48,7 @@ class TuSachXinhXinh : HttpSource() {
                 val linkElement = element.selectFirst("p.super-title a")!!
                 title = linkElement.text()
                 setUrlWithoutDomain(linkElement.absUrl("href"))
-                thumbnail_url = element.selectFirst("img.list-left-img")?.absUrl("src")
+                thumbnail_url = element.selectFirst("img.list-left-img")?.lazyImgUrl()
             }
         }
         return MangasPage(mangas, hasNextPage = false)
@@ -71,7 +76,7 @@ class TuSachXinhXinh : HttpSource() {
                 SManga.create().apply {
                     title = element.selectFirst("h3.comic-title")!!.text()
                     setUrlWithoutDomain(element.selectFirst("h3.comic-title")!!.parent()!!.absUrl("href"))
-                    thumbnail_url = element.selectFirst("img")?.absUrl("src")
+                    thumbnail_url = element.selectFirst("img")?.lazyImgUrl()
                 }
             }
         val hasNextPage = document.selectFirst("ul.pager li.next:not(.disabled) a") != null
@@ -136,7 +141,7 @@ class TuSachXinhXinh : HttpSource() {
                 val linkElement = element.selectFirst("p.super-title a")!!
                 title = linkElement.text()
                 setUrlWithoutDomain(linkElement.absUrl("href"))
-                thumbnail_url = element.selectFirst("img.list-left-img")?.absUrl("src")
+                thumbnail_url = element.selectFirst("img.list-left-img")?.lazyImgUrl()
             }
         }
         // Filter pages load all items at once (JS-based pagination only)
@@ -159,7 +164,7 @@ class TuSachXinhXinh : HttpSource() {
         val document = response.asJsoup()
         return SManga.create().apply {
             title = document.selectFirst("h2.info-title")!!.text()
-            thumbnail_url = document.selectFirst("img.info-cover")?.absUrl("src")
+            thumbnail_url = document.selectFirst("img.info-cover")?.lazyImgUrl()
             author = document.selectFirst("strong:contains(Tác giả) + span")?.text()
             status = document.selectFirst("span.comic-stt")?.text()
                 ?.let { parseStatus(it) }
