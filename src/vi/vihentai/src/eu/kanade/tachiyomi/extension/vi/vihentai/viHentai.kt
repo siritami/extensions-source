@@ -180,23 +180,29 @@ class viHentai : HttpSource() {
     }
 
     /**
-     * Unpacks a JavaScript "HUNTO" packer script.
-     * The packed format: eval(function(h,u,n,t,e,r){...}("encoded",base,charset,offset))
+     * Unpacks a JavaScript packer script.
+     * Format: eval(function(h,u,n,t,e,r){...}("encoded", unused, "charset", offset, base, overwritten))
+     * - h: encoded data string
+     * - n: charset used for encoding (also contains delimiter at index e)
+     * - t: offset subtracted from each decoded char code
+     * - e: base for conversion AND index into n for the delimiter character
      */
     private fun unpackScript(script: String): String {
         val argsMatch = PACKED_ARGS_REGEX.find(script)
             ?: throw Exception("Could not parse packed script arguments")
 
         val h = argsMatch.groupValues[1]
-        val u = argsMatch.groupValues[2].toInt()
         val n = argsMatch.groupValues[3]
         val t = argsMatch.groupValues[4].toInt()
+        val e = argsMatch.groupValues[5].toInt()
+
+        val delimiter = n[e]
 
         val result = StringBuilder()
         var i = 0
         while (i < h.length) {
             val s = StringBuilder()
-            while (i < h.length && h[i] != n[u]) {
+            while (i < h.length && h[i] != delimiter) {
                 s.append(h[i])
                 i++
             }
@@ -205,16 +211,16 @@ class viHentai : HttpSource() {
             for (j in n.indices) {
                 charStr = charStr.replace(n[j].toString(), j.toString())
             }
-            result.append((baseConvert(charStr, u, 10) - t).toChar())
+            result.append((baseConvert(charStr, e) - t).toChar())
         }
         return result.toString()
     }
 
     /**
-     * Converts a number string from one base to another.
-     * Replicates the _0xe6c function from the site's JavaScript.
+     * Converts a number string from a given base to base 10.
+     * Replicates the base conversion function from the site's JavaScript.
      */
-    private fun baseConvert(d: String, fromBase: Int, toBase: Int): Int {
+    private fun baseConvert(d: String, fromBase: Int): Int {
         val charset = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+/"
         val fromChars = charset.substring(0, fromBase)
         return d.reversed().foldIndexed(0) { index, acc, char ->
@@ -236,6 +242,7 @@ class viHentai : HttpSource() {
     companion object {
         private val BACKGROUND_IMAGE_REGEX = Regex("""background-image:\s*url\(['"]?(.*?)['"]?\)""")
         private val IMAGE_URL_REGEX = Regex(""""(https?:\\?/\\?/[^"]+\.\w{3,4})""")
-        private val PACKED_ARGS_REGEX = Regex("""\}\("(.+?)",\s*(\d+),\s*"([^"]+)",\s*(\d+)""")
+        // Captures 6 args: h(1), u(2), n(3), t(4), e(5), r(6)
+        private val PACKED_ARGS_REGEX = Regex("""\}\("(.+)",\s*(\d+),\s*"([^"]+)",\s*(\d+),\s*(\d+),\s*(\d+)\)""")
     }
 }
