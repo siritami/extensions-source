@@ -126,26 +126,23 @@ class LoppyToon : HttpSource() {
         val document = response.asJsoup()
 
         return SManga.create().apply {
-            title = document.selectFirst("div.info-container > h2, h1")!!.text()
-            author = document.select(".meta-item").firstOrNull { it.text().contains("Tác giả") }
-                ?.select(".meta-value a")
-                ?.joinToString { it.text() }
-            genre = document.select("a.tag").joinToString { it.text() }
-            thumbnail_url = document.selectFirst("div.info-img img")?.absUrl("src")
+            title = document.selectFirst("h1.manga-title")!!.text()
 
-            val altName = document.select(".meta-item").firstOrNull { it.text().contains("Tên khác") }
-                ?.ownText()?.trim()
-                ?.removePrefix(":")?.trim()
-                .orEmpty()
-                .ifEmpty {
-                    document.select(".meta-item").firstOrNull { it.text().contains("Tên khác") }
-                        ?.selectFirst(".meta-value")?.text()?.trim()
-                }
+            author = document.selectFirst("span.meta-label:contains(Tác giả)")
+                ?.nextElementSibling()?.text()
 
-            val descText = document.selectFirst("div.desc-text")?.let { desc ->
-                desc.select("p").joinToString("\n") { it.text() }.trim()
+            genre = document.select(".manga-tags a.tag").joinToString { it.text() }
+
+            thumbnail_url = document.selectFirst(".manga-cover img")?.absUrl("src")
+
+            val altName = document.selectFirst("span.meta-label:contains(Tên khác)")
+                ?.nextElementSibling()?.text()?.trim()
+
+            val descText = document.selectFirst("div.manga-description")?.let { desc ->
+                desc.select("p").filter { it.text().isNotBlank() }
+                    .joinToString("\n") { it.text() }.trim()
                     .ifEmpty { desc.text().trim() }
-            }.orEmpty()
+            } ?: ""
 
             description = if (!altName.isNullOrBlank()) {
                 "Tên khác: $altName\n$descText"
@@ -153,8 +150,8 @@ class LoppyToon : HttpSource() {
                 descText
             }
 
-            status = document.select(".meta-item").firstOrNull { it.text().contains("Tình trạng") }
-                ?.selectFirst(".meta-value")?.text()?.let { statusText ->
+            status = document.selectFirst("span.meta-label:contains(Tình trạng)")
+                ?.nextElementSibling()?.text()?.trim()?.let { statusText ->
                     when {
                         statusText.contains("OnGoing", ignoreCase = true) ||
                             statusText.contains("Đang tiến hành", ignoreCase = true) -> SManga.ONGOING
