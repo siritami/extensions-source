@@ -138,7 +138,7 @@ class LoppyToon : HttpSource() {
             val altName = document.selectFirst("span.meta-label:contains(Tên khác)")
                 ?.nextElementSibling()?.text()?.trim()
 
-            val descText = document.selectFirst("div.manga-description")?.let { desc ->
+            val descText: String = document.selectFirst("div.manga-description")?.let { desc ->
                 desc.select("p").filter { it.text().isNotBlank() }
                     .joinToString("\n") { it.text() }.trim()
                     .ifEmpty { desc.text().trim() }
