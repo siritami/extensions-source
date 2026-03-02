@@ -117,12 +117,11 @@ class viHentai : HttpSource() {
             author = document.selectFirst("a[href*=/tac-gia/]")?.text()
             genre = document.select("div.mt-2.flex.flex-wrap.gap-1 a[href*=/the-loai/]").joinToString { it.text() }
             thumbnail_url = document.selectFirst("div.cover-frame div.cover")?.extractBackgroundImage()
-            description = document.selectFirst("div.mg-plot")?.let { plot ->
-                val text = plot.select("p")
+            document.selectFirst("div.mg-plot")?.let { plot ->
+                description = plot.select("p")
                     .drop(1)
                     .joinToString("\n") { it.text() }
                     .trim()
-                if (text.isEmpty()) null else text
             }
 
             status = document.selectFirst("a[href*='filter[status]'] span")?.text()?.let { statusText ->
