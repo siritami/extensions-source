@@ -117,7 +117,8 @@ class viHentai : HttpSource() {
             author = document.selectFirst("a[href*=/tac-gia/]")?.text()
             genre = document.select("div.mt-2.flex.flex-wrap.gap-1 a[href*=/the-loai/]").joinToString { it.text() }
             thumbnail_url = document.selectFirst("div.cover-frame div.cover")?.extractBackgroundImage()
-            document.selectFirst("div.mg-plot")?.let { plot ->
+            val plot = document.selectFirst("div.mg-plot")
+            if (plot != null) {
                 description = plot.select("p")
                     .drop(1)
                     .joinToString("\n") { it.text() }
