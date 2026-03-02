@@ -12,9 +12,9 @@ class Genre(name: String, val slug: String) : Filter.CheckBox(name)
 
 class GenreFilter(genres: List<Genre>) : Filter.Group<Genre>("Thể loại", genres)
 
-class Group(name: String, val slug: String) : Filter.CheckBox(name)
+class ScanlationGroup(name: String, val slug: String) : Filter.CheckBox(name)
 
-class GroupFilter(groups: List<Group>) : Filter.Group<Group>("Nhóm dịch", groups)
+class GroupFilter(groups: List<ScanlationGroup>) : Filter.Group<ScanlationGroup>("Nhóm dịch", groups)
 
 private fun getGenreList(): List<Genre> = listOf(
     Genre("18+", "18"),
@@ -150,29 +150,29 @@ private fun getGenreList(): List<Genre> = listOf(
     Genre("Lọ Lem", "lo-lem"),
 )
 
-private fun getGroupList(): List<Group> = listOf(
-    Group("LoppyToon", "loppytoon"),
-    Group("LoppyToon Novel", "loppytoon-novel"),
-    Group("ComicCat-mèo cày truyện", "comiccat"),
-    Group("Da Churros", "da-churros"),
-    Group("Tiểu Hồ Điệp", "tieu-ho-diep"),
-    Group("Mồn Lèo Biết Bay", "mon-leo-biet-bay"),
-    Group("Phiêu Nguyệt Team", "phieu-nguyet-team"),
-    Group("Tự Kỷ Cùng É", "tu-ky-cung-e"),
-    Group("Cái Mồm Xinh", "cai-mom-xinh"),
-    Group("Team Vilnius", "team-vilnius"),
-    Group("Solar Eclipse Team", "solar-eclipse-team"),
-    Group("Động Tâm", "dong-tam"),
-    Group("Mồn Lèo Biết Bay x Phiêu Nguyệt Team", "mon-leo-biet-bayphieu-nguyet-team"),
-    Group("Da Churros x LoppyToon", "da-churros-x-loppy-toon"),
-    Group("Đang Cập Nhật", "navy-team"),
-    Group("Dũng Sĩ Diệt Cáo", "dung-si-diet-cao"),
-    Group("Dũng Sĩ Diệt Cáo x LoppyToon", "loppytoon-x-dung-si-diet-cao"),
-    Group("LoppyToon & Chill", "loppytoon-chill"),
-    Group("Closed Heart", "closed-heart"),
-    Group("LoppyToon x Mồn Lèo Biết Bay", "loppytoon-x-mon-leo-biet-bay"),
-    Group("Amyrae Pinkverse", "amyrae-pinkverse"),
-    Group("Bún Đậu Comics", "bun-dau-comics"),
-    Group("Capy Comics", "capycomics"),
-    Group("Quillpetal", "quillpetal"),
+private fun getGroupList(): List<ScanlationGroup> = listOf(
+    ScanlationGroup("LoppyToon", "loppytoon"),
+    ScanlationGroup("LoppyToon Novel", "loppytoon-novel"),
+    ScanlationGroup("ComicCat-mèo cày truyện", "comiccat"),
+    ScanlationGroup("Da Churros", "da-churros"),
+    ScanlationGroup("Tiểu Hồ Điệp", "tieu-ho-diep"),
+    ScanlationGroup("Mồn Lèo Biết Bay", "mon-leo-biet-bay"),
+    ScanlationGroup("Phiêu Nguyệt Team", "phieu-nguyet-team"),
+    ScanlationGroup("Tự Kỷ Cùng É", "tu-ky-cung-e"),
+    ScanlationGroup("Cái Mồm Xinh", "cai-mom-xinh"),
+    ScanlationGroup("Team Vilnius", "team-vilnius"),
+    ScanlationGroup("Solar Eclipse Team", "solar-eclipse-team"),
+    ScanlationGroup("Động Tâm", "dong-tam"),
+    ScanlationGroup("Mồn Lèo Biết Bay x Phiêu Nguyệt Team", "mon-leo-biet-bayphieu-nguyet-team"),
+    ScanlationGroup("Da Churros x LoppyToon", "da-churros-x-loppy-toon"),
+    ScanlationGroup("Đang Cập Nhật", "navy-team"),
+    ScanlationGroup("Dũng Sĩ Diệt Cáo", "dung-si-diet-cao"),
+    ScanlationGroup("Dũng Sĩ Diệt Cáo x LoppyToon", "loppytoon-x-dung-si-diet-cao"),
+    ScanlationGroup("LoppyToon & Chill", "loppytoon-chill"),
+    ScanlationGroup("Closed Heart", "closed-heart"),
+    ScanlationGroup("LoppyToon x Mồn Lèo Biết Bay", "loppytoon-x-mon-leo-biet-bay"),
+    ScanlationGroup("Amyrae Pinkverse", "amyrae-pinkverse"),
+    ScanlationGroup("Bún Đậu Comics", "bun-dau-comics"),
+    ScanlationGroup("Capy Comics", "capycomics"),
+    ScanlationGroup("Quillpetal", "quillpetal"),
 )
