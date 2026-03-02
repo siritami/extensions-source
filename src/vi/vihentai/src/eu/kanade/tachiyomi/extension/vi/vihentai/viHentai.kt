@@ -22,7 +22,7 @@ class viHentai : HttpSource() {
 
     override val name = "viHentai"
 
-    override val baseUrl = "https://vi-hentai.pro"
+    override val baseUrl = "https://vi-hentai.moe"
 
     override val lang = "vi"
 
@@ -115,7 +115,7 @@ class viHentai : HttpSource() {
         return SManga.create().apply {
             title = document.selectFirst("span.grow.text-lg")!!.text()
             author = document.selectFirst("a[href*=/tac-gia/]")?.text()
-            genre = document.select("a[href*=/the-loai/]").joinToString { it.text() }
+            genre = document.select("div.mt-2.flex.flex-wrap.gap-1 a[href*=/the-loai/]").joinToString { it.text() }
             thumbnail_url = document.selectFirst("div.cover-frame div.cover")?.extractBackgroundImage()
             description = document.selectFirst("div.mg-plot")?.let { plot ->
                 plot.select("p")
@@ -156,7 +156,7 @@ class viHentai : HttpSource() {
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
 
-        return document.select("#view-chapter img, .chapter-content img").mapIndexed { index, element ->
+        return document.select("img.lazy-image[data-src], img.lazy-image[src]").mapIndexed { index, element ->
             val imageUrl = element.absUrl("data-src")
                 .ifEmpty { element.absUrl("src") }
             Page(index, imageUrl = imageUrl)
