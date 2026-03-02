@@ -64,9 +64,7 @@ class TuSachXinhXinh : HttpSource() {
         return GET(url, headers)
     }
 
-    override fun latestUpdatesParse(response: Response): MangasPage {
-        return parseLatestPage(response.asJsoup())
-    }
+    override fun latestUpdatesParse(response: Response): MangasPage = parseLatestPage(response.asJsoup())
 
     private fun parseLatestPage(document: org.jsoup.nodes.Document): MangasPage {
         val mangas = document.select(".col-md-3.col-xs-6.comic-item")
@@ -149,11 +147,9 @@ class TuSachXinhXinh : HttpSource() {
         return MangasPage(mangas, hasNextPage = false)
     }
 
-    private fun FilterList.firstSelectedFilterUri(): String? {
-        return filterIsInstance<UriPartFilter>()
-            .map { it.toUriPart() }
-            .firstOrNull { it.isNotBlank() }
-    }
+    private fun FilterList.firstSelectedFilterUri(): String? = filterIsInstance<UriPartFilter>()
+        .map { it.toUriPart() }
+        .firstOrNull { it.isNotBlank() }
 
     // ========================= Details ===========================
 
@@ -233,6 +229,5 @@ class TuSachXinhXinh : HttpSource() {
         private val CHAPTER_NAME_REGEX = Regex("Chap\\s*\\d+(\\.\\d+)?", RegexOption.IGNORE_CASE)
 
         private val SMALL_THUMBNAIL_REGEX = Regex("-150x150(\\.[a-zA-Z]+)$")
-
     }
 }

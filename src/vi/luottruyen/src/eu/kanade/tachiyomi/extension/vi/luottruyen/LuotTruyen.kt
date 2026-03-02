@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.extension.vi.luottruyen
 
 import android.content.SharedPreferences
+import android.webkit.CookieManager
 import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
@@ -25,9 +26,7 @@ import okhttp3.Request
 import okhttp3.Response
 import java.util.Calendar
 
-class LuotTruyen :
-    HttpSource(),
-    ConfigurableSource {
+class LuotTruyen : HttpSource(), ConfigurableSource {
 
     override val name = "LuotTruyen"
 
@@ -45,8 +44,12 @@ class LuotTruyen :
 
     override val client: OkHttpClient = network.cloudflareClient.newBuilder()
         .addInterceptor { chain ->
+            // Force User-Agent on all requests
             val originalRequest = chain.request()
-            val response = chain.proceed(originalRequest)
+            val newRequest = originalRequest.newBuilder()
+                .header("User-Agent", USER_AGENT)
+                .build()
+            val response = chain.proceed(newRequest)
             if (!hasCheckedRedirect && preferences.getBoolean(AUTO_CHANGE_DOMAIN_PREF, false)) {
                 hasCheckedRedirect = true
                 val originalHost = defaultBaseUrl.toHttpUrl().host
@@ -63,12 +66,32 @@ class LuotTruyen :
         .cookieJar(
             object : CookieJar {
                 override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-                    // Do nothing - we don't need to save cookies
+                    // Do nothing - cookies are managed via WebView CookieManager
                 }
 
                 override fun loadForRequest(url: HttpUrl): List<Cookie> {
-                    val authCookie = preferences.getString(AUTH_COOKIE_PREF, "")
-                    if (authCookie.isNullOrBlank()) {
+                    // Try to get cookie from WebView's CookieManager first
+                    val webViewCookie = getAuthCookieFromWebView(url.toString())
+                    if (!webViewCookie.isNullOrBlank()) {
+                        // Save it to preferences for persistence
+                        if (webViewCookie != preferences.getString(AUTH_COOKIE_PREF, "")) {
+                            preferences.edit()
+                                .putString(AUTH_COOKIE_PREF, webViewCookie)
+                                .apply()
+                        }
+                        return listOf(
+                            Cookie.Builder()
+                                .domain(url.host)
+                                .path("/")
+                                .name(".truyen_AUTH")
+                                .value(webViewCookie)
+                                .build(),
+                        )
+                    }
+
+                    // Fallback to saved cookie in preferences
+                    val savedCookie = preferences.getString(AUTH_COOKIE_PREF, "")
+                    if (savedCookie.isNullOrBlank()) {
                         return emptyList()
                     }
                     return listOf(
@@ -76,7 +99,7 @@ class LuotTruyen :
                             .domain(url.host)
                             .path("/")
                             .name(".truyen_AUTH")
-                            .value(authCookie)
+                            .value(savedCookie)
                             .build(),
                     )
                 }
@@ -95,12 +118,33 @@ class LuotTruyen :
         }
     }
 
+    /**
+     * Extract the .truyen_AUTH cookie value from WebView's CookieManager.
+     * This is called when a request is made to automatically pick up
+     * cookies set during WebView login.
+     */
+    private fun getAuthCookieFromWebView(url: String): String? {
+        return try {
+            val cookieManager = CookieManager.getInstance()
+            val cookies = cookieManager.getCookie(url) ?: return null
+            cookies.split("; ")
+                .firstOrNull { it.trim().startsWith(".truyen_AUTH=") }
+                ?.substringAfter("=")
+                ?.takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
+        .add("User-Agent", USER_AGENT)
 
     // ============================== Popular ===============================
 
-    override fun popularMangaRequest(page: Int): Request = GET("$baseUrl/tim-truyen?status=-1&sort=10" + if (page > 1) "&page=$page" else "", headers)
+    override fun popularMangaRequest(page: Int): Request {
+        return GET("$baseUrl/tim-truyen?status=-1&sort=10" + if (page > 1) "&page=$page" else "", headers)
+    }
 
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
@@ -122,7 +166,9 @@ class LuotTruyen :
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/?page=$page&typegroup=0", headers)
+    override fun latestUpdatesRequest(page: Int): Request {
+        return GET("$baseUrl/?page=$page&typegroup=0", headers)
+    }
 
     override fun latestUpdatesParse(response: Response): MangasPage {
         val document = response.asJsoup()
@@ -165,17 +211,14 @@ class LuotTruyen :
                         genreSlug = filter.toUriPart()
                     }
                 }
-
                 is SortFilter -> {
                     if (filter.state != 0) {
                         sortValue = filter.toUriPart()
                     }
                 }
-
                 is StatusFilter -> {
                     statusValue = filter.toUriPart()
                 }
-
                 else -> {}
             }
         }
@@ -200,7 +243,9 @@ class LuotTruyen :
         return GET(url, headers)
     }
 
-    override fun searchMangaParse(response: Response): MangasPage = popularMangaParse(response)
+    override fun searchMangaParse(response: Response): MangasPage {
+        return popularMangaParse(response)
+    }
 
     // =============================== Details ==============================
 
@@ -218,38 +263,42 @@ class LuotTruyen :
         }
     }
 
-    private fun String?.toStatus(): Int = when {
-        this == null -> SManga.UNKNOWN
-        this.contains("Đang tiến hành", ignoreCase = true) -> SManga.ONGOING
-        this.contains("Đang cập nhật", ignoreCase = true) -> SManga.ONGOING
-        this.contains("Hoàn thành", ignoreCase = true) -> SManga.COMPLETED
-        else -> SManga.UNKNOWN
+    private fun String?.toStatus(): Int {
+        return when {
+            this == null -> SManga.UNKNOWN
+            this.contains("Đang tiến hành", ignoreCase = true) -> SManga.ONGOING
+            this.contains("Đang cập nhật", ignoreCase = true) -> SManga.ONGOING
+            this.contains("Hoàn thành", ignoreCase = true) -> SManga.COMPLETED
+            else -> SManga.UNKNOWN
+        }
     }
 
     // ============================== Chapters ==============================
 
-    override fun fetchChapterList(manga: SManga): rx.Observable<List<SChapter>> = rx.Observable.fromCallable {
-        // Fetch chapters
-        val storyId = manga.url.substringAfterLast("-")
-        val formBody = FormBody.Builder()
-            .add("StoryID", storyId)
-            .build()
+    override fun fetchChapterList(manga: SManga): rx.Observable<List<SChapter>> {
+        return rx.Observable.fromCallable {
+            // Fetch chapters
+            val storyId = manga.url.substringAfterLast("-")
+            val formBody = FormBody.Builder()
+                .add("StoryID", storyId)
+                .build()
 
-        val chapterHeaders = headersBuilder()
-            .add("X-Requested-With", "XMLHttpRequest")
-            .add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-            .build()
+            val chapterHeaders = headersBuilder()
+                .add("X-Requested-With", "XMLHttpRequest")
+                .add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                .build()
 
-        val chapterResponse = client.newCall(POST("$baseUrl/Story/ListChapterByStoryID", chapterHeaders, formBody)).execute()
-        val chapterDocument = chapterResponse.asJsoup()
+            val chapterResponse = client.newCall(POST("$baseUrl/Story/ListChapterByStoryID", chapterHeaders, formBody)).execute()
+            val chapterDocument = chapterResponse.asJsoup()
 
-        chapterDocument.select("li.row:not(.heading)").map { element ->
-            SChapter.create().apply {
-                element.selectFirst("div.chapter a, a")?.let {
-                    name = it.text()
-                    setUrlWithoutDomain(it.attr("href"))
+            chapterDocument.select("li.row:not(.heading)").map { element ->
+                SChapter.create().apply {
+                    element.selectFirst("div.chapter a, a")?.let {
+                        name = it.text()
+                        setUrlWithoutDomain(it.attr("href"))
+                    }
+                    date_upload = parseRelativeDate(element.selectFirst("div.col-xs-4")?.text())
                 }
-                date_upload = parseRelativeDate(element.selectFirst("div.col-xs-4")?.text())
             }
         }
     }
@@ -314,7 +363,9 @@ class LuotTruyen :
         return images.mapIndexed { i, img -> Page(i, imageUrl = img.absUrl("src")) }
     }
 
-    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
+    override fun imageUrlParse(response: Response): String {
+        throw UnsupportedOperationException()
+    }
 
     // ============================== Settings ==============================
 
@@ -340,27 +391,26 @@ class LuotTruyen :
             setDefaultValue(false)
         }.let(screen::addPreference)
 
-        EditTextPreference(screen.context).apply {
-            key = AUTH_COOKIE_PREF
+        androidx.preference.SwitchPreferenceCompat(screen.context).apply {
+            key = AUTH_COOKIE_PREF + "_status"
             title = AUTH_COOKIE_TITLE
-            summary = AUTH_COOKIE_SUMMARY
-            setDefaultValue("")
-            dialogTitle = AUTH_COOKIE_TITLE
-            dialogMessage = """
-                |Hướng dẫn lấy cookie:
-                |1. Mở trình duyệt (Chrome/Edge) trên máy tính
-                |2. Truy cập $baseUrl và đăng nhập bằng Google
-                |3. Nhấn F12 để mở DevTools
-                |4. Chọn tab Application (hoặc Storage)
-                |5. Ở menu bên trái, chọn Cookies → $baseUrl
-                |6. Tìm cookie tên ".truyen_AUTH"
-                |7. Sao chép giá trị (Value) và dán vào ô bên dưới
-                |
-                |Lưu ý: Cookie có thể hết hạn, cần cập nhật lại khi không đọc được.
-            """.trimMargin()
+            summary = if (preferences.getString(AUTH_COOKIE_PREF, "").isNullOrBlank()) {
+                "Chưa đăng nhập. Mở WebView để đăng nhập."
+            } else {
+                "Đã lưu cookie xác thực. Bật để xóa cookie."
+            }
+            isChecked = !preferences.getString(AUTH_COOKIE_PREF, "").isNullOrBlank()
 
-            setOnPreferenceChangeListener { _, _ ->
-                Toast.makeText(screen.context, RESTART_APP, Toast.LENGTH_LONG).show()
+            setOnPreferenceChangeListener { pref, newValue ->
+                if (newValue == false) {
+                    // Clear saved auth cookie
+                    preferences.edit().putString(AUTH_COOKIE_PREF, "").apply()
+                    pref.summary = "Đã xóa cookie. Mở WebView để đăng nhập lại."
+                    Toast.makeText(screen.context, "Đã xóa cookie xác thực.", Toast.LENGTH_LONG).show()
+                } else {
+                    pref.summary = "Mở WebView ở trang truyện để tự động lấy cookie."
+                    Toast.makeText(screen.context, "Hãy mở WebView và đăng nhập.", Toast.LENGTH_LONG).show()
+                }
                 true
             }
         }.let(screen::addPreference)
@@ -369,6 +419,9 @@ class LuotTruyen :
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, defaultBaseUrl)!!
 
     companion object {
+        private const val USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.7204.46 Mobile Safari/537.36"
+
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
         private const val BASE_URL_PREF = "overrideBaseUrl"
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
@@ -379,8 +432,7 @@ class LuotTruyen :
         private const val AUTO_CHANGE_DOMAIN_SUMMARY = "Khi mở ứng dụng, ứng dụng sẽ tự động cập nhật domain mới nếu website chuyển hướng."
 
         private const val AUTH_COOKIE_PREF = "authCookie"
-        private const val AUTH_COOKIE_TITLE = "Cookie xác thực"
-        private const val AUTH_COOKIE_SUMMARY = "Nhập cookie để đọc truyện cần đăng nhập"
+        private const val AUTH_COOKIE_TITLE = "Cookie xác thực (.truyen_AUTH)"
         private const val RESTART_APP = "Khởi chạy lại ứng dụng để áp dụng thay đổi."
     }
 
