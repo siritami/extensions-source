@@ -122,7 +122,7 @@ class viHentai : HttpSource() {
                     .drop(1)
                     .joinToString("\n") { it.text() }
                     .trim()
-                    .ifEmpty { null }
+                    .takeIf { it.isNotEmpty() }
             }
 
             status = document.selectFirst("a[href*='filter[status]'] span")?.text()?.let { statusText ->
@@ -156,16 +156,13 @@ class viHentai : HttpSource() {
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
 
-        // Images are loaded via packed JavaScript, not in the HTML directly
         val packedScript = document.select("script").map { it.data() }
             .firstOrNull { it.contains("eval(function(h,u,n,t,e,r)") }
             ?: throw Exception("Could not find packed script with image data")
 
-        val decoded = unpackScript(packedScript)
-
-        return IMAGE_URL_REGEX.findAll(decoded).mapIndexed { index, match ->
-            Page(index, imageUrl = match.groupValues[1].replace("\\/", "/"))
-        }.toList()
+        return viHentaiPacker.extractImageUrls(packedScript).mapIndexed { index, url ->
+            Page(index, imageUrl = url)
+        }
     }
 
     override fun imageUrlParse(response: Response): String {
@@ -175,62 +172,8 @@ class viHentai : HttpSource() {
     // ============================= Utilities ==============================
 
     private fun Element.extractBackgroundImage(): String? {
-        val style = attr("style") ?: return null
+        val style = attr("style")
         return BACKGROUND_IMAGE_REGEX.find(style)?.groupValues?.get(1)
-    }
-
-    /**
-     * Unpacks a JavaScript packer script.
-     * Format: eval(function(h,u,n,t,e,r){...}("encoded", unused, "charset", offset, base, overwritten))
-     * - h: encoded data string
-     * - n: charset used for encoding (also contains delimiter at index e)
-     * - t: offset subtracted from each decoded char code
-     * - e: base for conversion AND index into n for the delimiter character
-     */
-    private fun unpackScript(script: String): String {
-        val argsMatch = PACKED_ARGS_REGEX.find(script)
-            ?: throw Exception("Could not parse packed script arguments")
-
-        val h = argsMatch.groupValues[1]
-        val n = argsMatch.groupValues[3]
-        val t = argsMatch.groupValues[4].toInt()
-        val e = argsMatch.groupValues[5].toInt()
-
-        val delimiter = n[e]
-
-        val result = StringBuilder()
-        var i = 0
-        while (i < h.length) {
-            val s = StringBuilder()
-            while (i < h.length && h[i] != delimiter) {
-                s.append(h[i])
-                i++
-            }
-            i++ // skip delimiter
-            var charStr = s.toString()
-            for (j in n.indices) {
-                charStr = charStr.replace(n[j].toString(), j.toString())
-            }
-            result.append((baseConvert(charStr, e) - t).toChar())
-        }
-        return result.toString()
-    }
-
-    /**
-     * Converts a number string from a given base to base 10.
-     * Replicates the base conversion function from the site's JavaScript.
-     */
-    private fun baseConvert(d: String, fromBase: Int): Int {
-        val charset = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+/"
-        val fromChars = charset.substring(0, fromBase)
-        return d.reversed().foldIndexed(0) { index, acc, char ->
-            val pos = fromChars.indexOf(char)
-            if (pos != -1) {
-                acc + pos * Math.pow(fromBase.toDouble(), index.toDouble()).toInt()
-            } else {
-                acc
-            }
-        }
     }
 
     private val dateFormat by lazy {
@@ -241,8 +184,5 @@ class viHentai : HttpSource() {
 
     companion object {
         private val BACKGROUND_IMAGE_REGEX = Regex("""background-image:\s*url\(['"]?(.*?)['"]?\)""")
-        private val IMAGE_URL_REGEX = Regex(""""(https?:\\?/\\?/[^"]+\.\w{3,4})""")
-        // Captures 6 args: h(1), u(2), n(3), t(4), e(5), r(6)
-        private val PACKED_ARGS_REGEX = Regex("""\}\("(.+)",\s*(\d+),\s*"([^"]+)",\s*(\d+),\s*(\d+),\s*(\d+)\)""")
     }
 }
