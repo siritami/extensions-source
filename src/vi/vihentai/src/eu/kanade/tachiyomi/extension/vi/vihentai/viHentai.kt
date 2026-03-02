@@ -156,11 +156,16 @@ class viHentai : HttpSource() {
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
 
-        return document.select("img.lazy-image[data-src], img.lazy-image[src]").mapIndexed { index, element ->
-            val imageUrl = element.absUrl("data-src")
-                .ifEmpty { element.absUrl("src") }
-            Page(index, imageUrl = imageUrl)
-        }
+        // Images are loaded via packed JavaScript, not in the HTML directly
+        val packedScript = document.select("script").map { it.data() }
+            .firstOrNull { it.contains("eval(function(h,u,n,t,e,r)") }
+            ?: throw Exception("Could not find packed script with image data")
+
+        val decoded = unpackScript(packedScript)
+
+        return IMAGE_URL_REGEX.findAll(decoded).mapIndexed { index, match ->
+            Page(index, imageUrl = match.groupValues[1].replace("\\/", "/"))
+        }.toList()
     }
 
     override fun imageUrlParse(response: Response): String {
@@ -174,6 +179,54 @@ class viHentai : HttpSource() {
         return BACKGROUND_IMAGE_REGEX.find(style)?.groupValues?.get(1)
     }
 
+    /**
+     * Unpacks a JavaScript "HUNTO" packer script.
+     * The packed format: eval(function(h,u,n,t,e,r){...}("encoded",base,charset,offset))
+     */
+    private fun unpackScript(script: String): String {
+        val argsMatch = PACKED_ARGS_REGEX.find(script)
+            ?: throw Exception("Could not parse packed script arguments")
+
+        val h = argsMatch.groupValues[1]
+        val u = argsMatch.groupValues[2].toInt()
+        val n = argsMatch.groupValues[3]
+        val t = argsMatch.groupValues[4].toInt()
+
+        val result = StringBuilder()
+        var i = 0
+        while (i < h.length) {
+            val s = StringBuilder()
+            while (i < h.length && h[i] != n[u]) {
+                s.append(h[i])
+                i++
+            }
+            i++ // skip delimiter
+            var charStr = s.toString()
+            for (j in n.indices) {
+                charStr = charStr.replace(n[j].toString(), j.toString())
+            }
+            result.append((baseConvert(charStr, u, 10) - t).toChar())
+        }
+        return result.toString()
+    }
+
+    /**
+     * Converts a number string from one base to another.
+     * Replicates the _0xe6c function from the site's JavaScript.
+     */
+    private fun baseConvert(d: String, fromBase: Int, toBase: Int): Int {
+        val charset = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+/"
+        val fromChars = charset.substring(0, fromBase)
+        return d.reversed().foldIndexed(0) { index, acc, char ->
+            val pos = fromChars.indexOf(char)
+            if (pos != -1) {
+                acc + pos * Math.pow(fromBase.toDouble(), index.toDouble()).toInt()
+            } else {
+                acc
+            }
+        }
+    }
+
     private val dateFormat by lazy {
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).apply {
             timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
@@ -182,5 +235,7 @@ class viHentai : HttpSource() {
 
     companion object {
         private val BACKGROUND_IMAGE_REGEX = Regex("""background-image:\s*url\(['"]?(.*?)['"]?\)""")
+        private val IMAGE_URL_REGEX = Regex(""""(https?:\\?/\\?/[^"]+\.\w{3,4})""")
+        private val PACKED_ARGS_REGEX = Regex("""\}\("(.+?)",\s*(\d+),\s*"([^"]+)",\s*(\d+)""")
     }
 }
