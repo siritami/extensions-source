@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.extension.vi.loppytoon
 
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.interceptor.rateLimit
+import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -10,12 +10,15 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.parseAs
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.io.IOException
 import java.util.Calendar
+import java.util.concurrent.TimeUnit
 
 class LoppyToon : HttpSource() {
     override val name = "LoppyToon"
@@ -24,7 +27,18 @@ class LoppyToon : HttpSource() {
     override val supportsLatest = true
 
     override val client = network.cloudflareClient.newBuilder()
-        .rateLimit(3)
+        .rateLimitHost(baseUrl.toHttpUrl(), 20, 1, TimeUnit.MINUTES)
+        .addNetworkInterceptor {
+            val request = it.request()
+            val response = it.proceed(request)
+
+            if (request.url.toString().startsWith(baseUrl)) {
+                if (response.code == 429) {
+                    throw IOException("Bạn đang request quá nhanh!")
+                }
+            }
+            response
+        }
         .build()
 
     override fun headersBuilder() = super.headersBuilder()
@@ -266,4 +280,11 @@ class LoppyToon : HttpSource() {
     override fun imageUrlParse(response: Response): String {
         throw UnsupportedOperationException()
     }
+
+    // =============================== Related ================================
+    // dirty hack to disable suggested mangas on Komikku due to heavy rate limit
+    // https://github.com/komikku-app/komikku/blob/4323fd5841b390213aa4c4af77e07ad42eb423fc/source-api/src/commonMain/kotlin/eu/kanade/tachiyomi/source/CatalogueSource.kt#L176-L184
+    @Suppress("Unused")
+    @JvmName("getDisableRelatedMangasBySearch")
+    fun disableRelatedMangasBySearch() = true
 }
