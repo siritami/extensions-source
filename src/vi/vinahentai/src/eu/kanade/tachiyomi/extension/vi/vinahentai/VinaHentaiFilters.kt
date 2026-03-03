@@ -17,12 +17,12 @@ class GenreFilter(genres: List<Pair<String, String>>) : Filter.Select<String>(
 
 class SortFilter : Filter.Select<String>(
     "Sắp xếp theo",
-    arrayOf("Mới cập nhật", "Đọc nhiều", "Đánh giá cao", "Cũ nhất"),
+    arrayOf("Mới cập nhật", "Xem nhiều", "Đánh giá cao", "Cũ nhất"),
 ) {
     fun toUriPart() = when (state) {
         1 -> "viewNumber"
-        2 -> "ratingScore"
-        3 -> "createdAt"
+        2 -> "likeNumber"
+        3 -> "oldest"
         else -> "updatedAt"
     }
 }
