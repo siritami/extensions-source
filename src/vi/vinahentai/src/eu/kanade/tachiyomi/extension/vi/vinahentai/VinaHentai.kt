@@ -83,41 +83,52 @@ class VinaHentai : HttpSource() {
     override fun getFilterList(): FilterList = getFilters()
 
     private fun parseMangaListPage(document: Document): MangasPage {
-        val mangaList = document.select("a.group[href^=/truyen-hentai/]").map { element ->
-            mangaFromGridElement(element)
-        }
+        val mangaList = document.select("a.group[href^=/truyen-hentai/], a.group[href^=/login?redirect=]")
+            .filter { it.selectFirst("h3") != null }
+            .map { element -> mangaFromGridElement(element) }
 
-        val hasNextPage = document.selectFirst("a[href*=page=]:contains(Trang sau)") != null ||
-            document.select("nav button, nav a").any {
-                it.text().contains("Trang sau") || it.attr("aria-label").contains("sau", ignoreCase = true)
-            }
+        val hasNextPage = document.selectFirst("button[title=Tới trang cuối]:not([disabled])") != null
 
         return MangasPage(mangaList, hasNextPage)
     }
 
     private fun parseSearchPage(document: Document): MangasPage {
-        val mangaList = document.select("a[href^=/truyen-hentai/]")
+        val mangaList = document.select("a[href^=/truyen-hentai/], a[href^=/login?redirect=]")
             .filter { it.selectFirst("h2") != null }
             .map { element ->
                 SManga.create().apply {
-                    setUrlWithoutDomain(element.attr("href"))
+                    setUrlWithoutDomain(resolveMangaUrl(element.attr("href")))
                     title = element.selectFirst("h2")!!.text()
                     thumbnail_url = element.selectFirst("img")?.absUrl("src")
                 }
             }
 
-        val hasNextPage = document.selectFirst("a[href*=page=]:contains(Trang sau)") != null ||
-            document.select("nav button, nav a").any {
-                it.text().contains("Trang sau") || it.attr("aria-label").contains("sau", ignoreCase = true)
+        val currentPage = """page=(\d+)""".toRegex()
+            .find(document.location())?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        val hasNextPage = document.select("a[href*=page=]")
+            .any { element ->
+                """page=(\d+)""".toRegex()
+                    .find(element.attr("href"))?.groupValues?.get(1)?.toIntOrNull()
+                    ?.let { it > currentPage } == true
             }
 
         return MangasPage(mangaList, hasNextPage)
     }
 
     private fun mangaFromGridElement(element: Element): SManga = SManga.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
+        setUrlWithoutDomain(resolveMangaUrl(element.attr("href")))
         title = element.selectFirst("h3")!!.text()
         thumbnail_url = element.selectFirst("img")?.absUrl("src")
+    }
+
+    private fun resolveMangaUrl(href: String): String {
+        if (href.startsWith("/login")) {
+            val redirect = href.substringAfter("redirect=", "")
+            if (redirect.isNotEmpty()) {
+                return java.net.URLDecoder.decode(redirect, "UTF-8")
+            }
+        }
+        return href
     }
 
     // =============================== Details ==============================
@@ -162,12 +173,10 @@ class VinaHentai : HttpSource() {
 
     override fun chapterListParse(response: Response): List<SChapter> {
         val document = response.asJsoup()
-        val mangaUrl = response.request.url.pathSegments.joinToString("/")
 
-        return document.select("a[href^=/truyen-hentai/]")
+        return document.select("a.block[href^=/truyen-hentai/]")
             .filter { element ->
                 val href = element.attr("href")
-                // Chapter links have additional path segments beyond the manga slug
                 href.count { it == '/' } > 2
             }
             .map { element ->
@@ -201,10 +210,6 @@ class VinaHentai : HttpSource() {
 
     // =============================== Pages ================================
 
-    // CDN domain is derived from baseUrl (e.g. https://vinahentai.site -> cdn.vinahentai.site).
-    // The site is a Remix/React Router SPA: image URLs are embedded in the raw HTML inside
-    // <script> blocks that call window.__reactRouterContext.streamController.enqueue().
-    // Even though images don't render without JS, the URLs are present in the page source.
     private val imageUrlRegex by lazy {
         val baseDomain = baseUrl.removePrefix("https://").removePrefix("http://")
         Regex("""https://cdn\.${Regex.escape(baseDomain)}/manga-images/[^"'\s\\]+""")
