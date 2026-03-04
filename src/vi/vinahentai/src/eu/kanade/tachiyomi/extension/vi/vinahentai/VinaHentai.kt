@@ -30,19 +30,15 @@ class VinaHentai : HttpSource() {
 
     // ============================== Popular ===============================
 
-    override fun popularMangaRequest(page: Int): Request =
-        GET("$baseUrl/danh-sach?page=$page&sort=views", headers)
+    override fun popularMangaRequest(page: Int): Request = GET("$baseUrl/danh-sach?page=$page&sort=views", headers)
 
-    override fun popularMangaParse(response: Response): MangasPage =
-        parseMangaListPage(response.asJsoup())
+    override fun popularMangaParse(response: Response): MangasPage = parseMangaListPage(response.asJsoup())
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/danh-sach?page=$page&sort=updatedAt", headers)
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/danh-sach?page=$page&sort=updatedAt", headers)
 
-    override fun latestUpdatesParse(response: Response): MangasPage =
-        parseMangaListPage(response.asJsoup())
+    override fun latestUpdatesParse(response: Response): MangasPage = parseMangaListPage(response.asJsoup())
 
     // =============================== Search ===============================
 
@@ -154,14 +150,12 @@ class VinaHentai : HttpSource() {
             thumbnail_url = document.selectFirst("img[alt*=Bìa]")?.absUrl("src")
                 ?: document.selectFirst("img[src*=story-images]")?.absUrl("src")
 
-            description = document.select("h2")
-                .firstOrNull { it.text().contains("GIỚI THIỆU", ignoreCase = true) }
-                ?.nextElementSibling()
+            description = document.selectFirst("#manga-description-section .text-txt-secondary")
                 ?.text()?.trim()
 
             status = document.body().text().let { bodyText ->
                 when {
-                    bodyText.contains("Đang cập nhật") -> SManga.ONGOING
+                    bodyText.contains("Đang tiến hành") -> SManga.ONGOING
                     bodyText.contains("Đã hoàn thành") -> SManga.COMPLETED
                     else -> SManga.UNKNOWN
                 }
@@ -228,8 +222,7 @@ class VinaHentai : HttpSource() {
         }
     }
 
-    override fun imageUrlParse(response: Response): String =
-        throw UnsupportedOperationException()
+    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
     companion object {
         private val NUMBER_REGEX = Regex("""\d+""")

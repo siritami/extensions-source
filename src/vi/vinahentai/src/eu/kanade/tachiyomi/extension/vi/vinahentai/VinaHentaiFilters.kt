@@ -8,17 +8,19 @@ fun getFilters(): FilterList = FilterList(
     SortFilter(),
 )
 
-class GenreFilter(genres: List<Pair<String, String>>) : Filter.Select<String>(
-    "Thể loại",
-    arrayOf("Tất cả") + genres.map { it.first }.toTypedArray(),
-) {
+class GenreFilter(genres: List<Pair<String, String>>) :
+    Filter.Select<String>(
+        "Thể loại",
+        arrayOf("Tất cả") + genres.map { it.first }.toTypedArray(),
+    ) {
     val selected get() = if (state == 0) null else getGenreList()[state - 1].second
 }
 
-class SortFilter : Filter.Select<String>(
-    "Sắp xếp theo",
-    arrayOf("Mới cập nhật", "Xem nhiều", "Đánh giá cao", "Cũ nhất"),
-) {
+class SortFilter :
+    Filter.Select<String>(
+        "Sắp xếp theo",
+        arrayOf("Mới cập nhật", "Xem nhiều", "Đánh giá cao", "Cũ nhất"),
+    ) {
     fun toUriPart() = when (state) {
         1 -> "viewNumber"
         2 -> "likeNumber"
