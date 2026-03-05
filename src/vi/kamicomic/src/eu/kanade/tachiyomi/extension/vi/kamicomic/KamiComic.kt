@@ -15,7 +15,6 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
 import java.util.Calendar
 
 class KamiComic : HttpSource() {
@@ -87,6 +86,7 @@ class KamiComic : HttpSource() {
                             ?.replace(MARK_REGEX, "$1")
                             ?: ""
                         thumbnail_url = result.thumb
+                            ?.replace(THUMB_SIZE_REGEX, "")
                     }
                 }
 
@@ -101,22 +101,18 @@ class KamiComic : HttpSource() {
     // ============================== Parsing ===============================
 
     private fun parseMangaListPage(document: Document): MangasPage {
-        val mangaList = document.select("article.uk-panel").map { element ->
-            mangaFromElement(element)
+        val mangaList = document.select("a.uk-link-heading[href*=/truyen/]").map { link ->
+            val panel = link.closest(".uk-panel") ?: link.parent()!!
+            SManga.create().apply {
+                setUrlWithoutDomain(link.absUrl("href"))
+                title = link.text()
+                thumbnail_url = panel.selectFirst("img")?.absUrl("src")
+            }
         }
 
         val hasNextPage = document.selectFirst("li#next-link:not(.uk-disabled)") != null
 
         return MangasPage(mangaList, hasNextPage)
-    }
-
-    private fun mangaFromElement(element: Element): SManga = SManga.create().apply {
-        val linkElement = element.selectFirst("h2 a.uk-link-heading")
-            ?: element.selectFirst("a[href*=/truyen/]")!!
-        setUrlWithoutDomain(linkElement.absUrl("href"))
-        title = linkElement.text()
-        thumbnail_url = element.selectFirst("img.image-3-4")?.absUrl("src")
-            ?.ifEmpty { element.selectFirst("img")?.absUrl("src") }
     }
 
     // =============================== Details ==============================
@@ -204,8 +200,9 @@ class KamiComic : HttpSource() {
         document.select(".chapter-list a.uk-link-toggle").map { element ->
             SChapter.create().apply {
                 setUrlWithoutDomain(element.absUrl("href"))
-                name = element.selectFirst("h3")?.text()?.trim()
+                val rawName = element.selectFirst("h3")?.text()?.trim()
                     ?: element.text().trim()
+                name = CHAPTER_NAME_REGEX.find(rawName)?.value ?: rawName
                 date_upload = element.selectFirst("time")?.text()
                     .parseRelativeDate()
             }
@@ -250,5 +247,7 @@ class KamiComic : HttpSource() {
         private val MARK_REGEX = Regex("""<mark>(.*?)</mark>""")
         private val NUMBER_REGEX = Regex("""\d+""")
         private val PAGE_NUMBER_REGEX = Regex("""/page/(\d+)/""")
+        private val THUMB_SIZE_REGEX = Regex("""-\d+x\d+""")
+        private val CHAPTER_NAME_REGEX = Regex("""Chương \d+.*""")
     }
 }
