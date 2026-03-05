@@ -233,8 +233,15 @@ class KamiComic : HttpSource() {
 
     // =============================== Pages ================================
 
-    override fun pageListParse(response: Response): List<Page> =
-        throw UnsupportedOperationException()
+    override fun pageListParse(response: Response): List<Page> {
+        val document = response.asJsoup()
+
+        return document.select("#chapter-content img").mapIndexed { i, element ->
+            val imageUrl = element.attr("data-original-src")
+                .ifEmpty { element.attr("src") }
+            Page(i, imageUrl = imageUrl)
+        }.filterNot { it.imageUrl!!.startsWith("data:") }
+    }
 
     override fun imageUrlParse(response: Response): String =
         throw UnsupportedOperationException()
