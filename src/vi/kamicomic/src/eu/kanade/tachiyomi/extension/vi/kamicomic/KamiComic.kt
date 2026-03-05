@@ -146,14 +146,12 @@ class KamiComic : HttpSource() {
 
             val terms = wpManga.embedded?.terms
 
-            // First term array: genres
             genre = terms?.getOrNull(0)
                 ?.filter { it.taxonomy == "genre" }
                 ?.mapNotNull { it.name }
                 ?.joinToString()
                 ?.ifEmpty { null }
 
-            // Second term array: authors
             author = terms?.getOrNull(1)
                 ?.filter { it.taxonomy == "author_tax" }
                 ?.mapNotNull { it.name }
