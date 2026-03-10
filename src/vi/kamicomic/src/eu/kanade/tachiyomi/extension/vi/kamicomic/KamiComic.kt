@@ -32,19 +32,15 @@ class KamiComic : HttpSource() {
 
     // ============================== Popular ===============================
 
-    override fun popularMangaRequest(page: Int): Request =
-        GET("$baseUrl/bang-xep-hang-truyen/page/$page/", headers)
+    override fun popularMangaRequest(page: Int): Request = GET("$baseUrl/bang-xep-hang-truyen/page/$page/", headers)
 
-    override fun popularMangaParse(response: Response): MangasPage =
-        parseMangaListPage(response.asJsoup())
+    override fun popularMangaParse(response: Response): MangasPage = parseMangaListPage(response.asJsoup())
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/moi-cap-nhat/page/$page/", headers)
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/moi-cap-nhat/page/$page/", headers)
 
-    override fun latestUpdatesParse(response: Response): MangasPage =
-        parseMangaListPage(response.asJsoup())
+    override fun latestUpdatesParse(response: Response): MangasPage = parseMangaListPage(response.asJsoup())
 
     // =============================== Search ===============================
 
@@ -82,9 +78,7 @@ class KamiComic : HttpSource() {
                 .map { result ->
                     SManga.create().apply {
                         setUrlWithoutDomain(result.url!!.removePrefix(baseUrl))
-                        title = result.title
-                            ?.replace(MARK_REGEX, "$1")
-                            ?: ""
+                        title = result.title!!.replace(MARK_REGEX, "$1")
                         thumbnail_url = result.thumb
                             ?.replace(THUMB_SIZE_REGEX, "")
                     }
@@ -132,13 +126,10 @@ class KamiComic : HttpSource() {
 
     override fun mangaDetailsParse(response: Response): SManga {
         val mangaList = response.parseAs<List<WpManga>>()
-        val wpManga = mangaList.firstOrNull()
-            ?: throw Exception("Manga not found")
+        val wpManga = mangaList.first()
 
         return SManga.create().apply {
-            title = wpManga.title?.rendered
-                ?.let { Jsoup.parse(it).text() }
-                ?: throw Exception("Title not found")
+            title = Jsoup.parse(wpManga.title!!.rendered!!).text()
 
             description = wpManga.content?.rendered?.let { html ->
                 Jsoup.parse(html).text().trim()
@@ -167,8 +158,7 @@ class KamiComic : HttpSource() {
 
     // ============================== Chapters ==============================
 
-    override fun chapterListRequest(manga: SManga): Request =
-        GET("$baseUrl${manga.url}", headers)
+    override fun chapterListRequest(manga: SManga): Request = GET("$baseUrl${manga.url}", headers)
 
     override fun chapterListParse(response: Response): List<SChapter> {
         val document = response.asJsoup()
@@ -194,17 +184,16 @@ class KamiComic : HttpSource() {
         return chapters
     }
 
-    private fun parseChapters(document: Document): List<SChapter> =
-        document.select(".chapter-list a.uk-link-toggle").map { element ->
-            SChapter.create().apply {
-                setUrlWithoutDomain(element.absUrl("href"))
-                val rawName = element.selectFirst("h3")?.text()?.trim()
-                    ?: element.text().trim()
-                name = CHAPTER_NAME_REGEX.find(rawName)?.value ?: rawName
-                date_upload = element.selectFirst("time")?.text()
-                    .parseRelativeDate()
-            }
+    private fun parseChapters(document: Document): List<SChapter> = document.select(".chapter-list a.uk-link-toggle").map { element ->
+        SChapter.create().apply {
+            setUrlWithoutDomain(element.absUrl("href"))
+            val rawName = element.selectFirst("h3")?.text()?.trim()
+                ?: element.text().trim()
+            name = CHAPTER_NAME_REGEX.find(rawName)?.value ?: rawName
+            date_upload = element.selectFirst("time")?.text()
+                .parseRelativeDate()
         }
+    }
 
     private fun String?.parseRelativeDate(): Long {
         this ?: return 0L
@@ -238,8 +227,7 @@ class KamiComic : HttpSource() {
         }.filterNot { it.imageUrl!!.startsWith("data:") }
     }
 
-    override fun imageUrlParse(response: Response): String =
-        throw UnsupportedOperationException()
+    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
     companion object {
         private val MARK_REGEX = Regex("""<mark>(.*?)</mark>""")
