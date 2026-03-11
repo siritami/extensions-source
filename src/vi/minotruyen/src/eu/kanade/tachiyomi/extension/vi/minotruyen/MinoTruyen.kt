@@ -161,7 +161,7 @@ class MinoTruyen(
         return result.chapters.map { chapter ->
             SChapter.create().apply {
                 val bookId = chapter.bookId
-                url = "/books/$bookId/chapters/${chapter.chapterNumber}"
+                url = "/books/$bookId/${chapter.chapterNumber}"
                 name = chapter.num
                 date_upload = parseDate(chapter.createdAt)
             }
