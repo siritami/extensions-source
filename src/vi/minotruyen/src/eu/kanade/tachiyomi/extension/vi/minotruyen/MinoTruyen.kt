@@ -34,7 +34,8 @@ class MinoTruyen(
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
-        .add("Origin", baseUrl)
+
+    private val apiHeaders by lazy { headersBuilder().add("Origin", baseUrl).build() }
 
     override val client = network.cloudflareClient.newBuilder()
         .rateLimitHost(apiUrl.toHttpUrl(), 3)
@@ -46,7 +47,7 @@ class MinoTruyen(
         val url = "$apiUrl/books/side-home".toHttpUrl().newBuilder()
             .addQueryParameter("category", category)
             .build()
-        return GET(url, headers)
+        return GET(url, apiHeaders)
     }
 
     override fun popularMangaParse(response: Response): MangasPage {
@@ -62,6 +63,10 @@ class MinoTruyen(
         return MangasPage(mangaList, false)
     }
 
+    private inline fun <reified T> Response.parseAs(): T {
+        return json.decodeFromString<T>(body.string())
+    }
+
     // =============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request {
@@ -70,7 +75,7 @@ class MinoTruyen(
             .addQueryParameter("page", page.toString())
             .addQueryParameter("category", category)
             .build()
-        return GET(url, headers)
+        return GET(url, apiHeaders)
     }
 
     override fun latestUpdatesParse(response: Response): MangasPage {
@@ -78,6 +83,13 @@ class MinoTruyen(
         val mangaList = result.books.map { it.toSManga() }
         val hasNextPage = result.countBook?.let { mangaList.size < it } ?: false
         return MangasPage(mangaList, hasNextPage)
+    }
+
+    private fun Book.toSManga() = SManga.create().apply {
+        url = "/books/$bookId"
+        title = this@toSManga.title.trim()
+        thumbnail_url = covers.firstOrNull()?.url
+        status = parseStatus(this@toSManga.status)
     }
 
     // =============================== Search ===============================
@@ -92,7 +104,7 @@ class MinoTruyen(
             url.addQueryParameter("q", query)
         }
 
-        return GET(url.build(), headers)
+        return GET(url.build(), apiHeaders)
     }
 
     override fun searchMangaParse(response: Response): MangasPage = latestUpdatesParse(response)
@@ -101,7 +113,7 @@ class MinoTruyen(
 
     override fun mangaDetailsRequest(manga: SManga): Request {
         val bookId = manga.url.substringAfterLast("/")
-        return GET("$apiUrl/books/$bookId", headers)
+        return GET("$apiUrl/books/$bookId", apiHeaders)
     }
 
     override fun getMangaUrl(manga: SManga): String {
@@ -122,6 +134,12 @@ class MinoTruyen(
         }
     }
 
+    private fun parseStatus(status: Int?): Int = when (status) {
+        1 -> SManga.ONGOING
+        2 -> SManga.COMPLETED
+        else -> SManga.UNKNOWN
+    }
+
     // ============================== Chapters ==============================
 
     override fun chapterListRequest(manga: SManga): Request {
@@ -130,7 +148,7 @@ class MinoTruyen(
             .addQueryParameter("order", "desc")
             .addQueryParameter("take", "5000")
             .build()
-        return GET(url, headers)
+        return GET(url, apiHeaders)
     }
 
     override fun getChapterUrl(chapter: SChapter): String {
@@ -149,31 +167,6 @@ class MinoTruyen(
         }
     }
 
-    // =============================== Pages ================================
-
-    override fun pageListParse(response: Response): List<Page> {
-        throw UnsupportedOperationException()
-    }
-
-    override fun imageUrlParse(response: Response): String {
-        throw UnsupportedOperationException()
-    }
-
-    // ============================= Utilities ==============================
-
-    private fun Book.toSManga() = SManga.create().apply {
-        url = "/books/$bookId"
-        title = this@toSManga.title.trim()
-        thumbnail_url = covers.firstOrNull()?.url
-        status = parseStatus(this@toSManga.status)
-    }
-
-    private fun parseStatus(status: Int?): Int = when (status) {
-        1 -> SManga.ONGOING
-        2 -> SManga.COMPLETED
-        else -> SManga.UNKNOWN
-    }
-
     private fun parseDate(dateStr: String?): Long {
         if (dateStr.isNullOrBlank()) return 0L
         return try {
@@ -183,8 +176,14 @@ class MinoTruyen(
         }
     }
 
-    private inline fun <reified T> Response.parseAs(): T {
-        return json.decodeFromString<T>(body.string())
+    // =============================== Pages ================================
+
+    override fun pageListParse(response: Response): List<Page> {
+        throw UnsupportedOperationException()
+    }
+
+    override fun imageUrlParse(response: Response): String {
+        throw UnsupportedOperationException()
     }
 
     companion object {
