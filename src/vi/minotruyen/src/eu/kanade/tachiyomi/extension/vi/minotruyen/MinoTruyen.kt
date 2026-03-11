@@ -200,35 +200,8 @@ class MinoTruyen(
             throw Exception("Failed to decrypt chapter data")
         }
 
-        // DEBUG: throw to see structure - remove after fixing
+        // DEBUG: throw to see structure
         throw Exception("DATA: ${decrypted.take(500)}")
-
-        val imageUrls = when {
-            // {"NV1": ["url1", "url2", ...], "NV2": [...]}
-            root is JsonObject -> {
-                root.values.first().jsonArray
-                    .map { it.jsonPrimitive.content }
-            }
-            // ["url1", "url2", ...] or [{"NV1": "url1"}, ...]
-            root is kotlinx.serialization.json.JsonArray -> {
-                root.mapNotNull { element ->
-                    when {
-                        element is JsonPrimitive && element.content.startsWith("http") ->
-                            element.content
-                        element is JsonObject ->
-                            element.values.firstNotNullOfOrNull {
-                                (it as? JsonPrimitive)?.content?.takeIf { url -> url.startsWith("http") }
-                            }
-                        else -> null
-                    }
-                }
-            }
-            else -> throw Exception("Unexpected data format")
-        }
-
-        return imageUrls.mapIndexed { index, imageUrl ->
-            Page(index, imageUrl = imageUrl)
-        }
     }
 
     override fun imageUrlParse(response: Response): String {
