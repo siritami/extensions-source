@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.minotruyen
 
+import android.util.Base64
 import eu.kanade.tachiyomi.lib.cryptoaes.CryptoAES
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
@@ -10,6 +11,10 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -189,22 +194,45 @@ class MinoTruyen(
         val encrypted = ENCRYPTED_DATA_REGEX.find(html)?.groupValues?.get(1)
             ?: throw Exception("Could not find encrypted chapter data")
 
-        val encData = encrypted.substringAfter(":")
+        val (ivHex, encBase64) = encrypted.split(":", limit = 2)
+        val ivBytes = ivHex.decodeHex()
+        val keyBytes = AES_KEY.toByteArray(Charsets.UTF_8).copyOf(32)
 
-        val decrypted = CryptoAES.decrypt(encData, AES_KEY)
+        // Base64 decode and skip 16-byte OpenSSL header (Salted__ + 8-byte salt)
+        val allBytes = Base64.decode(encBase64, Base64.DEFAULT)
+        val cipherBytes = allBytes.copyOfRange(16, allBytes.size)
+        val cipherBase64 = Base64.encodeToString(cipherBytes, Base64.NO_WRAP)
+
+        val decrypted = CryptoAES.decrypt(cipherBase64, keyBytes, ivBytes)
         if (decrypted.isBlank()) {
             throw Exception("Failed to decrypt chapter data")
         }
 
-        val imageUrls = json.decodeFromString<List<String>>(decrypted)
+        val jsonArray = json.parseToJsonElement(decrypted).jsonArray
 
-        return imageUrls.mapIndexed { index, imageUrl ->
+        return jsonArray.mapIndexed { index, element ->
+            val imageUrl = when {
+                element is JsonPrimitive -> element.content
+                element is JsonObject -> {
+                    element["url"]?.jsonPrimitive?.content
+                        ?: element["src"]?.jsonPrimitive?.content
+                        ?: element["image"]?.jsonPrimitive?.content
+                        ?: element.values.firstOrNull()?.jsonPrimitive?.content
+                        ?: throw Exception("Unknown image data format")
+                }
+                else -> throw Exception("Unexpected data format")
+            }
             Page(index, imageUrl = imageUrl)
         }
     }
 
     override fun imageUrlParse(response: Response): String {
         throw UnsupportedOperationException()
+    }
+
+    private fun String.decodeHex(): ByteArray {
+        check(length % 2 == 0)
+        return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
     }
 
     companion object {
