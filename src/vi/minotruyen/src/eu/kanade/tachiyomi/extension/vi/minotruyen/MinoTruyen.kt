@@ -200,20 +200,32 @@ class MinoTruyen(
             throw Exception("Failed to decrypt chapter data")
         }
 
-        val jsonArray = json.parseToJsonElement(decrypted).jsonArray
+        val root = json.parseToJsonElement(decrypted)
 
-        return jsonArray.mapIndexed { index, element ->
-            val imageUrl = when {
-                element is JsonPrimitive -> element.content
-                element is JsonObject -> {
-                    element["url"]?.jsonPrimitive?.content
-                        ?: element["src"]?.jsonPrimitive?.content
-                        ?: element["image"]?.jsonPrimitive?.content
-                        ?: element.values.firstOrNull()?.jsonPrimitive?.content
-                        ?: throw Exception("Unknown image data format")
-                }
-                else -> throw Exception("Unexpected data format")
+        val imageUrls = when {
+            // {"NV1": ["url1", "url2", ...], "NV2": [...]}
+            root is JsonObject -> {
+                root.values.first().jsonArray
+                    .map { it.jsonPrimitive.content }
             }
+            // ["url1", "url2", ...] or [{"NV1": "url1"}, ...]
+            root is kotlinx.serialization.json.JsonArray -> {
+                root.mapNotNull { element ->
+                    when {
+                        element is JsonPrimitive && element.content.startsWith("http") ->
+                            element.content
+                        element is JsonObject ->
+                            element.values.firstNotNullOfOrNull {
+                                (it as? JsonPrimitive)?.content?.takeIf { url -> url.startsWith("http") }
+                            }
+                        else -> null
+                    }
+                }
+            }
+            else -> throw Exception("Unexpected data format")
+        }
+
+        return imageUrls.mapIndexed { index, imageUrl ->
             Page(index, imageUrl = imageUrl)
         }
     }
