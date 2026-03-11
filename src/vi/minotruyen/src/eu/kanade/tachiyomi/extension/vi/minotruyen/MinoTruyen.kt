@@ -10,10 +10,6 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -200,8 +196,14 @@ class MinoTruyen(
             throw Exception("Failed to decrypt chapter data")
         }
 
-        // DEBUG: throw to see structure
-        throw Exception("DATA: ${decrypted.take(500)}")
+        val servers = json.decodeFromString<List<ChapterServer>>(decrypted)
+
+        val pages = servers.firstOrNull()?.content
+            ?: throw Exception("No image server found")
+
+        return pages.mapIndexed { index, page ->
+            Page(index, imageUrl = page.imageUrl)
+        }
     }
 
     override fun imageUrlParse(response: Response): String {

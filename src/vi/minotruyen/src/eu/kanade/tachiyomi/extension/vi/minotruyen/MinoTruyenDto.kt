@@ -88,3 +88,14 @@ class Tag(
     val tagId: String,
     val name: String,
 )
+
+@Serializable
+class ChapterServer(
+    val cloud: String,
+    val content: List<ChapterPage>,
+)
+
+@Serializable
+class ChapterPage(
+    val imageUrl: String,
+)
