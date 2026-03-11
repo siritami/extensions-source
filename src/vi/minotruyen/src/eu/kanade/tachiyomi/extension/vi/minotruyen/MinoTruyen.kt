@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.vi.minotruyen
 
-import android.util.Base64
 import eu.kanade.tachiyomi.lib.cryptoaes.CryptoAES
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
@@ -194,16 +193,9 @@ class MinoTruyen(
         val encrypted = ENCRYPTED_DATA_REGEX.find(html)?.groupValues?.get(1)
             ?: throw Exception("Could not find encrypted chapter data")
 
-        val (ivHex, encBase64) = encrypted.split(":", limit = 2)
-        val ivBytes = ivHex.decodeHex()
-        val keyBytes = AES_KEY.toByteArray(Charsets.UTF_8).copyOf(32)
+        val encData = encrypted.substringAfter(":")
 
-        // Base64 decode and skip 16-byte OpenSSL header (Salted__ + 8-byte salt)
-        val allBytes = Base64.decode(encBase64, Base64.DEFAULT)
-        val cipherBytes = allBytes.copyOfRange(16, allBytes.size)
-        val cipherBase64 = Base64.encodeToString(cipherBytes, Base64.NO_WRAP)
-
-        val decrypted = CryptoAES.decrypt(cipherBase64, keyBytes, ivBytes)
+        val decrypted = CryptoAES.decrypt(encData, AES_KEY)
         if (decrypted.isBlank()) {
             throw Exception("Failed to decrypt chapter data")
         }
@@ -228,11 +220,6 @@ class MinoTruyen(
 
     override fun imageUrlParse(response: Response): String {
         throw UnsupportedOperationException()
-    }
-
-    private fun String.decodeHex(): ByteArray {
-        check(length % 2 == 0)
-        return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
     }
 
     companion object {
