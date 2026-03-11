@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.minotruyen
 
+import eu.kanade.tachiyomi.lib.cryptoaes.CryptoAES
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -178,8 +179,28 @@ class MinoTruyen(
 
     // =============================== Pages ================================
 
+    override fun pageListRequest(chapter: SChapter): Request {
+        return GET("$baseUrl/$category${chapter.url}", headers)
+    }
+
     override fun pageListParse(response: Response): List<Page> {
-        throw UnsupportedOperationException()
+        val html = response.body.string()
+
+        val encrypted = ENCRYPTED_DATA_REGEX.find(html)?.groupValues?.get(1)
+            ?: throw Exception("Could not find encrypted chapter data")
+
+        val encData = encrypted.substringAfter(":")
+
+        val decrypted = CryptoAES.decrypt(encData, AES_KEY)
+        if (decrypted.isBlank()) {
+            throw Exception("Failed to decrypt chapter data")
+        }
+
+        val imageUrls = json.decodeFromString<List<String>>(decrypted)
+
+        return imageUrls.mapIndexed { index, imageUrl ->
+            Page(index, imageUrl = imageUrl)
+        }
     }
 
     override fun imageUrlParse(response: Response): String {
@@ -187,6 +208,9 @@ class MinoTruyen(
     }
 
     companion object {
+        private const val AES_KEY = "GCERKSmf28E6nWwrnR8Lz4f7TacKpzMy7aK0rxSB"
+        private val ENCRYPTED_DATA_REGEX = Regex("""([a-f0-9]{32}:U2FsdGVk[A-Za-z0-9+/=]+)""")
+
         private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ROOT).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }
