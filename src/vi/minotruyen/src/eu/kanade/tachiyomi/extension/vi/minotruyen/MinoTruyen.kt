@@ -200,7 +200,8 @@ class MinoTruyen(
             throw Exception("Failed to decrypt chapter data")
         }
 
-        val root = json.parseToJsonElement(decrypted)
+        // DEBUG: throw to see structure - remove after fixing
+        throw Exception("DATA: ${decrypted.take(500)}")
 
         val imageUrls = when {
             // {"NV1": ["url1", "url2", ...], "NV2": [...]}
