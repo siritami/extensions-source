@@ -62,7 +62,7 @@ class BookDetail(
 class Chapter(
     val bookId: Int,
     val num: String,
-    val chapterNumber: Int,
+    val chapterNumber: Double,
     val title: String? = null,
     val createdAt: String? = null,
 )
@@ -70,7 +70,7 @@ class Chapter(
 @Serializable
 class ChapterPreview(
     val num: String,
-    val chapterNumber: Int,
+    val chapterNumber: Double,
     val createdAt: String? = null,
 )
 
