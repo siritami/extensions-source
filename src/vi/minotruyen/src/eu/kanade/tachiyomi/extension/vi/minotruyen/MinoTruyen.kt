@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
@@ -201,24 +202,44 @@ class MinoTruyen(
 
         val servers = json.decodeFromString<List<ChapterServer>>(decrypted)
 
-        val pages = servers.firstOrNull()?.content
+        val selectedServer = selectImageServer(servers)
             ?: throw Exception("No image server found")
+        val pages = selectedServer.content
 
         return pages.mapIndexed { index, page ->
+            val normalizedImageUrl = normalizeImageUrl(page.imageUrl)
             val imageUrl = page.drmData
                 ?.let { decodeDrmMap(it) }
                 ?.takeIf { it.isNotEmpty() }
                 ?.let { strips ->
                     val map = strips.joinToString(",") { "${it.destY}-${it.height}" }
-                    page.imageUrl.toHttpUrl().newBuilder()
+                    normalizedImageUrl.toHttpUrl().newBuilder()
                         .fragment("$DRM_FRAGMENT_PREFIX$map")
                         .build()
                         .toString()
                 }
-                ?: page.imageUrl
+                ?: normalizedImageUrl
 
             Page(index, imageUrl = imageUrl)
         }
+    }
+
+    private fun selectImageServer(servers: List<ChapterServer>): ChapterServer? {
+        val candidates = servers.filter { it.content.isNotEmpty() }
+        if (candidates.isEmpty()) return null
+
+        return candidates.firstOrNull { server ->
+            server.content.any { page ->
+                val host = normalizeImageUrl(page.imageUrl).toHttpUrlOrNull()?.host.orEmpty()
+                host.isNotEmpty() && !host.contains("ibyteimg.com", ignoreCase = true)
+            }
+        } ?: candidates.first()
+    }
+
+    private fun normalizeImageUrl(url: String): String = when {
+        url.startsWith("//") -> "https:$url"
+        url.startsWith("/") -> "$baseUrl$url"
+        else -> url
     }
 
     private fun decodeDrmMap(drmData: String): List<StripInfo> {
