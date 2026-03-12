@@ -61,7 +61,7 @@ class MinoTruyen(
             SManga.create().apply {
                 url = "/books/${book.bookId}"
                 title = book.title.trim()
-                thumbnail_url = book.covers.firstOrNull()?.url
+                thumbnail_url = resolveThumbnailUrl(book.covers.firstOrNull()?.url)
                 status = parseStatus(book.status)
             }
         }
@@ -86,14 +86,16 @@ class MinoTruyen(
     override fun latestUpdatesParse(response: Response): MangasPage {
         val result = response.parseAs<BooksResponse>()
         val mangaList = result.books.map { it.toSManga() }
-        val hasNextPage = result.countBook?.let { mangaList.size < it } ?: false
+        val currentPage = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
+        val take = response.request.url.queryParameter("take")?.toIntOrNull() ?: 24
+        val hasNextPage = result.countBook?.let { currentPage * take < it } ?: mangaList.isNotEmpty()
         return MangasPage(mangaList, hasNextPage)
     }
 
     private fun Book.toSManga() = SManga.create().apply {
         url = "/books/$bookId"
         title = this@toSManga.title.trim()
-        thumbnail_url = covers.firstOrNull()?.url
+        thumbnail_url = resolveThumbnailUrl(covers.firstOrNull()?.url)
         status = parseStatus(this@toSManga.status)
     }
 
@@ -131,7 +133,7 @@ class MinoTruyen(
         return SManga.create().apply {
             url = "/books/${book.bookId}"
             title = book.title.trim()
-            thumbnail_url = book.covers.firstOrNull()?.url
+            thumbnail_url = resolveThumbnailUrl(book.covers.firstOrNull()?.url)
             author = book.author
             description = book.description
             genre = book.tags.joinToString { it.tag.name }
@@ -242,6 +244,22 @@ class MinoTruyen(
         else -> url
     }
 
+    private fun resolveThumbnailUrl(url: String?): String? {
+        val normalized = url
+            ?.takeIf { it.isNotBlank() }
+            ?.let(::normalizeImageUrl)
+            ?: return null
+
+        val parsed = normalized.toHttpUrlOrNull() ?: return normalized
+        if (!parsed.host.contains("ibyteimg.com", ignoreCase = true)) return normalized
+        if (parsed.encodedPath.contains("~tplv-", ignoreCase = true)) return normalized
+        if (!parsed.encodedPath.startsWith("/obj/")) return normalized
+
+        val host = parsed.host.replace(IBYTE_AD_MARKER, IBYTE_LP_MARKER)
+        val objectPath = parsed.encodedPath.removePrefix("/obj/")
+        return "https://$host/$objectPath$IBYTE_THUMBNAIL_SUFFIX"
+    }
+
     private fun decodeDrmMap(drmData: String): List<StripInfo> {
         val encrypted = runCatching {
             Base64.decode(drmData, Base64.DEFAULT)
@@ -283,6 +301,9 @@ class MinoTruyen(
         private const val DRM_XOR_KEY = "3141592653589793"
         private const val DRM_MAP_PREFIX = "#mino-v1|"
         private const val DRM_FRAGMENT_PREFIX = "mino:"
+        private const val IBYTE_AD_MARKER = "-ad-"
+        private const val IBYTE_LP_MARKER = "-lp-"
+        private const val IBYTE_THUMBNAIL_SUFFIX = "~tplv-375lmtcpo0-resize:200:200.webp"
 
         private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ROOT).apply {
             timeZone = TimeZone.getTimeZone("UTC")
