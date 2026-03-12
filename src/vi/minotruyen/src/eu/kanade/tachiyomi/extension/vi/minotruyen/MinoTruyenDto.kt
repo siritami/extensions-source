@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.minotruyen
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -98,4 +99,8 @@ class ChapterServer(
 @Serializable
 class ChapterPage(
     val imageUrl: String,
+    @SerialName("drm_data")
+    val drmData: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
 )

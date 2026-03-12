@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.minotruyen
 
+import android.util.Base64
 import eu.kanade.tachiyomi.lib.cryptoaes.CryptoAES
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
@@ -14,6 +15,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
+import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -40,6 +42,7 @@ class MinoTruyen(
 
     override val client = network.cloudflareClient.newBuilder()
         .rateLimitHost(apiUrl.toHttpUrl(), 3)
+        .addInterceptor(MinoImageInterceptor())
         .build()
 
     // ============================== Popular ===============================
@@ -202,8 +205,51 @@ class MinoTruyen(
             ?: throw Exception("No image server found")
 
         return pages.mapIndexed { index, page ->
-            Page(index, imageUrl = page.imageUrl)
+            val imageUrl = page.drmData
+                ?.let { decodeDrmMap(it) }
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { strips ->
+                    val map = strips.joinToString(",") { "${it.destY}-${it.height}" }
+                    page.imageUrl.toHttpUrl().newBuilder()
+                        .fragment("$DRM_FRAGMENT_PREFIX$map")
+                        .build()
+                        .toString()
+                }
+                ?: page.imageUrl
+
+            Page(index, imageUrl = imageUrl)
         }
+    }
+
+    private fun decodeDrmMap(drmData: String): List<StripInfo> {
+        val encrypted = runCatching {
+            Base64.decode(drmData, Base64.DEFAULT)
+        }.getOrElse {
+            return emptyList()
+        }
+
+        val key = DRM_XOR_KEY.toByteArray(StandardCharsets.US_ASCII)
+        val plainBytes = ByteArray(encrypted.size)
+        for (i in encrypted.indices) {
+            plainBytes[i] = (encrypted[i].toInt() xor key[i % key.size].toInt()).toByte()
+        }
+
+        val plain = plainBytes.toString(StandardCharsets.UTF_8)
+        if (!plain.startsWith(DRM_MAP_PREFIX)) {
+            return emptyList()
+        }
+
+        return plain.removePrefix(DRM_MAP_PREFIX)
+            .split('|')
+            .mapNotNull { token ->
+                val dy = token.substringBefore('-').toIntOrNull()
+                val height = token.substringAfter('-', "").toIntOrNull()
+                if (dy == null || height == null || height <= 0 || dy < 0) {
+                    null
+                } else {
+                    StripInfo(destY = dy, height = height)
+                }
+            }
     }
 
     override fun imageUrlParse(response: Response): String {
@@ -213,9 +259,17 @@ class MinoTruyen(
     companion object {
         private const val AES_KEY = "GCERKSmf28E6nWwrnR8Lz4f7TacKpzMy7aK0rxSB"
         private val ENCRYPTED_DATA_REGEX = Regex("""([a-f0-9]{32}:U2FsdGVk[A-Za-z0-9+/=]+)""")
+        private const val DRM_XOR_KEY = "3141592653589793"
+        private const val DRM_MAP_PREFIX = "#mino-v1|"
+        private const val DRM_FRAGMENT_PREFIX = "mino:"
 
         private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ROOT).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }
     }
 }
+
+data class StripInfo(
+    val destY: Int,
+    val height: Int,
+)
