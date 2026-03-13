@@ -21,7 +21,7 @@ class MinoImageInterceptor : Interceptor {
         val response = chain.proceed(request)
         if (!response.isSuccessful || strips.isEmpty()) return response
 
-        val body = response.body ?: return response
+        val body = response.body
         val mediaType = body.contentType() ?: "image/jpeg".toMediaType()
 
         val scrambled = body.byteStream().use { stream ->

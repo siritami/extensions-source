@@ -165,8 +165,7 @@ class MinoTruyen(
         }
     }
 
-    private fun parseDate(dateStr: String?): Long =
-        dateStr?.takeIf { it.isNotBlank() }?.let(dateFormat::tryParse) ?: 0L
+    private fun parseDate(dateStr: String?): Long = dateStr?.takeIf { it.isNotBlank() }?.let(dateFormat::tryParse) ?: 0L
 
     // =============================== Pages ================================
 
