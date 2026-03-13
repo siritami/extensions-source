@@ -33,6 +33,7 @@ class MiMi : HttpSource() {
 
     override val client = network.cloudflareClient.newBuilder()
         .rateLimit(3)
+        .addInterceptor(MiMiImageInterceptor())
         .build()
 
     override fun headersBuilder() = super.headersBuilder()
@@ -109,9 +110,7 @@ class MiMi : HttpSource() {
         return result.toSManga()
     }
 
-    override fun getMangaUrl(manga: SManga): String {
-        return "$baseUrl${manga.url}"
-    }
+    override fun getMangaUrl(manga: SManga): String = "$baseUrl${manga.url}"
 
     // ============================== Chapters ======================================
 
@@ -125,28 +124,24 @@ class MiMi : HttpSource() {
         return result.mapIndexed { index, chapter ->
             SChapter.create().apply {
                 url = "/chapter/${chapter.id}"
-                name = chapter.title ?: "Chapter ${result.size - index}"
-                chapter_number = (result.size - index).toFloat()
-                date_upload = chapter.uploadDate?.let { parseDate(it) } ?: 0L
+                name = chapter.title?.takeIf { it.isNotBlank() } ?: "Chapter ${chapter.order}"
+                chapter_number = chapter.order.toFloat()
+                date_upload = chapter.createdAt?.let { parseDate(it) } ?: 0L
             }
         }
     }
 
-    private fun parseDate(dateString: String): Long {
-        return try {
-            dateFormat.parse(dateString)?.time ?: 0L
-        } catch (_: Exception) {
-            0L
-        }
+    private fun parseDate(dateString: String): Long = try {
+        dateFormat.parse(dateString)?.time ?: 0L
+    } catch (_: Exception) {
+        0L
     }
 
     private val dateFormat by lazy {
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT)
     }
 
-    override fun getChapterUrl(chapter: SChapter): String {
-        return "$baseUrl${chapter.url}"
-    }
+    override fun getChapterUrl(chapter: SChapter): String = "$baseUrl${chapter.url}"
 
     // ============================== Pages ======================================
 
@@ -158,17 +153,22 @@ class MiMi : HttpSource() {
     override fun pageListParse(response: Response): List<Page> {
         val result = response.parseAs<ChapterPages>()
         return result.pages.mapIndexed { index, page ->
-            Page(index, imageUrl = page.imageUrl)
+            val imageUrl = page.drm
+                ?.takeIf { it.isNotBlank() }
+                ?.let {
+                    page.imageUrl.toHttpUrl().newBuilder()
+                        .fragment("${MiMiImageInterceptor.FRAGMENT_PREFIX}$it")
+                        .build()
+                        .toString()
+                }
+                ?: page.imageUrl
+            Page(index, imageUrl = imageUrl)
         }
     }
 
-    override fun imageUrlParse(response: Response): String {
-        throw UnsupportedOperationException()
-    }
+    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
     // ============================== Helpers ======================================
 
-    private inline fun <reified T> Response.parseAs(): T {
-        return json.decodeFromString<T>(body.string())
-    }
+    private inline fun <reified T> Response.parseAs(): T = json.decodeFromString<T>(body.string())
 }

@@ -4,7 +4,7 @@ import eu.kanade.tachiyomi.source.model.SManga
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class SearchResponse(
+class SearchResponse(
     val data: List<MangaDto> = emptyList(),
     val currentPage: Int = 0,
     val totalPage: Int = 0,
@@ -12,7 +12,7 @@ data class SearchResponse(
 )
 
 @Serializable
-data class MangaDto(
+class MangaDto(
     val id: Int,
     val title: String,
     val coverUrl: String? = null,
@@ -31,7 +31,7 @@ data class MangaDto(
 }
 
 @Serializable
-data class MangaInfo(
+class MangaInfo(
     val id: Int,
     val title: String,
     val coverUrl: String? = null,
@@ -63,30 +63,32 @@ data class MangaInfo(
 }
 
 @Serializable
-data class AuthorDto(
+class AuthorDto(
     val id: Int? = null,
     val name: String? = null,
 )
 
 @Serializable
-data class GenreDto(
+class GenreDto(
     val id: Int? = null,
     val name: String? = null,
 )
 
 @Serializable
-data class ChapterDto(
+class ChapterDto(
     val id: Int,
     val title: String? = null,
-    val uploadDate: String? = null,
+    val order: Int = 0,
+    val createdAt: String? = null,
 )
 
 @Serializable
-data class ChapterPages(
+class ChapterPages(
     val pages: List<PageDto> = emptyList(),
 )
 
 @Serializable
-data class PageDto(
+class PageDto(
     val imageUrl: String,
+    val drm: String? = null,
 )

@@ -61,18 +61,16 @@ class MinoImageInterceptor : Interceptor {
             .build()
     }
 
-    private fun parseStripMap(value: String): List<Pair<Int, Int>> {
-        return value.split(',')
-            .mapNotNull { token ->
-                val destY = token.substringBefore('-').toIntOrNull()
-                val height = token.substringAfter('-', "").toIntOrNull()
-                if (destY == null || height == null || destY < 0 || height <= 0) {
-                    null
-                } else {
-                    destY to height
-                }
+    private fun parseStripMap(value: String): List<Pair<Int, Int>> = value.split(',')
+        .mapNotNull { token ->
+            val destY = token.substringBefore('-').toIntOrNull()
+            val height = token.substringAfter('-', "").toIntOrNull()
+            if (destY == null || height == null || destY < 0 || height <= 0) {
+                null
+            } else {
+                destY to height
             }
-    }
+        }
 
     companion object {
         private const val FRAGMENT_PREFIX = "mino:"

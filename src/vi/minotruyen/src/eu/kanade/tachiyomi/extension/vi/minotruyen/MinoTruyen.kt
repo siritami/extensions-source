@@ -68,9 +68,7 @@ class MinoTruyen(
         return MangasPage(mangaList, false)
     }
 
-    private inline fun <reified T> Response.parseAs(): T {
-        return json.decodeFromString<T>(body.string())
-    }
+    private inline fun <reified T> Response.parseAs(): T = json.decodeFromString<T>(body.string())
 
     // =============================== Latest ===============================
 
@@ -123,9 +121,7 @@ class MinoTruyen(
         return GET("$apiUrl/books/$bookId", apiHeaders)
     }
 
-    override fun getMangaUrl(manga: SManga): String {
-        return "$baseUrl/$category${manga.url}"
-    }
+    override fun getMangaUrl(manga: SManga): String = "$baseUrl/$category${manga.url}"
 
     override fun mangaDetailsParse(response: Response): SManga {
         val result = response.parseAs<BookDetailResponse>()
@@ -158,9 +154,7 @@ class MinoTruyen(
         return GET(url, apiHeaders)
     }
 
-    override fun getChapterUrl(chapter: SChapter): String {
-        return "$baseUrl/$category${chapter.url}"
-    }
+    override fun getChapterUrl(chapter: SChapter): String = "$baseUrl/$category${chapter.url}"
 
     override fun chapterListParse(response: Response): List<SChapter> {
         val result = response.parseAs<ChaptersResponse>()
@@ -186,9 +180,7 @@ class MinoTruyen(
 
     // =============================== Pages ================================
 
-    override fun pageListRequest(chapter: SChapter): Request {
-        return GET("$baseUrl/$category${chapter.url}", headers)
-    }
+    override fun pageListRequest(chapter: SChapter): Request = GET("$baseUrl/$category${chapter.url}", headers)
 
     override fun pageListParse(response: Response): List<Page> {
         val html = response.body.string()
@@ -292,9 +284,7 @@ class MinoTruyen(
             }
     }
 
-    override fun imageUrlParse(response: Response): String {
-        throw UnsupportedOperationException()
-    }
+    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
     companion object {
         private const val AES_KEY = "GCERKSmf28E6nWwrnR8Lz4f7TacKpzMy7aK0rxSB"
