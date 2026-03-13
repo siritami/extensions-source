@@ -87,8 +87,8 @@ object MiMiDrmDecoder {
         "10.436068612003677",
     )
 
-    private const val fallbackHighKey = "3.8672468480107685"
-    private const val fallbackEmptyKey = "10.094534846668065"
+    private const val FALLBACK_HIGH_KEY = "3.8672468480107685"
+    private const val FALLBACK_EMPTY_KEY = "10.094534846668065"
 
     fun decodeMap(drm: String): DecodedMap? {
         val payload = drm.dropLast(2)
@@ -165,14 +165,14 @@ object MiMiDrmDecoder {
     }
 
     private fun deriveKey(drm: String): String {
-        if (drm.isEmpty()) return fallbackEmptyKey
+        if (drm.isEmpty()) return FALLBACK_EMPTY_KEY
 
         val last = decimalDigit(drm.last())
         val hasSecond = drm.length >= 2
         if (!hasSecond) {
             if (last in 0..49) return keyTable[last]
-            if (last >= 0) return fallbackHighKey
-            return fallbackEmptyKey
+            if (last >= 0) return FALLBACK_HIGH_KEY
+            return FALLBACK_EMPTY_KEY
         }
 
         val prev = decimalDigit(drm[drm.length - 2])
@@ -180,7 +180,7 @@ object MiMiDrmDecoder {
 
         return when {
             index in 0..49 -> keyTable[index]
-            else -> fallbackHighKey
+            else -> FALLBACK_HIGH_KEY
         }
     }
 
