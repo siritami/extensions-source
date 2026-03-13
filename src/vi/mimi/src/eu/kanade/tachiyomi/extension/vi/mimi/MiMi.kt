@@ -8,12 +8,11 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -28,8 +27,6 @@ class MiMi : HttpSource() {
     override val lang = "vi"
 
     override val supportsLatest = true
-
-    private val json: Json by injectLazy()
 
     override val client = network.cloudflareClient.newBuilder()
         .rateLimit(3)
@@ -126,19 +123,9 @@ class MiMi : HttpSource() {
                 url = "/chapter/${chapter.id}"
                 name = chapter.title?.takeIf { it.isNotBlank() } ?: "Chapter ${chapter.order}"
                 chapter_number = chapter.order.toFloat()
-                date_upload = chapter.createdAt?.let { parseDate(it) } ?: 0L
+                date_upload = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT).tryParse(chapter.createdAt)
             }
         }
-    }
-
-    private fun parseDate(dateString: String): Long = try {
-        dateFormat.parse(dateString)?.time ?: 0L
-    } catch (_: Exception) {
-        0L
-    }
-
-    private val dateFormat by lazy {
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT)
     }
 
     override fun getChapterUrl(chapter: SChapter): String = "$baseUrl${chapter.url}"
@@ -169,6 +156,4 @@ class MiMi : HttpSource() {
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
     // ============================== Helpers ======================================
-
-    private inline fun <reified T> Response.parseAs(): T = json.decodeFromString<T>(body.string())
 }
