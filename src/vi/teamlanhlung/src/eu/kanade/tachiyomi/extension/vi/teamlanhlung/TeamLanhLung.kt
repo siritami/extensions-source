@@ -23,7 +23,6 @@ import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import rx.Observable
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -65,6 +64,15 @@ class TeamLanhLung : HttpSource() {
         return MangasPage(mangas, hasNextPage = false)
     }
 
+    private fun mangaFromListItem(element: Element): SManga {
+        val linkElement = element.selectFirst("p.super-title a[href]")!!
+        return SManga.create().apply {
+            title = linkElement.text().trim()
+            setUrlWithoutDomain(linkElement.absUrl("href"))
+            thumbnail_url = element.selectFirst("img.list-left-img, img")?.lazyImgUrl()
+        }
+    }
+
     // ============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request {
@@ -74,25 +82,26 @@ class TeamLanhLung : HttpSource() {
 
     override fun latestUpdatesParse(response: Response): MangasPage = parseLatestPage(response.asJsoup())
 
-    // ============================== Search ===============================
+    private fun parseLatestPage(document: Document): MangasPage {
+        val mangas = document.select(".col-md-3.col-xs-6.comic-item")
+            .filter { element ->
+                val href = element.selectFirst("a[href]")?.absUrl("href").orEmpty()
+                href.contains("/truyen-tranh/")
+            }
+            .map { element ->
+                SManga.create().apply {
+                    val titleElement = element.selectFirst("h3.comic-title")!!
+                    title = titleElement.text()
+                    setUrlWithoutDomain(titleElement.parent()!!.absUrl("href"))
+                    thumbnail_url = element.selectFirst("img")?.lazyImgUrl()
+                }
+            }
 
-    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
-        if (!query.startsWith(PREFIX_ID_SEARCH)) {
-            return super.fetchSearchManga(page, query, filters)
-        }
-
-        val mangaUrl = idQueryToUrl(query.removePrefix(PREFIX_ID_SEARCH).trim())
-            ?: return Observable.just(MangasPage(emptyList(), false))
-
-        return fetchMangaDetails(
-            SManga.create().apply {
-                url = mangaUrl
-            },
-        ).map {
-            it.url = mangaUrl
-            MangasPage(listOf(it), false)
-        }
+        val hasNextPage = document.selectFirst("ul.pager li.next:not(.disabled) a") != null
+        return MangasPage(mangas, hasNextPage)
     }
+
+    // ============================== Search ===============================
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         if (query.isNotBlank()) {
@@ -133,6 +142,32 @@ class TeamLanhLung : HttpSource() {
         }
 
         return MangasPage(emptyList(), false)
+    }
+
+    private fun parseSearchApiResponse(response: Response): MangasPage {
+        val searchResponse = response.parseAs<SearchResponseDto>()
+
+        if (!searchResponse.success) {
+            return MangasPage(emptyList(), hasNextPage = false)
+        }
+
+        val mangas = searchResponse.data
+            .mapNotNull { result ->
+                val title = result.title ?: return@mapNotNull null
+                val link = result.link ?: return@mapNotNull null
+                if (!link.contains("/truyen-tranh/")) {
+                    return@mapNotNull null
+                }
+
+                SManga.create().apply {
+                    this.title = title
+                    setUrlWithoutDomain(link.removePrefix(baseUrl))
+                    thumbnail_url = result.img?.replace(SMALL_THUMBNAIL_REGEX, "$1")
+                }
+            }
+            .distinctBy { it.url }
+
+        return MangasPage(mangas, hasNextPage = false)
     }
 
     // ============================== Details ===============================
@@ -247,85 +282,6 @@ class TeamLanhLung : HttpSource() {
         return dateFormatShort.tryParse(dateStr)
     }
 
-    private fun parseLatestPage(document: Document): MangasPage {
-        val mangas = document.select(".col-md-3.col-xs-6.comic-item")
-            .filter { element ->
-                val href = element.selectFirst("a[href]")?.absUrl("href").orEmpty()
-                href.contains("/truyen-tranh/")
-            }
-            .map { element ->
-                SManga.create().apply {
-                    val titleElement = element.selectFirst("h3.comic-title")!!
-                    title = titleElement.text()
-                    setUrlWithoutDomain(titleElement.parent()!!.absUrl("href"))
-                    thumbnail_url = element.selectFirst("img")?.lazyImgUrl()
-                }
-            }
-
-        val hasNextPage = document.selectFirst("ul.pager li.next:not(.disabled) a") != null
-        return MangasPage(mangas, hasNextPage)
-    }
-
-    private fun parseSearchApiResponse(response: Response): MangasPage {
-        val searchResponse = response.parseAs<SearchResponseDto>()
-
-        if (!searchResponse.success) {
-            return MangasPage(emptyList(), hasNextPage = false)
-        }
-
-        val mangas = searchResponse.data
-            .mapNotNull { result ->
-                val title = result.title ?: return@mapNotNull null
-                val link = result.link ?: return@mapNotNull null
-                if (!link.contains("/truyen-tranh/")) {
-                    return@mapNotNull null
-                }
-
-                SManga.create().apply {
-                    this.title = title
-                    setUrlWithoutDomain(link.removePrefix(baseUrl))
-                    thumbnail_url = result.img?.replace(SMALL_THUMBNAIL_REGEX, "$1")
-                }
-            }
-            .distinctBy { it.url }
-
-        return MangasPage(mangas, hasNextPage = false)
-    }
-
-    private fun mangaFromListItem(element: Element): SManga {
-        val linkElement = element.selectFirst("p.super-title a[href]")!!
-        return SManga.create().apply {
-            title = linkElement.text().trim()
-            setUrlWithoutDomain(linkElement.absUrl("href"))
-            thumbnail_url = element.selectFirst("img.list-left-img, img")?.lazyImgUrl()
-        }
-    }
-
-    private fun idQueryToUrl(idQuery: String): String? {
-        if (idQuery.isBlank()) {
-            return null
-        }
-
-        val normalized = idQuery.trim().trim('/').removePrefix(baseUrl).trim('/')
-        if (normalized.isEmpty()) {
-            return null
-        }
-
-        return when {
-            normalized.startsWith("truyen-tranh/") -> {
-                val slug = normalized.removePrefix("truyen-tranh/").trim('/')
-                "/truyen-tranh/$slug/"
-            }
-
-            normalized.contains("/truyen-tranh/") -> {
-                val slug = normalized.substringAfter("/truyen-tranh/").trim('/')
-                "/truyen-tranh/$slug/"
-            }
-
-            else -> "/truyen-tranh/$normalized/"
-        }
-    }
-
     // ============================== Pages ===============================
 
     override fun pageListRequest(chapter: SChapter): Request {
@@ -372,7 +328,6 @@ class TeamLanhLung : HttpSource() {
     }
 
     companion object {
-        const val PREFIX_ID_SEARCH = "id:"
         private const val PASSWORD_WEBVIEW_MESSAGE = "Vui lòng nhập mật khẩu của chương này qua webview"
 
         private val dateFormatFull = SimpleDateFormat("dd/MM/yyyy", Locale.ROOT).apply {
