@@ -39,7 +39,7 @@ class TeamLanhLung : HttpSource() {
     override val supportsLatest: Boolean = true
 
     override val client: OkHttpClient = network.cloudflareClient.newBuilder()
-        .rateLimit(5)
+        .rateLimit(3)
         .build()
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
@@ -148,10 +148,7 @@ class TeamLanhLung : HttpSource() {
             author = document.selectFirst("strong:contains(Tác giả) + span")
                 ?.text()
                 ?.takeUnless { it.equals("Đang cập nhật", true) || it.equals("Không có", true) }
-            description = document.selectFirst(".intro-container .text-justify, .intro-container .hide-long-text, .intro-container")
-                ?.text()
-                ?.substringBefore("— Xem Thêm —")
-                ?.trim()
+            description = parseDescription(document)
             genre = document.select(".comic-info .tags a[href*='/the-loai/']")
                 .joinToString { it.text() }
                 .ifEmpty { null }
@@ -164,6 +161,23 @@ class TeamLanhLung : HttpSource() {
                 else -> SManga.UNKNOWN
             }
         }
+    }
+
+    private fun parseDescription(document: Document): String? {
+        val rawDescription = document.selectFirst(".intro-container .hide-long-text")
+            ?.let { block ->
+                val ownText = block.ownText().trim()
+                if (ownText.isNotEmpty()) ownText else block.text()
+            }
+            ?.substringBefore("— Xem Thêm —")
+            ?.trim()
+            ?: return null
+
+        return rawDescription
+            .removePrefix("\"")
+            .removeSuffix("\"")
+            .trim()
+            .ifEmpty { null }
     }
 
     // ============================== Chapters ===============================
