@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.teamlanhlung
 
+import android.webkit.CookieManager
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
@@ -12,11 +13,14 @@ import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
+import okhttp3.Cookie
 import okhttp3.FormBody
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import rx.Observable
@@ -310,8 +314,20 @@ class TeamLanhLung : HttpSource() {
 
     // ============================== Pages ===============================
 
+    override fun pageListRequest(chapter: SChapter): Request {
+        val url = baseUrl + chapter.url
+        syncPostPasswordCookie(url)
+        return GET(url, headers)
+    }
+
     override fun pageListParse(response: Response): List<Page> {
         val html = response.body.string()
+        val document = Jsoup.parse(html, response.request.url.toString())
+
+        if (document.selectFirst("form.post-password-form input[name=post_password], input[name=post_password]") != null) {
+            throw Exception(PASSWORD_WEBVIEW_MESSAGE)
+        }
+
         val imageUrls = ImageDecryptor.extractImageUrls(html)
 
         if (imageUrls.isEmpty()) {
@@ -327,8 +343,23 @@ class TeamLanhLung : HttpSource() {
 
     override fun getFilterList(): FilterList = getFilters()
 
+    private fun syncPostPasswordCookie(url: String) {
+        val rawCookies = CookieManager.getInstance().getCookie(url) ?: return
+        val httpUrl = url.toHttpUrl()
+
+        val cookies = rawCookies.split(";")
+            .map { it.trim() }
+            .filter { it.startsWith("wp-postpass_") }
+            .mapNotNull { Cookie.parse(httpUrl, it) }
+
+        if (cookies.isNotEmpty()) {
+            client.cookieJar.saveFromResponse(httpUrl, cookies)
+        }
+    }
+
     companion object {
         const val PREFIX_ID_SEARCH = "id:"
+        private const val PASSWORD_WEBVIEW_MESSAGE = "Vui lòng nhập mật khẩu của chương này qua webview"
 
         private val dateFormatFull = SimpleDateFormat("dd/MM/yyyy", Locale.ROOT).apply {
             timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
