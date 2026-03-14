@@ -11,8 +11,13 @@ class TeamLanhLungUrlActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val pathSegments = intent?.data?.pathSegments
-        if (pathSegments != null && pathSegments.isNotEmpty()) {
-            val slug = pathSegments[0]
+        val slug = if (pathSegments != null && pathSegments.isNotEmpty()) {
+            extractSlug(pathSegments)
+        } else {
+            null
+        }
+
+        if (!slug.isNullOrBlank()) {
             try {
                 startActivity(
                     Intent().apply {
@@ -30,5 +35,27 @@ class TeamLanhLungUrlActivity : Activity() {
 
         finish()
         exitProcess(0)
+    }
+
+    private fun extractSlug(pathSegments: List<String>): String? {
+        if (pathSegments.isEmpty()) {
+            return null
+        }
+
+        val firstSegment = pathSegments[0]
+        if ("truyen-tranh".equals(firstSegment) && pathSegments.size > 1) {
+            return pathSegments[1]
+        }
+
+        val chapterMatch = CHAPTER_URL_REGEX.find(firstSegment)
+        if (chapterMatch != null) {
+            return chapterMatch.groupValues[1]
+        }
+
+        return firstSegment
+    }
+
+    companion object {
+        private val CHAPTER_URL_REGEX = Regex("(.+)-chap-\\d+(?:\\.\\d+)?", RegexOption.IGNORE_CASE)
     }
 }
