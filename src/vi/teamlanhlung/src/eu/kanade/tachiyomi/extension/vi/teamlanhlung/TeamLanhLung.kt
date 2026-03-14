@@ -311,8 +311,6 @@ class TeamLanhLung : HttpSource() {
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
-    override fun getFilterList(): FilterList = getFilters()
-
     private fun syncPostPasswordCookie(url: String) {
         val rawCookies = CookieManager.getInstance().getCookie(url) ?: return
         val httpUrl = url.toHttpUrl()
@@ -326,6 +324,8 @@ class TeamLanhLung : HttpSource() {
             client.cookieJar.saveFromResponse(httpUrl, cookies)
         }
     }
+
+    override fun getFilterList(): FilterList = getFilters()
 
     companion object {
         private const val PASSWORD_WEBVIEW_MESSAGE = "Vui lòng nhập mật khẩu của chương này qua webview"
