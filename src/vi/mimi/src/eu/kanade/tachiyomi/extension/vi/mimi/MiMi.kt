@@ -15,6 +15,7 @@ import okhttp3.Request
 import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
 
 class MiMi : HttpSource() {
 
@@ -123,7 +124,7 @@ class MiMi : HttpSource() {
                 url = "/chapter/${chapter.id}"
                 name = chapter.title?.takeIf { it.isNotBlank() } ?: "Chapter ${chapter.order}"
                 chapter_number = chapter.order.toFloat()
-                date_upload = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT).tryParse(chapter.createdAt)
+                date_upload = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT).apply { timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh") }.tryParse(chapter.createdAt)
             }
         }
     }
@@ -154,6 +155,4 @@ class MiMi : HttpSource() {
     }
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
-
-    // ============================== Helpers ======================================
 }
