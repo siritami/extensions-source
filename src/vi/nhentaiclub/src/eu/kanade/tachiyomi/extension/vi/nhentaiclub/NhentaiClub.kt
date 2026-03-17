@@ -106,14 +106,14 @@ class NhentaiClub : HttpSource() {
     private fun parseMangaListPage(response: Response): MangasPage {
         val document = response.asJsoup()
 
-        val mangaList = document.select("a.block.w-full.text-white.text-center.relative.h-full.flex.flex-col[href^=/g/]")
+        val mangaList = document.select("a[href^=/g/], a[href^=$baseUrl/g/]")
+            .filter { it.selectFirst("img[alt]") != null }
+            .distinctBy { it.absUrl("href") }
             .map { mangaFromElement(it) }
 
         val currentPage = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
-        val hasNextPage = document.select("nav a[href*=page=]")
-            .mapNotNull { it.absUrl("href").substringAfter("page=", "").substringBefore("&").toIntOrNull() }
-            .maxOrNull()
-            ?.let { it > currentPage } == true
+        val hasExplicitNext = document.select("a[href*=\"page=${currentPage + 1}\"]").isNotEmpty()
+        val hasNextPage = hasExplicitNext || mangaList.size >= 24
 
         return MangasPage(mangaList, hasNextPage)
     }
@@ -202,3 +202,7 @@ class NhentaiClub : HttpSource() {
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 }
+
+
+
+
