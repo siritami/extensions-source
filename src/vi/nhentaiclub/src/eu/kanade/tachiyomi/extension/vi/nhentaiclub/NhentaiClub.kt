@@ -35,13 +35,14 @@ class NhentaiClub : HttpSource() {
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
+        .add("Origin", baseUrl)
 
     // ============================== Popular ===============================
 
     override fun popularMangaRequest(page: Int): Request = listingRequest(
         page = page,
         genreSlug = "all",
-        sort = SORT_VIEW,
+        sort = "view",
     )
 
     override fun popularMangaParse(response: Response): MangasPage = parseMangaListPage(response)
@@ -51,7 +52,7 @@ class NhentaiClub : HttpSource() {
     override fun latestUpdatesRequest(page: Int): Request = listingRequest(
         page = page,
         genreSlug = "all",
-        sort = SORT_RECENT_UPDATE,
+        sort = "recent-update",
     )
 
     override fun latestUpdatesParse(response: Response): MangasPage = parseMangaListPage(response)
@@ -60,7 +61,7 @@ class NhentaiClub : HttpSource() {
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         var genreSlug = "all"
-        var sort = SORT_RECENT_UPDATE
+        var sort = "recent-update"
         var status: String? = null
 
         filters.forEach { filter ->
@@ -197,9 +198,7 @@ class NhentaiClub : HttpSource() {
     }
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
-
-    companion object {
-        private const val SORT_RECENT_UPDATE = "recent-update"
-        private const val SORT_VIEW = "view"
-    }
 }
+
+
+
