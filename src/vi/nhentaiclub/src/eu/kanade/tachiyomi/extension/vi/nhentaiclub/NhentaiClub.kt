@@ -110,7 +110,10 @@ class NhentaiClub : HttpSource() {
             .map { mangaFromElement(it) }
 
         val currentPage = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
-        val hasNextPage = document.selectFirst("nav a[href*=page=${currentPage + 1}]") != null
+        val hasNextPage = document.select("nav a[href*=page=]")
+            .mapNotNull { it.absUrl("href").substringAfter("page=", "").substringBefore("&").toIntOrNull() }
+            .maxOrNull()
+            ?.let { it > currentPage } == true
 
         return MangasPage(mangaList, hasNextPage)
     }
@@ -199,6 +202,3 @@ class NhentaiClub : HttpSource() {
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 }
-
-
-
