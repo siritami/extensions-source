@@ -255,7 +255,7 @@ class YuriGarden : HttpSource() {
     }
 
     private fun hasTurnstileChallenge(chapter: SChapter): Boolean {
-        val urls = listOf(getChapterUrl(chapter))
+        val urls = listOfNotNull(resolveReaderUrl(chapter), getChapterUrl(chapter)).distinct()
 
         return urls.any { url ->
             runCatching {
@@ -282,6 +282,17 @@ class YuriGarden : HttpSource() {
         ) != null
     }
 
+    private fun resolveReaderUrl(chapter: SChapter): String? = runCatching {
+        val chapterId = chapterId(chapter)
+        client.newCall(GET("$apiUrl/chapters/$chapterId", apiHeaders())).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+
+            val body = response.body.string()
+            val comicId = COMIC_ID_REGEX.find(body)?.groupValues?.getOrNull(1) ?: return@use null
+            "$baseUrl/comic/$comicId/$chapterId"
+        }
+    }.getOrNull()
+
     override fun imageUrlParse(response: Response): String =
         throw UnsupportedOperationException()
 
@@ -307,5 +318,6 @@ class YuriGarden : HttpSource() {
         private const val LIMIT = 15
         private const val AES_PASSWORD = "OAqg95LgrfPM8r68"
         private const val CLOUDFLARE_VERIFY_MESSAGE = "Mở webview để xác minh cloudflare cho chương này"
+        private val COMIC_ID_REGEX = """"comic"\s*:\s*\{\s*"id"\s*:\s*(\d+)""".toRegex()
     }
 }
