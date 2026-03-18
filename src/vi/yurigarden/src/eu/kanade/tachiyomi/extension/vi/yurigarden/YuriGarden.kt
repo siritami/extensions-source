@@ -9,12 +9,11 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -31,8 +30,6 @@ class YuriGarden : HttpSource() {
     private val apiUrl = baseUrl.replace("://", "://api.") + "/api"
 
     private val dbUrl = baseUrl.replace("://", "://db.")
-
-    private val json: Json by injectLazy()
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
@@ -237,15 +234,15 @@ class YuriGarden : HttpSource() {
 
         // Check if the response is encrypted
         return if (body.contains("\"encrypted\"")) {
-            val encrypted = json.decodeFromString<EncryptedResponse>(body)
+            val encrypted = body.parseAs<EncryptedResponse>()
             if (encrypted.encrypted && !encrypted.data.isNullOrEmpty()) {
                 val decrypted = CryptoAES.decrypt(encrypted.data, AES_PASSWORD)
-                json.decodeFromString<ChapterDetail>(decrypted)
+                decrypted.parseAs<ChapterDetail>()
             } else {
-                json.decodeFromString<ChapterDetail>(body)
+                body.parseAs<ChapterDetail>()
             }
         } else {
-            json.decodeFromString<ChapterDetail>(body)
+            body.parseAs<ChapterDetail>()
         }
     }
 
@@ -269,9 +266,6 @@ class YuriGarden : HttpSource() {
 
     private fun String.toThumbnailUrl(): String =
         if (startsWith("http")) this else "$dbUrl/storage/v1/object/public/yuri-garden-store/$this"
-
-    private inline fun <reified T> Response.parseAs(): T =
-        json.decodeFromString<T>(body.string())
 
     companion object {
         private const val LIMIT = 15

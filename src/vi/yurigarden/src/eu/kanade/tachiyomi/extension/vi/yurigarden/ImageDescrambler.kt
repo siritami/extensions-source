@@ -10,12 +10,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import java.io.ByteArrayOutputStream
 
-/**
- * Algorithm overview:
- * 1. Decode the scramble key (Base58 with checksum) into a permutation
- * 2. Compute strip positions (image split into [PARTS] horizontal strips with 4px gaps)
- * 3. Reassemble strips in the correct order using the inverse permutation
- */
+/** Descrambles YuriGarden images using key-based strip permutation. */
 class ImageDescrambler : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val response = chain.proceed(chain.request())
@@ -36,9 +31,6 @@ class ImageDescrambler : Interceptor {
             .build()
     }
 
-    /**
-     * Reassembles a scrambled image by drawing strips in the correct order.
-     */
     private fun unscrambleImage(bitmap: Bitmap, key: String): Bitmap {
         val strips = computeStrips(key, bitmap.height, PARTS)
 
@@ -55,24 +47,13 @@ class ImageDescrambler : Interceptor {
         return result
     }
 
-    /**
-     * Computes the ordered list of strips to reconstruct the original image.
-     *
-     * Corresponds to JS function `_X(K, H, P)` in the YuriGarden frontend:
-     * 1. Decode the key into a permutation (how strips were shuffled)
-     * 2. Compute each strip's height (total height minus 4px gaps, distributed evenly)
-     * 3. Calculate each strip's Y position in the scrambled image (including 4px gaps)
-     * 4. Return strips ordered by the inverse permutation (unscrambled order)
-     */
     private fun computeStrips(key: String, height: Int, parts: Int): List<Strip> {
         val permutation = decodePermutation(key.substring(4), parts)
         val inverse = invertPermutation(permutation)
         val stripHeights = distributeHeight(height - 4 * (parts - 1), parts)
 
-        // Map permutation indices to their corresponding strip heights
         val mappedHeights = permutation.map { stripHeights[it] }
 
-        // Build strip positions: each strip starts after the previous one + 4px gap
         var cumulative = 0
         val strips = mappedHeights.mapIndexed { i, h ->
             val y = if (i == 0) 0 else cumulative + 4 * i
@@ -80,20 +61,10 @@ class ImageDescrambler : Interceptor {
             Strip(y, h)
         }
 
-        // Reorder strips using the inverse permutation to get the original order
         return inverse.map { strips[it] }
     }
 
-    /**
-     * Decodes a Base58-encoded permutation string with checksum verification.
-     *
-     * Format: `H<base58_data><checksum_char>`
-     * - First char 'H' is a version marker (stripped by caller via substring(4))
-     * - Middle chars are Base58-encoded factoradic number
-     * - Last char is a checksum: `ALPHABET[value % 58]`
-     *
-     * Corresponds to JS function `_U(enc, p)`.
-     */
+    /** Key format: H<base58_data><checksum_char>. */
     private fun decodePermutation(encoded: String, parts: Int): List<Int> {
         val data = encoded.substring(1, encoded.length - 1)
         val checkChar = encoded.last()
@@ -104,11 +75,6 @@ class ImageDescrambler : Interceptor {
         return lehmerDecode(value, parts)
     }
 
-    /**
-     * Decodes a Base58 string into a numeric value using the custom alphabet.
-     *
-     * Corresponds to JS function `_S(str)`.
-     */
     private fun base58Decode(str: String): Long {
         var result = 0L
         for (ch in str) {
@@ -118,14 +84,6 @@ class ImageDescrambler : Interceptor {
         return result
     }
 
-    /**
-     * Converts a factoradic-encoded number into a permutation using Lehmer code.
-     *
-     * The factoradic number system represents each digit as an index into a
-     * shrinking list of available elements, producing a unique permutation.
-     *
-     * Corresponds to JS function `_I(E, P)`.
-     */
     private fun lehmerDecode(encoding: Long, size: Int): List<Int> {
         var remaining = encoding
         val available = (0 until size).toMutableList()
@@ -140,23 +98,12 @@ class ImageDescrambler : Interceptor {
         return result
     }
 
-    /**
-     * Inverts a permutation: if `perm[i] = v`, then `inverse[v] = i`.
-     *
-     * Corresponds to JS function `_D(e)`.
-     */
     private fun invertPermutation(perm: List<Int>): List<Int> {
         val inverse = IntArray(perm.size)
         perm.forEachIndexed { i, v -> inverse[v] = i }
         return inverse.toList()
     }
 
-    /**
-     * Distributes total height evenly across [parts], with any remainder
-     * distributed one extra pixel to the first few strips.
-     *
-     * Corresponds to JS function `_P(h, p)`.
-     */
     private fun distributeHeight(height: Int, parts: Int): List<Int> {
         val base = height / parts
         val remainder = height % parts
@@ -166,15 +113,11 @@ class ImageDescrambler : Interceptor {
     private data class Strip(val y: Int, val h: Int)
 
     companion object {
-        /** Number of horizontal strips the image is divided into. */
         private const val PARTS = 10
 
         private val MEDIA_TYPE = "image/jpeg".toMediaType()
 
-        /**
-         * Custom Base58 alphabet used by YuriGarden's scramble key encoding.
-         * Characters: 1-9, A-N, P-Z, a-k, m-z (excludes 0, O, l, I to avoid ambiguity).
-         */
+        /** Base58 alphabet used by scramble keys. */
         private val ALPHABET: String = intArrayOf(
             49, 50, 51, 52, 53, 54, 55, 56, 57,
             65, 66, 67, 68, 69, 70, 71, 72, 74, 75, 76, 77, 78,
@@ -184,7 +127,6 @@ class ImageDescrambler : Interceptor {
             120, 121, 122,
         ).map { it.toChar() }.joinToString("")
 
-        /** Pre-computed factorials 0! through 10! for Lehmer code decoding. */
         private val FACTORIALS = LongArray(11).also { f ->
             f[0] = 1L
             for (i in 1..10) {
