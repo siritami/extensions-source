@@ -230,8 +230,9 @@ class YuriGarden : HttpSource() {
     private fun decryptIfNeeded(response: Response): ChapterDetail {
         val body = response.body.string()
 
-        if (response.code == 403) {
-            throw IOException("Reader access is currently blocked by site verification (403).")
+        val isCloudflareCheck = response.code == 403 || body.contains("\"statusCode\":403")
+        if (isCloudflareCheck) {
+            throw IOException(CLOUDFLARE_VERIFY_MESSAGE)
         }
 
         // Check if the response is encrypted
@@ -275,5 +276,6 @@ class YuriGarden : HttpSource() {
     companion object {
         private const val LIMIT = 15
         private const val AES_PASSWORD = "OAqg95LgrfPM8r68"
+        private const val CLOUDFLARE_VERIFY_MESSAGE = "Mở webview để xác minh cloudflare cho chương này"
     }
 }
