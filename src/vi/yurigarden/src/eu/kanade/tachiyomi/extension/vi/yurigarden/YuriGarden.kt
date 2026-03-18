@@ -15,7 +15,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.Jsoup
 import rx.Observable
 import java.util.concurrent.TimeUnit
 
@@ -200,9 +199,9 @@ class YuriGarden : HttpSource() {
             .doOnNext { response ->
                 if (response.code == 403) {
                     val body = runCatching { response.peekBody(1024 * 1024).string() }.getOrDefault("")
-                    val hasTurnstile = isTurnstileChallenge(response, body)
+                    val isCloudflare = isCloudflareChallenge(response, body)
                     response.close()
-                    if (hasTurnstile || hasTurnstileChallenge(chapter)) {
+                    if (isCloudflare) {
                         throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
                     }
                     throw Exception("HTTP error 403")
@@ -254,44 +253,10 @@ class YuriGarden : HttpSource() {
         }
     }
 
-    private fun hasTurnstileChallenge(chapter: SChapter): Boolean {
-        val urls = listOfNotNull(resolveReaderUrl(chapter), getChapterUrl(chapter)).distinct()
-
-        return urls.any { url ->
-            runCatching {
-                client.newCall(GET(url, headers)).execute().use { response ->
-                    val body = runCatching { response.body.string() }.getOrDefault("")
-                    isTurnstileChallenge(response, body)
-                }
-            }.getOrDefault(false)
-        }
-    }
-
-    private fun isTurnstileChallenge(response: Response, body: String): Boolean =
-        response.header("cf-mitigated")?.equals("challenge", ignoreCase = true) == true ||
-            hasTurnstileElement(body)
-
-    private fun hasTurnstileElement(html: String): Boolean {
-        if (html.isBlank()) return false
-
-        val document = Jsoup.parse(html)
-        return document.selectFirst(
-            "div.cf-turnstile, " +
-                "input[name=cf-turnstile-response], " +
-                "iframe[src*=challenges.cloudflare.com/turnstile]"
-        ) != null
-    }
-
-    private fun resolveReaderUrl(chapter: SChapter): String? = runCatching {
-        val chapterId = chapterId(chapter)
-        client.newCall(GET("$apiUrl/chapters/$chapterId", apiHeaders())).execute().use { response ->
-            if (!response.isSuccessful) return@use null
-
-            val body = response.body.string()
-            val comicId = COMIC_ID_REGEX.find(body)?.groupValues?.getOrNull(1) ?: return@use null
-            "$baseUrl/comic/$comicId/$chapterId"
-        }
-    }.getOrNull()
+    private fun isCloudflareChallenge(response: Response, body: String): Boolean =
+        response.header("cf-mitigated") != null ||
+            body.contains("cf-turnstile", ignoreCase = true) ||
+            body.contains("challenges.cloudflare.com/turnstile", ignoreCase = true)
 
     override fun imageUrlParse(response: Response): String =
         throw UnsupportedOperationException()
@@ -318,6 +283,5 @@ class YuriGarden : HttpSource() {
         private const val LIMIT = 15
         private const val AES_PASSWORD = "OAqg95LgrfPM8r68"
         private const val CLOUDFLARE_VERIFY_MESSAGE = "Mở webview để xác minh cloudflare cho chương này"
-        private val COMIC_ID_REGEX = """"comic"\s*:\s*\{\s*"id"\s*:\s*(\d+)""".toRegex()
     }
 }
