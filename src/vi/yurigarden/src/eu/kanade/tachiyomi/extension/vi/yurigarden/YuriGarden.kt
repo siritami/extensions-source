@@ -235,7 +235,7 @@ class YuriGarden : HttpSource() {
         }
 
         // Check if the response is encrypted
-        return if (body.contains("\"encrypted\"" )) {
+        return if (body.contains("\"encrypted\"")) {
             val encrypted = json.decodeFromString<EncryptedResponse>(body)
             if (encrypted.encrypted && !encrypted.data.isNullOrEmpty()) {
                 val decrypted = CryptoAES.decrypt(encrypted.data, AES_PASSWORD)
