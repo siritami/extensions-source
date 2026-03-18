@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.extension.vi.yurigarden
 
 import eu.kanade.tachiyomi.lib.cryptoaes.CryptoAES
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.asObservable
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -14,6 +15,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
+import rx.Observable
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -192,6 +194,24 @@ class YuriGarden : HttpSource() {
     override fun pageListRequest(chapter: SChapter): Request =
         GET("$apiUrl/chapters/pages/${chapterId(chapter)}", apiHeaders())
 
+    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> =
+        client.newCall(pageListRequest(chapter))
+            .asObservable()
+            .doOnNext { response ->
+                if (response.code == 403) {
+                    response.close()
+                    if (hasTurnstileChallenge(chapter)) {
+                        throw IOException(CLOUDFLARE_VERIFY_MESSAGE)
+                    }
+                    throw Exception("HTTP error 403")
+                }
+                if (!response.isSuccessful) {
+                    response.close()
+                    throw Exception("HTTP error ${response.code}")
+                }
+            }
+            .map(::pageListParse)
+
     override fun pageListParse(response: Response): List<Page> {
         val result = decryptIfNeeded(response)
 
@@ -218,11 +238,6 @@ class YuriGarden : HttpSource() {
     private fun decryptIfNeeded(response: Response): ChapterDetail {
         val body = response.body.string()
 
-        val isCloudflareCheck = response.code == 403 || body.contains("\"statusCode\":403")
-        if (isCloudflareCheck) {
-            throw IOException(CLOUDFLARE_VERIFY_MESSAGE)
-        }
-
         // Check if the response is encrypted
         return if (body.contains("\"encrypted\"")) {
             val encrypted = body.parseAs<EncryptedResponse>()
@@ -236,6 +251,16 @@ class YuriGarden : HttpSource() {
             body.parseAs<ChapterDetail>()
         }
     }
+
+    private fun hasTurnstileChallenge(chapter: SChapter): Boolean = runCatching {
+        client.newCall(GET(getChapterUrl(chapter), headers)).execute().use { response ->
+            if (!response.isSuccessful) return@use false
+
+            val body = response.body.string()
+            body.contains("cf-turnstile", ignoreCase = true) ||
+                body.contains("challenges.cloudflare.com/turnstile", ignoreCase = true)
+        }
+    }.getOrDefault(false)
 
     override fun imageUrlParse(response: Response): String =
         throw UnsupportedOperationException()
