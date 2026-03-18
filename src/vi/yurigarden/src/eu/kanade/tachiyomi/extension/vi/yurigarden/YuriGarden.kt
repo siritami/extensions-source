@@ -15,6 +15,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class YuriGarden : HttpSource() {
@@ -191,27 +192,25 @@ class YuriGarden : HttpSource() {
 
     // ============================== Pages =================================
 
-    // Kotatsu UA returns plaintext JSON with stable scramble keys compatible
-    // with ImageDescrambler. The encrypted API (browser UA) returns dynamically
-    // obfuscated keys that change per request and require WASM to decode.
+    // Reader pages now come from /api/chapters/pages/{id}.
+    // Payload can be plaintext or OpenSSL-style AES encrypted.
     private fun pageApiHeaders() = headersBuilder()
         .set("Referer", "$baseUrl/")
-        .set("User-Agent", "Kotatsu/9.0 (Android 16;;; en)")
         .add("x-app-origin", baseUrl)
         .add("x-custom-lang", "vi")
         .add("Accept", "application/json")
         .build()
 
     override fun pageListRequest(chapter: SChapter): Request =
-        GET("$apiUrl/chapters/${chapterId(chapter)}", pageApiHeaders())
+        GET("$apiUrl/chapters/pages/${chapterId(chapter)}", pageApiHeaders())
 
     override fun pageListParse(response: Response): List<Page> {
         val result = decryptIfNeeded(response)
 
         return result.pages.mapIndexed { index, page ->
-            val rawUrl = page.url.replace("_credit", "")
+            val rawUrl = page.url.replace("_credit", "").trimStart('/')
 
-            if (rawUrl.startsWith("comics")) {
+            if (rawUrl.startsWith("comics/")) {
                 val key = page.key
                 val url = "$dbUrl/storage/v1/object/public/yuri-garden-store/$rawUrl"
                     .toHttpUrl().newBuilder().apply {
@@ -230,6 +229,10 @@ class YuriGarden : HttpSource() {
 
     private fun decryptIfNeeded(response: Response): ChapterDetail {
         val body = response.body.string()
+
+        if (response.code == 403) {
+            throw IOException("Reader access is currently blocked by site verification (403).")
+        }
 
         // Check if the response is encrypted
         return if (body.contains("\"encrypted\"" )) {
@@ -271,6 +274,6 @@ class YuriGarden : HttpSource() {
 
     companion object {
         private const val LIMIT = 15
-        private const val AES_PASSWORD = "V48Ue34jrwRsJSRA"
+        private const val AES_PASSWORD = "OAqg95LgrfPM8r68"
     }
 }
