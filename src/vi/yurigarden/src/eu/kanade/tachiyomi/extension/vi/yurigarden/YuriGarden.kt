@@ -189,17 +189,8 @@ class YuriGarden : HttpSource() {
 
     // ============================== Pages =================================
 
-    // Reader pages now come from /api/chapters/pages/{id}.
-    // Payload can be plaintext or OpenSSL-style AES encrypted.
-    private fun pageApiHeaders() = headersBuilder()
-        .set("Referer", "$baseUrl/")
-        .add("x-app-origin", baseUrl)
-        .add("x-custom-lang", "vi")
-        .add("Accept", "application/json")
-        .build()
-
     override fun pageListRequest(chapter: SChapter): Request =
-        GET("$apiUrl/chapters/pages/${chapterId(chapter)}", pageApiHeaders())
+        GET("$apiUrl/chapters/pages/${chapterId(chapter)}", apiHeaders())
 
     override fun pageListParse(response: Response): List<Page> {
         val result = decryptIfNeeded(response)
