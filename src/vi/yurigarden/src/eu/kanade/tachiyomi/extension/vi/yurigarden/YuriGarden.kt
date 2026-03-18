@@ -252,15 +252,32 @@ class YuriGarden : HttpSource() {
         }
     }
 
-    private fun hasTurnstileChallenge(chapter: SChapter): Boolean = runCatching {
-        client.newCall(GET(getChapterUrl(chapter), headers)).execute().use { response ->
-            if (!response.isSuccessful) return@use false
+    private fun hasTurnstileChallenge(chapter: SChapter): Boolean {
+        val urls = listOfNotNull(resolveReaderUrl(chapter), getChapterUrl(chapter)).distinct()
+
+        return urls.any { url ->
+            runCatching {
+                client.newCall(GET(url, headers)).execute().use { response ->
+                    if (!response.isSuccessful) return@use false
+
+                    val body = response.body.string()
+                    body.contains("cf-turnstile", ignoreCase = true) ||
+                        body.contains("challenges.cloudflare.com/turnstile", ignoreCase = true)
+                }
+            }.getOrDefault(false)
+        }
+    }
+
+    private fun resolveReaderUrl(chapter: SChapter): String? = runCatching {
+        val chapterId = chapterId(chapter)
+        client.newCall(GET("$apiUrl/chapters/$chapterId", apiHeaders())).execute().use { response ->
+            if (!response.isSuccessful) return@use null
 
             val body = response.body.string()
-            body.contains("cf-turnstile", ignoreCase = true) ||
-                body.contains("challenges.cloudflare.com/turnstile", ignoreCase = true)
+            val comicId = COMIC_ID_REGEX.find(body)?.groupValues?.getOrNull(1) ?: return@use null
+            "$baseUrl/comic/$comicId/$chapterId"
         }
-    }.getOrDefault(false)
+    }.getOrNull()
 
     override fun imageUrlParse(response: Response): String =
         throw UnsupportedOperationException()
@@ -287,5 +304,6 @@ class YuriGarden : HttpSource() {
         private const val LIMIT = 15
         private const val AES_PASSWORD = "OAqg95LgrfPM8r68"
         private const val CLOUDFLARE_VERIFY_MESSAGE = "Mở webview để xác minh cloudflare cho chương này"
+        private val COMIC_ID_REGEX = """"comic"\s*:\s*\{\s*"id"\s*:\s*(\d+)""".toRegex()
     }
 }
