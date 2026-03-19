@@ -1,7 +1,14 @@
 package eu.kanade.tachiyomi.extension.vi.yurigarden
 
+import android.annotation.SuppressLint
+import android.app.Application
+import android.os.Handler
+import android.os.Looper
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import eu.kanade.tachiyomi.lib.cryptoaes.CryptoAES
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.asObservable
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -11,12 +18,20 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import keiyoushi.utils.parseAs
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.Jsoup
 import rx.Observable
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class YuriGarden : HttpSource() {
@@ -32,6 +47,8 @@ class YuriGarden : HttpSource() {
     private val apiUrl = baseUrl.replace("://", "://api.") + "/api"
 
     private val dbUrl = baseUrl.replace("://", "://db.")
+    private val json by lazy { Json { ignoreUnknownKeys = true } }
+    @Volatile private var localStorageDumpCache: String? = null
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
@@ -215,7 +232,18 @@ class YuriGarden : HttpSource() {
             .map(::pageListParse)
 
     override fun pageListParse(response: Response): List<Page> {
-        val result = decryptIfNeeded(response)
+        val chapterId = response.request.url.pathSegments.lastOrNull().orEmpty()
+        var result = decryptIfNeeded(response)
+
+        if (result.isLocked && chapterId.isNotBlank()) {
+            val password = findStoredChapterPassword(chapterId)
+                ?: throw Exception(PASSWORD_WEBVIEW_MESSAGE)
+            result = verifyChapterPassword(chapterId, password)
+        }
+
+        if (result.isLocked) {
+            throw Exception(PASSWORD_WEBVIEW_MESSAGE)
+        }
 
         return result.pages.mapIndexed { index, page ->
             val rawUrl = page.url.replace("_credit", "").trimStart('/')
@@ -237,6 +265,27 @@ class YuriGarden : HttpSource() {
         }
     }
 
+    private fun verifyChapterPassword(chapterId: String, password: String): ChapterDetail {
+        val escapedPassword = password.replace("\\", "\\\\").replace("\"", "\\\"")
+        val body = """{"password":"$escapedPassword"}"""
+            .toRequestBody("application/json".toMediaType())
+
+        return client.newCall(
+            POST("$apiUrl/chapters/pages/$chapterId/verify", apiHeaders(), body),
+        ).execute().use { response ->
+            if (response.code == 403) {
+                val responseBody = runCatching { response.peekBody(1024 * 1024).string() }.getOrDefault("")
+                if (isTurnstileChallenge(response, responseBody)) {
+                    throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
+                }
+            }
+            if (!response.isSuccessful) {
+                throw Exception("HTTP error ${response.code}")
+            }
+            decryptIfNeeded(response)
+        }
+    }
+
     private fun decryptIfNeeded(response: Response): ChapterDetail {
         val body = response.body.string()
 
@@ -252,6 +301,106 @@ class YuriGarden : HttpSource() {
         } else {
             body.parseAs<ChapterDetail>()
         }
+    }
+
+    private fun findStoredChapterPassword(chapterId: String): String? {
+        val localStorageDump = getLocalStorageDump() ?: return null
+
+        val keyValuePairsData = runCatching {
+            json.parseToJsonElement(localStorageDump)
+                .jsonObject
+                .entries
+                .firstOrNull { (key, _) -> key.contains("keyvaluepairs", ignoreCase = true) }
+                ?.value
+                ?.jsonPrimitive
+                ?.content
+        }.getOrNull().orEmpty()
+
+        val searchText = buildString {
+            append(localStorageDump)
+            if (keyValuePairsData.isNotBlank()) {
+                append('\n')
+                append(keyValuePairsData)
+            }
+        }
+
+        return extractPasswordFromText(chapterId, searchText)
+    }
+
+    private fun extractPasswordFromText(chapterId: String, text: String): String? {
+        val escapedChapterId = Regex.escape(chapterId)
+        val objectPattern = Regex(
+            "(?:chapterId|id)\"?\\s*:\\s*\"?$escapedChapterId\"?[\\s\\S]{0,180}?(?:password|pass|value)\"?\\s*:\\s*\"([^\"]+)\"",
+            RegexOption.IGNORE_CASE,
+        )
+        val keyPattern = Regex(
+            "\"(?:$escapedChapterId|chapter[_:-]?$escapedChapterId|$escapedChapterId[_:-]?password|password[_:-]?$escapedChapterId)\"\\s*:\\s*\"([^\"]+)\"",
+            RegexOption.IGNORE_CASE,
+        )
+        val directPattern = Regex(
+            "\"$escapedChapterId\"\\s*:\\s*\"([^\"]+)\"",
+            RegexOption.IGNORE_CASE,
+        )
+
+        return listOf(objectPattern, keyPattern, directPattern)
+            .firstNotNullOfOrNull { pattern ->
+                pattern.find(text)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() && it.length <= 128 }
+            }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun getLocalStorageDump(): String? {
+        localStorageDumpCache?.also { return it }
+
+        val handler = Handler(Looper.getMainLooper())
+        val latch = CountDownLatch(1)
+        var localStorageDump: String? = null
+
+        handler.post {
+            val webView = WebView(Injekt.get<Application>())
+
+            with(webView.settings) {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                databaseEnabled = true
+                blockNetworkImage = true
+            }
+
+            webView.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    view?.evaluateJavascript("JSON.stringify(window.localStorage)") { result ->
+                        localStorageDump = result.fromJsResult()
+                        localStorageDumpCache = localStorageDump
+                        latch.countDown()
+                        webView.destroy()
+                    }
+                }
+            }
+
+            webView.loadDataWithBaseURL(baseUrl, " ", "text/html", "UTF-8", null)
+        }
+
+        latch.await(10, TimeUnit.SECONDS)
+        return localStorageDump
+    }
+
+    private fun String?.fromJsResult(): String? {
+        val value = this ?: return null
+        if (value == "null" || value == "undefined") return null
+
+        return value
+            .removeSurrounding("\"")
+            .replace("\\\\", "\\")
+            .replace("\\\"", "\"")
+            .replace("\\n", "\n")
+            .replace("\\t", "\t")
+            .replace("\\u003C", "<")
+            .replace("\\u003E", ">")
+            .replace("\\u0026", "&")
     }
 
     private fun hasTurnstileChallenge(chapter: SChapter): Boolean {
@@ -325,6 +474,7 @@ class YuriGarden : HttpSource() {
         private const val LIMIT = 15
         private const val AES_PASSWORD = "OAqg95LgrfPM8r68"
         private const val CLOUDFLARE_VERIFY_MESSAGE = "Mở webview để xác minh cloudflare cho chương này"
+        private const val PASSWORD_WEBVIEW_MESSAGE = "Mở webview nhập mật khẩu cho chương này rồi thử lại"
         private val COMIC_ID_REGEX = """"comic"\s*:\s*\{\s*"id"\s*:\s*(\d+)""".toRegex()
     }
 }

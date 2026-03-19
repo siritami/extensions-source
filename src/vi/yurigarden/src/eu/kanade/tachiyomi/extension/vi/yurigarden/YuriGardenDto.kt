@@ -43,6 +43,8 @@ class ChapterData(
 @Serializable
 class ChapterDetail(
     val pages: List<PageData> = emptyList(),
+    val isLocked: Boolean = false,
+    val passwordHint: String? = null,
 )
 
 @Serializable
