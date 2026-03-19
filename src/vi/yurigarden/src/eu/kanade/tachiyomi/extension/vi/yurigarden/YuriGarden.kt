@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Application
 import android.os.Handler
 import android.os.Looper
+import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import eu.kanade.tachiyomi.lib.cryptoaes.CryptoAES
@@ -18,8 +19,13 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import keiyoushi.utils.parseAs
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -31,6 +37,7 @@ import org.jsoup.Jsoup
 import rx.Observable
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -236,9 +243,17 @@ class YuriGarden : HttpSource() {
         var result = decryptIfNeeded(response)
 
         if (result.isLocked && chapterId.isNotBlank()) {
-            val password = findStoredChapterPassword(chapterId)
-                ?: throw Exception(PASSWORD_WEBVIEW_MESSAGE)
-            result = verifyChapterPassword(chapterId, password)
+            val storageDump = getLocalStorageDump()
+            val cachedChapterDetail = storageDump?.let { findStoredChapterDetail(chapterId, it) }
+
+            result = if (cachedChapterDetail?.pages?.isNotEmpty() == true) {
+                cachedChapterDetail
+            } else {
+                val password = storageDump
+                    ?.let { findStoredChapterPassword(chapterId, it) }
+                    ?: throw Exception(PASSWORD_WEBVIEW_MESSAGE)
+                verifyChapterPassword(chapterId, password)
+            }
         }
 
         if (result.isLocked) {
@@ -303,28 +318,118 @@ class YuriGarden : HttpSource() {
         }
     }
 
-    private fun findStoredChapterPassword(chapterId: String): String? {
-        val localStorageDump = getLocalStorageDump() ?: return null
+    private fun findStoredChapterDetail(chapterId: String, storageDump: String): ChapterDetail? {
+        val root = runCatching { json.parseToJsonElement(storageDump) }.getOrNull() ?: return null
+        return findChapterDetailInElement(chapterId, root, mutableSetOf())
+            ?.takeIf { it.pages.isNotEmpty() && !it.isLocked }
+    }
 
-        val keyValuePairsData = runCatching {
-            json.parseToJsonElement(localStorageDump)
-                .jsonObject
-                .entries
-                .firstOrNull { (key, _) -> key.contains("keyvaluepairs", ignoreCase = true) }
-                ?.value
-                ?.jsonPrimitive
-                ?.content
-        }.getOrNull().orEmpty()
+    private fun findStoredChapterPassword(chapterId: String, storageDump: String): String? {
+        val root = runCatching { json.parseToJsonElement(storageDump) }.getOrNull()
+        val searchText = buildStorageSearchText(storageDump, root)
+        return extractPasswordFromText(chapterId, searchText)
+    }
 
-        val searchText = buildString {
-            append(localStorageDump)
-            if (keyValuePairsData.isNotBlank()) {
+    private fun buildStorageSearchText(storageDump: String, root: JsonElement?): String {
+        if (root == null) return storageDump
+
+        val chunks = mutableListOf<String>()
+        collectStringValues(root, chunks, mutableSetOf())
+
+        return buildString {
+            append(storageDump.take(MAX_STORAGE_TEXT_LENGTH))
+            for (chunk in chunks) {
+                if (length >= MAX_STORAGE_TEXT_LENGTH) break
                 append('\n')
-                append(keyValuePairsData)
+                append(chunk.take(MAX_STORAGE_CHUNK_LENGTH))
             }
         }
+    }
 
-        return extractPasswordFromText(chapterId, searchText)
+    private fun collectStringValues(
+        element: JsonElement,
+        output: MutableList<String>,
+        visitedJsonStrings: MutableSet<String>,
+    ) {
+        when (element) {
+            is JsonObject -> element.values.forEach { collectStringValues(it, output, visitedJsonStrings) }
+            is JsonArray -> element.forEach { collectStringValues(it, output, visitedJsonStrings) }
+            is JsonPrimitive -> {
+                if (!element.isString) return
+
+                val value = element.contentOrNull?.trim().orEmpty()
+                if (value.isBlank()) return
+                output += value
+
+                if (looksLikeJson(value) && visitedJsonStrings.add(value)) {
+                    runCatching { json.parseToJsonElement(value) }
+                        .getOrNull()
+                        ?.let { collectStringValues(it, output, visitedJsonStrings) }
+                }
+            }
+        }
+    }
+
+    private fun findChapterDetailInElement(
+        chapterId: String,
+        element: JsonElement,
+        visitedJsonStrings: MutableSet<String>,
+    ): ChapterDetail? {
+        when (element) {
+            is JsonObject -> {
+                val queryKey = element["queryKey"] as? JsonArray
+                val queryState = element["state"] as? JsonObject
+                if (queryKey != null && queryState != null && isChapterPagesQuery(queryKey, chapterId)) {
+                    val dataElement = queryState["data"]
+                        ?.let { parseNestedJson(it, visitedJsonStrings) }
+                    if (dataElement != null) {
+                        decodeChapterDetail(dataElement)?.let { return it }
+                    }
+                }
+
+                for (value in element.values) {
+                    findChapterDetailInElement(chapterId, value, visitedJsonStrings)?.let { return it }
+                }
+            }
+            is JsonArray -> {
+                for (value in element) {
+                    findChapterDetailInElement(chapterId, value, visitedJsonStrings)?.let { return it }
+                }
+            }
+            is JsonPrimitive -> {
+                parseNestedJson(element, visitedJsonStrings)
+                    ?.let { findChapterDetailInElement(chapterId, it, visitedJsonStrings) }
+                    ?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun decodeChapterDetail(element: JsonElement): ChapterDetail? =
+        runCatching { json.decodeFromJsonElement<ChapterDetail>(element) }.getOrNull()
+
+    private fun parseNestedJson(
+        element: JsonElement,
+        visitedJsonStrings: MutableSet<String>,
+    ): JsonElement? {
+        if (element !is JsonPrimitive || !element.isString) return element
+
+        val raw = element.contentOrNull?.trim().orEmpty()
+        if (!looksLikeJson(raw) || !visitedJsonStrings.add(raw)) return null
+        return runCatching { json.parseToJsonElement(raw) }.getOrNull()
+    }
+
+    private fun looksLikeJson(text: String): Boolean =
+        text.startsWith("{") || text.startsWith("[")
+
+    private fun isChapterPagesQuery(queryKey: JsonArray, chapterId: String): Boolean {
+        if (queryKey.size < 2) return false
+
+        val keyName = queryKey[0].jsonPrimitive.content
+        if (!keyName.equals("chapterPages", ignoreCase = true)) return false
+
+        val keyChapterId = queryKey[1].jsonPrimitive.content
+        return keyChapterId == chapterId
     }
 
     private fun extractPasswordFromText(chapterId: String, text: String): String? {
@@ -352,16 +457,40 @@ class YuriGarden : HttpSource() {
             }
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     private fun getLocalStorageDump(): String? {
         localStorageDumpCache?.also { return it }
 
         val handler = Handler(Looper.getMainLooper())
         val latch = CountDownLatch(1)
-        var localStorageDump: String? = null
+        val done = AtomicBoolean(false)
+        var storageDump: String? = null
+        var fallbackLocalStorageDump: String? = null
 
         handler.post {
             val webView = WebView(Injekt.get<Application>())
+            val bridgeName = "YuriGardenBridge"
+
+            fun finish(result: String?) {
+                if (!done.compareAndSet(false, true)) return
+
+                val finalDump = result?.takeUnless { it.isBlank() || it == "null" || it == "undefined" } ?: fallbackLocalStorageDump
+                handler.post {
+                    storageDump = finalDump
+                    localStorageDumpCache = storageDump
+                    latch.countDown()
+                    webView.destroy()
+                }
+            }
+
+            val bridge = object {
+                @JavascriptInterface
+                fun onResult(result: String?) {
+                    finish(result)
+                }
+            }
+
+            webView.addJavascriptInterface(bridge, bridgeName)
 
             with(webView.settings) {
                 javaScriptEnabled = true
@@ -373,19 +502,93 @@ class YuriGarden : HttpSource() {
             webView.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     view?.evaluateJavascript("JSON.stringify(window.localStorage)") { result ->
-                        localStorageDump = result.fromJsResult()
-                        localStorageDumpCache = localStorageDump
-                        latch.countDown()
-                        webView.destroy()
+                        fallbackLocalStorageDump = result.fromJsResult()
                     }
+                    view?.evaluateJavascript(buildStorageDumpScript(bridgeName), null)
                 }
             }
+
+            handler.postDelayed({
+                if (!done.get()) {
+                    finish(fallbackLocalStorageDump)
+                }
+            }, 9_000)
 
             webView.loadDataWithBaseURL(baseUrl, " ", "text/html", "UTF-8", null)
         }
 
         latch.await(10, TimeUnit.SECONDS)
-        return localStorageDump
+        return storageDump
+    }
+
+    private fun buildStorageDumpScript(bridgeName: String): String = """
+        (function() {
+            var bridge = window.$bridgeName;
+            var finished = false;
+            function finish(data) {
+                if (finished) return;
+                finished = true;
+                try {
+                    bridge.onResult(JSON.stringify(data));
+                } catch (e) {
+                    try { bridge.onResult(""); } catch (_) {}
+                }
+            }
+
+            var localStorageData = {};
+            try {
+                for (var i = 0; i < localStorage.length; i++) {
+                    var key = localStorage.key(i);
+                    localStorageData[key] = localStorage.getItem(key);
+                }
+            } catch (e) {}
+
+            var payload = {
+                localStorage: localStorageData,
+                mangaPersisted: null
+            };
+
+            if (!window.indexedDB) {
+                finish(payload);
+                return;
+            }
+
+            try {
+                var request = indexedDB.open("localforage");
+                request.onerror = function() { finish(payload); };
+                request.onupgradeneeded = function() { finish(payload); };
+                request.onsuccess = function() {
+                    try {
+                        var db = request.result;
+                        var tx;
+                        try {
+                            tx = db.transaction("keyvaluepairs", "readonly");
+                        } catch (e) {
+                            db.close();
+                            finish(payload);
+                            return;
+                        }
+
+                        var store = tx.objectStore("keyvaluepairs");
+                        var getReq = store.get("manga");
+                        getReq.onerror = function() {
+                            db.close();
+                            finish(payload);
+                        };
+                        getReq.onsuccess = function() {
+                            payload.mangaPersisted = getReq.result || null;
+                            db.close();
+                            finish(payload);
+                        };
+                    } catch (e) {
+                        finish(payload);
+                    }
+                };
+            } catch (e) {
+                finish(payload);
+            }
+        })();
+    """.trimIndent()
     }
 
     private fun String?.fromJsResult(): String? {
@@ -475,6 +678,8 @@ class YuriGarden : HttpSource() {
         private const val AES_PASSWORD = "OAqg95LgrfPM8r68"
         private const val CLOUDFLARE_VERIFY_MESSAGE = "Mở webview để xác minh cloudflare cho chương này"
         private const val PASSWORD_WEBVIEW_MESSAGE = "Mở webview nhập mật khẩu cho chương này rồi thử lại"
+        private const val MAX_STORAGE_TEXT_LENGTH = 2_000_000
+        private const val MAX_STORAGE_CHUNK_LENGTH = 100_000
         private val COMIC_ID_REGEX = """"comic"\s*:\s*\{\s*"id"\s*:\s*(\d+)""".toRegex()
     }
 }
