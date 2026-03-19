@@ -589,7 +589,6 @@ class YuriGarden : HttpSource() {
             }
         })();
     """.trimIndent()
-    }
 
     private fun String?.fromJsResult(): String? {
         val value = this ?: return null
