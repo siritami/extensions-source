@@ -4,37 +4,43 @@ import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 
 fun getFilters() = FilterList(
-    R18Filter(),
-    GenreFilter(),
     StatusFilter(),
     SortFilter(),
+    GenreFilter(),
+    SearchByFilter(),
 )
 
-class R18Filter : Filter.CheckBox("R18", false)
+class GenreFilter :
+    Filter.Group<CheckBoxFilter>(
+        "Thể loại",
+        genres.map { CheckBoxFilter(it.first, it.second, false) },
+    )
 
-class GenreFilter : Filter.Select<String>(
-    "Thể loại",
-    genres.map { it.first }.toTypedArray(),
-) {
-    val slug get() = genres[state].second
-}
+class SearchByFilter :
+    Filter.Group<CheckBoxFilter>(
+        "Tìm kiếm theo",
+        searchByOptions.map { CheckBoxFilter(it.first, it.second, true) },
+    )
 
-class StatusFilter : Filter.Select<String>(
-    "Trạng thái",
-    statuses.map { it.first }.toTypedArray(),
-) {
+open class CheckBoxFilter(name: String, val value: String, state: Boolean) : Filter.CheckBox(name, state)
+
+class StatusFilter :
+    Filter.Select<String>(
+        "Trạng thái",
+        statuses.map { it.first }.toTypedArray(),
+    ) {
     val slug get() = statuses[state].second
 }
 
-class SortFilter : Filter.Select<String>(
-    "Sắp xếp theo",
-    sorts.map { it.first }.toTypedArray(),
-) {
+class SortFilter :
+    Filter.Select<String>(
+        "Sắp xếp theo",
+        sorts.map { it.first }.toTypedArray(),
+    ) {
     val slug get() = sorts[state].second
 }
 
 private val genres = arrayOf(
-    Pair("Tất cả", ""),
     Pair("4-koma", "4-koma"),
     Pair("Action", "action"),
     Pair("Adult", "adult"),
@@ -158,4 +164,12 @@ private val statuses = arrayOf(
 private val sorts = arrayOf(
     Pair("Mới nhất", "newest"),
     Pair("Cũ nhất", "oldest"),
+)
+
+private val searchByOptions = arrayOf(
+    Pair("Tiêu đề", "title"),
+    Pair("Tên khác", "anotherNames"),
+    Pair("Tác giả", "authors"),
+    Pair("Họa sĩ", "artists"),
+    Pair("Mô tả", "description"),
 )

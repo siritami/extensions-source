@@ -9,6 +9,15 @@ class ComicsResponse(
 )
 
 @Serializable
+data class TrendingComic(
+    val id: Int,
+    val image: String = "",
+    val title: String,
+    val value: Int = 0,
+    val rank: Int = 0,
+)
+
+@Serializable
 class Comic(
     val id: Int,
     val title: String,
@@ -43,8 +52,6 @@ class ChapterData(
 @Serializable
 class ChapterDetail(
     val pages: List<PageData> = emptyList(),
-    val isLocked: Boolean = false,
-    val passwordHint: String? = null,
 )
 
 @Serializable
