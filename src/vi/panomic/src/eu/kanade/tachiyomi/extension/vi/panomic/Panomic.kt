@@ -124,7 +124,13 @@ class Panomic : HttpSource() {
         }
 
         val document = response.asJsoup()
+        val archiveItems = document.select("#archive-list-table li.position-relative")
+        if (archiveItems.isNotEmpty()) {
+            return parseFilterPage(document, archiveItems)
+        }
+
         val listItems = document.select("ul.single-list-comic li.position-relative")
+            .filter { item -> item.selectFirst("p.super-title a[href*='/truyen/']") != null }
 
         return if (listItems.isNotEmpty()) {
             parseFilterPage(document, listItems)
@@ -156,12 +162,15 @@ class Panomic : HttpSource() {
     }
 
     private fun parseListManga(items: List<Element>): List<SManga> {
-        return items.map { element ->
+        return items.mapNotNull { element ->
+            val linkElement = element.selectFirst("p.super-title a[href]") ?: return@mapNotNull null
+            val mangaUrl = linkElement.absUrl("href")
+            if (!mangaUrl.contains("/truyen/")) return@mapNotNull null
+
             SManga.create().apply {
-                val linkElement = element.selectFirst("p.super-title a[href]")!!
-                title = linkElement.text()
-                setUrlWithoutDomain(linkElement.absUrl("href").toRelativeUrl())
-                thumbnail_url = element.selectFirst("img.list-left-img")?.lazyImgUrl()
+                title = linkElement.text().trim()
+                setUrlWithoutDomain(mangaUrl.toRelativeUrl())
+                thumbnail_url = element.selectFirst("img.list-left-img, img")?.lazyImgUrl()
             }
         }
     }
