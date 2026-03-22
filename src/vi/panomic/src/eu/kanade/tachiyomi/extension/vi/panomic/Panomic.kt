@@ -215,8 +215,9 @@ class Panomic : HttpSource() {
                 val linkElement = row.selectFirst("a.text-capitalize[href], a[href*='-chap-']") ?: return@mapNotNull null
 
                 SChapter.create().apply {
-                    setUrlWithoutDomain(linkElement.absUrl("href").toRelativeUrl())
-                    name = parseChapterName(linkElement.text())
+                    val chapterUrl = linkElement.absUrl("href")
+                    setUrlWithoutDomain(chapterUrl.toRelativeUrl())
+                    name = parseChapterName(linkElement.text(), chapterUrl)
                     date_upload = row.selectFirst("td.hidden-xs.hidden-sm")?.text()
                         ?.let(::parseChapterDate)
                         ?: 0L
@@ -224,9 +225,20 @@ class Panomic : HttpSource() {
             }
     }
 
-    private fun parseChapterName(rawName: String): String {
-        val chapter = CHAPTER_NAME_REGEX.find(rawName)?.value?.trim()
-        return chapter ?: rawName.substringAfterLast("–").substringAfterLast("-").trim()
+    private fun parseChapterName(rawName: String, chapterUrl: String): String {
+        val trailingPart = rawName
+            .substringAfterLast("–")
+            .substringAfterLast("-")
+            .trim()
+
+        CHAPTER_NAME_REGEX.find(trailingPart)?.value?.trim()?.let { return it }
+        CHAPTER_NAME_REGEX.find(rawName)?.value?.trim()?.let { return it }
+
+        CHAPTER_URL_NUMBER_REGEX.find(chapterUrl)?.groupValues?.getOrNull(1)?.let { chapterNumber ->
+            return "Chap $chapterNumber"
+        }
+
+        return trailingPart.ifEmpty { rawName.trim() }
     }
 
     private fun parseChapterDate(dateStr: String): Long {
@@ -268,6 +280,7 @@ class Panomic : HttpSource() {
         }
 
         private val CHAPTER_NAME_REGEX = Regex("Chap\\s*\\d+(\\.\\d+)?", RegexOption.IGNORE_CASE)
+        private val CHAPTER_URL_NUMBER_REGEX = Regex("-chap-(\\d+(?:\\.\\d+)?)/?", RegexOption.IGNORE_CASE)
 
         private val SMALL_THUMBNAIL_REGEX = Regex("-150x150(\\.[a-zA-Z]+)$")
     }
