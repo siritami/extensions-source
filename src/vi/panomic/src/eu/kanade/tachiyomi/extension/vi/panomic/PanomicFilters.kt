@@ -13,7 +13,7 @@ fun getFilters(): FilterList = FilterList(
 
 class GenreFilter :
     UriPartFilter(
-        "T.Loại",
+        "Thể Loại",
         arrayOf(
             Pair("Tất cả", ""),
             Pair("18+", "the-loai/18"),
@@ -85,7 +85,7 @@ class GroupFilter :
 
 class SeriesTypeFilter :
     UriPartFilter(
-        "Loại T.",
+        "Loại Truyện",
         arrayOf(
             Pair("Tất cả", ""),
             Pair("Hot Nhất", "truyen-hot-nhat"),
@@ -96,7 +96,7 @@ class SeriesTypeFilter :
 
 class KeywordFilter :
     UriPartFilter(
-        "T.Khóa",
+        "Từ Khóa",
         arrayOf(
             Pair("Tất cả", ""),
             Pair("#Hẹn Hò", "hen-ho"),
