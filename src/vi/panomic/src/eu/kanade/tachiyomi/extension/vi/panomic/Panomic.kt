@@ -39,13 +39,15 @@ class Panomic : HttpSource() {
         .add("Referer", "$baseUrl/")
 
     private fun Element.lazyImgUrl(): String? {
-        val url = absUrl("data-lazy-src")
+        return absUrl("data-lazy-src")
             .ifEmpty { absUrl("data-src") }
             .ifEmpty { absUrl("src") }
             .takeUnless { it.isBlank() || it.startsWith("data:") }
-            ?: return null
+            ?.toPreferredThumbnailUrl()
+    }
 
-        return url.replace(SMALL_THUMBNAIL_REGEX, "$1")
+    private fun String.toPreferredThumbnailUrl(): String {
+        return replace(THUMB_150_REGEX, "-300x404$1")
     }
 
     // ========================= Popular ===========================
@@ -143,11 +145,12 @@ class Panomic : HttpSource() {
         val searchResponse = response.parseAs<SearchResponse>()
 
         val mangas = searchResponse.data
+            .filter { result -> result.link.contains("/truyen/") }
             .map { result ->
                 SManga.create().apply {
                     title = result.title
                     setUrlWithoutDomain(result.link.toRelativeUrl())
-                    thumbnail_url = result.img?.replace(SMALL_THUMBNAIL_REGEX, "$1")
+                    thumbnail_url = result.img?.toPreferredThumbnailUrl()
                 }
             }
             .distinctBy { it.url }
@@ -290,7 +293,6 @@ class Panomic : HttpSource() {
 
         private val CHAPTER_NAME_REGEX = Regex("Chap\\s*\\d+(\\.\\d+)?", RegexOption.IGNORE_CASE)
         private val CHAPTER_URL_NUMBER_REGEX = Regex("-chap-(\\d+(?:\\.\\d+)?)/?", RegexOption.IGNORE_CASE)
-
-        private val SMALL_THUMBNAIL_REGEX = Regex("-150x150(\\.[a-zA-Z]+)$")
+        private val THUMB_150_REGEX = Regex("-150x150(\\.[a-zA-Z0-9]+)$")
     }
 }
