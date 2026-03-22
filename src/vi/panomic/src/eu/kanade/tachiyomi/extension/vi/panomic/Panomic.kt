@@ -98,7 +98,7 @@ class Panomic : HttpSource() {
                 .build()
 
             return POST(
-                searchAjaxUrl,
+                searchAjaxUrl.toString(),
                 headersBuilder()
                     .add("X-Requested-With", "XMLHttpRequest")
                     .build(),
