@@ -38,17 +38,13 @@ class Panomic : HttpSource() {
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
 
-    private fun Element.lazyImgUrl(): String? {
-        return absUrl("data-lazy-src")
-            .ifEmpty { absUrl("data-src") }
-            .ifEmpty { absUrl("src") }
-            .takeUnless { it.isBlank() || it.startsWith("data:") }
-            ?.toPreferredThumbnailUrl()
-    }
+    private fun Element.lazyImgUrl(): String? = absUrl("data-lazy-src")
+        .ifEmpty { absUrl("data-src") }
+        .ifEmpty { absUrl("src") }
+        .takeUnless { it.isBlank() || it.startsWith("data:") }
+        ?.toPreferredThumbnailUrl()
 
-    private fun String.toPreferredThumbnailUrl(): String {
-        return replace(THUMB_150_REGEX, "-300x404$1")
-    }
+    private fun String.toPreferredThumbnailUrl(): String = replace(THUMB_150_REGEX, "-300x404$1")
 
     // ========================= Popular ===========================
 

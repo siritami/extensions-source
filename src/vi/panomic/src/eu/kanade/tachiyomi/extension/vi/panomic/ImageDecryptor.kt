@@ -134,12 +134,10 @@ object ImageDecryptor {
         }
     }
 
-    private fun Element.imageUrlFromAttributes(): String? {
-        return absUrl("data-lazy-src")
-            .ifEmpty { absUrl("data-src") }
-            .ifEmpty { absUrl("src") }
-            .takeUnless { it.isBlank() || it.startsWith("data:") }
-    }
+    private fun Element.imageUrlFromAttributes(): String? = absUrl("data-lazy-src")
+        .ifEmpty { absUrl("data-src") }
+        .ifEmpty { absUrl("src") }
+        .takeUnless { it.isBlank() || it.startsWith("data:") }
 
     private fun hexStringToByteArray(hex: String): ByteArray {
         val len = hex.length
