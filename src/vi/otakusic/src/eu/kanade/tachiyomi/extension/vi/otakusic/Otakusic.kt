@@ -162,7 +162,7 @@ class Otakusic : HttpSource() {
     }
 
     override fun chapterListParse(response: Response): List<SChapter> {
-        val chapters = response.parseAs<List<ChapterDto>>()
+        val chapters = response.parseAs<ChaptersResponse>().data
         val mangaSlug = response.request.url.pathSegments.last()
 
         return chapters
@@ -197,7 +197,7 @@ class Otakusic : HttpSource() {
 
         val request = GET("$baseUrl/api/v1/manga/chapters/$mangaSlug", apiHeaders())
         val response = client.newCall(request).execute()
-        val chapters = response.parseAs<List<ChapterDto>>()
+        val chapters = response.parseAs<ChaptersResponse>().data
 
         val chapterDto = chapters.firstOrNull { it.chapterOriginalSlug == chapterOriginalSlug }
             ?: throw Exception("Chapter not found")

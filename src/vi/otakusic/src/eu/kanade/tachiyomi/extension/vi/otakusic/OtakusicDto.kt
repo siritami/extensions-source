@@ -4,6 +4,11 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
+class ChaptersResponse(
+    val data: List<ChapterDto> = emptyList(),
+)
+
+@Serializable
 class ChapterDto(
     @SerialName("chapter_name") val chapterName: String,
     @SerialName("chapter_slug") val chapterSlug: String,
