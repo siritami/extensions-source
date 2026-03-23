@@ -8,17 +8,16 @@ fun getFilters(): FilterList = FilterList(
     GenreFilter(getGenreList()),
 )
 
-class StatusFilter : Filter.Select<String>(
-    "Trạng thái",
-    arrayOf("Tất cả", "Còn tiếp", "Hoàn thành", "Tạm dừng"),
-) {
-    fun toUriPart(): String? {
-        return when (state) {
-            1 -> "Còn tiếp"
-            2 -> "Hoàn thành"
-            3 -> "Tạm dừng"
-            else -> null
-        }
+class StatusFilter :
+    Filter.Select<String>(
+        "Trạng thái",
+        arrayOf("Tất cả", "Còn tiếp", "Hoàn thành", "Tạm dừng"),
+    ) {
+    fun toUriPart(): String? = when (state) {
+        1 -> "Còn tiếp"
+        2 -> "Hoàn thành"
+        3 -> "Tạm dừng"
+        else -> null
     }
 }
 

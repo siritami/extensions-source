@@ -117,9 +117,7 @@ class MoeTruyen : HttpSource() {
 
     override fun getFilterList(): FilterList = getFilters()
 
-    private inline fun <reified T> FilterList.findInstance(): T? {
-        return firstOrNull { it is T } as? T
-    }
+    private inline fun <reified T> FilterList.findInstance(): T? = firstOrNull { it is T } as? T
 
     // ============================== Details ===============================
 
@@ -157,13 +155,11 @@ class MoeTruyen : HttpSource() {
         }
     }
 
-    private fun parseStatus(status: String?): Int {
-        return when (status?.trim()) {
-            "Còn tiếp" -> SManga.ONGOING
-            "Hoàn thành" -> SManga.COMPLETED
-            "Tạm dừng" -> SManga.ON_HIATUS
-            else -> SManga.UNKNOWN
-        }
+    private fun parseStatus(status: String?): Int = when (status?.trim()) {
+        "Còn tiếp" -> SManga.ONGOING
+        "Hoàn thành" -> SManga.COMPLETED
+        "Tạm dừng" -> SManga.ON_HIATUS
+        else -> SManga.UNKNOWN
     }
 
     // ============================== Chapters ==============================
@@ -179,11 +175,16 @@ class MoeTruyen : HttpSource() {
         while (visitedPages.add(currentPageUrl)) {
             chapters += parseChapterList(currentDocument)
 
-            val nextChapterPageUrl = currentDocument
-                .selectFirst("nav[aria-label*='Phân trang chương'] a[aria-label='Trang chương sau']:not(.is-disabled)")
-                ?.takeUnless { it.attr("href") == "#" }
-                ?.absUrl("href")
-                ?.ifEmpty { null }
+            val nextChapterLinkElement: Element? = currentDocument.selectFirst(
+                "nav[aria-label*='Phân trang chương'] a[aria-label='Trang chương sau']:not(.is-disabled)",
+            )
+            val nextChapterPageUrl: String? = nextChapterLinkElement?.let { link ->
+                if (link.attr("href") == "#") {
+                    null
+                } else {
+                    link.absUrl("href").ifEmpty { null }
+                }
+            }
 
             if (nextChapterPageUrl == null || visitedPages.contains(nextChapterPageUrl)) {
                 break
@@ -198,22 +199,21 @@ class MoeTruyen : HttpSource() {
         return chapters
     }
 
-    private fun parseChapterList(document: Document): List<SChapter> {
-        return document.select("ul.chapter-list li.chapter a.chapter-link").map { element ->
-            SChapter.create().apply {
-                setUrlWithoutDomain(element.absUrl("href"))
-                name = element.selectFirst(".chapter-num")!!.text().trim()
+    private fun parseChapterList(document: Document): List<SChapter> = document.select("ul.chapter-list li.chapter a.chapter-link").map { element ->
+        SChapter.create().apply {
+            setUrlWithoutDomain(element.absUrl("href"))
+            name = element.selectFirst(".chapter-num")!!.text().trim()
 
-                val chapterTime = element.selectFirst(".chapter-time")
-                val relativeDate = chapterTime?.text()?.trim()
-                val absoluteDate = chapterTime?.attr("title")
-                    ?.substringAfter("Cập nhật", missingDelimiterValue = "")
-                    ?.trim()
-                    ?.ifEmpty { null }
+            val chapterTime = element.selectFirst(".chapter-time")
+            val relativeDate = chapterTime?.text()?.trim()
+            val absoluteDate = chapterTime?.attr("title")
+                ?.substringAfter("Cập nhật", missingDelimiterValue = "")
+                ?.trim()
+                ?.substringBefore(" ")
+                ?.ifEmpty { null }
 
-                date_upload = parseRelativeDate(relativeDate).takeIf { it != 0L }
-                    ?: dateFormat.tryParse(absoluteDate)
-            }
+            date_upload = dateFormat.tryParse(absoluteDate).takeIf { it != 0L }
+                ?: parseRelativeDate(relativeDate)
         }
     }
 
