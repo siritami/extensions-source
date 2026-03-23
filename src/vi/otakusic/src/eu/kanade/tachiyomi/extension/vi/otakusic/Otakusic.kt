@@ -112,7 +112,7 @@ class Otakusic : HttpSource() {
             }
             .distinctBy { it.url }
 
-        val hasNextPage = document.selectFirst("a[rel=next]") != null
+        val hasNextPage = document.selectFirst("a.pagination-btn:contains(Sau)") != null
 
         return MangasPage(mangaList, hasNextPage)
     }
