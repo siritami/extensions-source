@@ -171,7 +171,7 @@ class Otakusic : HttpSource() {
                 SChapter.create().apply {
                     // Store manga slug and chapter info for page list retrieval
                     url = "$CHAPTER_URL_PREFIX$mangaSlug/${dto.chapterOriginalSlug}/${dto.chapterSlug}"
-                    name = "Chương ${dto.chapterName}"
+                    name = "Chương ${dto.chapterName.content}"
                     date_upload = dto.updatedAt?.let { dateFormat.tryParse(it) } ?: 0L
                 }
             }

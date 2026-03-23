@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.extension.vi.otakusic
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonPrimitive
 
 @Serializable
 class ChaptersResponse(
@@ -10,7 +11,7 @@ class ChaptersResponse(
 
 @Serializable
 class ChapterDto(
-    @SerialName("chapter_name") val chapterName: String,
+    @SerialName("chapter_name") val chapterName: JsonPrimitive,
     @SerialName("chapter_slug") val chapterSlug: String,
     @SerialName("chapter_original_slug") val chapterOriginalSlug: String,
     @SerialName("manga_slug") val mangaSlug: String,
