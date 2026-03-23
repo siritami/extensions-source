@@ -209,11 +209,10 @@ class MoeTruyen : HttpSource() {
             val absoluteDate = chapterTime?.attr("title")
                 ?.substringAfter("Cập nhật", missingDelimiterValue = "")
                 ?.trim()
-                ?.substringBefore(" ")
                 ?.ifEmpty { null }
 
-            date_upload = dateFormat.tryParse(absoluteDate).takeIf { it != 0L }
-                ?: parseRelativeDate(relativeDate)
+            date_upload = parseRelativeDate(relativeDate).takeIf { it != 0L }
+                ?: dateFormat.tryParse(absoluteDate)
         }
     }
 
