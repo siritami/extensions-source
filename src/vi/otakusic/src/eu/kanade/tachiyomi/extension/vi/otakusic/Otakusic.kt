@@ -26,7 +26,7 @@ class Otakusic : HttpSource() {
     override val baseUrl = "https://otakusic.com"
     override val supportsLatest = true
 
-    private val imgBaseUrl = "https://img.otakusic.com"
+    private val imgBaseUrl = baseUrl.replace("://", "://img.")
 
     private val json: Json by injectLazy()
 
@@ -105,7 +105,7 @@ class Otakusic : HttpSource() {
             .filter { it.selectFirst("img") != null }
             .map { element ->
                 SManga.create().apply {
-                    setUrlWithoutDomain(element.absUrl("href").toHttpUrl().encodedPath)
+                    setUrlWithoutDomain(element.absUrl("href"))
                     title = element.selectFirst("img")!!.attr("alt")
                     thumbnail_url = element.selectFirst("img")?.absUrl("src")
                 }
@@ -126,21 +126,19 @@ class Otakusic : HttpSource() {
             title = document.selectFirst("h1")!!.text()
 
             author = document.select("h2:contains(Tác giả) + div a, h2:contains(Tác giả) ~ a")
-                .joinToString { it.text().trim() }
+                .joinToString { it.text() }
                 .ifEmpty {
                     document.selectFirst("h2:contains(Tác giả)")
                         ?.parent()
                         ?.ownText()
                         ?.replace(":", "")
                         ?.trim()
-                        ?.takeIf { it.isNotBlank() && it != "Đang cập nhật" }
-                }
+                        ?.takeIf { it.isNotEmpty() && it != "Đang cập nhật" }
 
             genre = document.select("div.flex.flex-wrap.gap-2 a")
-                .joinToString { it.text().trim() }
-                .ifEmpty { null }
+                .joinToString { it.text() }
 
-            description = document.selectFirst("#description")?.text()?.trim()
+            description = document.selectFirst("#description")?.text()
 
             thumbnail_url = document.selectFirst("img[alt]")?.absUrl("src")
 
@@ -184,11 +182,9 @@ class Otakusic : HttpSource() {
 
     // =============================== Pages ================================
 
-    override fun pageListRequest(chapter: SChapter): Request =
-        throw UnsupportedOperationException()
+    override fun pageListRequest(chapter: SChapter): Request = throw UnsupportedOperationException()
 
-    override fun pageListParse(response: Response): List<Page> =
-        throw UnsupportedOperationException()
+    override fun pageListParse(response: Response): List<Page> = throw UnsupportedOperationException()
 
     override fun fetchPageList(chapter: SChapter): rx.Observable<List<Page>> {
         val parts = chapter.url.removePrefix(CHAPTER_URL_PREFIX).split("/")
@@ -216,13 +212,6 @@ class Otakusic : HttpSource() {
     }
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
-
-    override fun imageRequest(page: Page): Request {
-        val headers = headers.newBuilder()
-            .set("Referer", "$baseUrl/")
-            .build()
-        return GET(page.imageUrl!!, headers)
-    }
 
     // ============================== Helpers ================================
 
