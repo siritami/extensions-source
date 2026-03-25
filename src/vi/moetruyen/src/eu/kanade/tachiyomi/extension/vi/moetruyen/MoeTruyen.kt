@@ -158,9 +158,19 @@ class MoeTruyen : HttpSource() {
 
     // ============================== Chapters ==============================
 
+    override fun fetchChapterList(manga: SManga): rx.Observable<List<SChapter>> {
+        return rx.Observable.fromCallable {
+            client.newCall(chapterListRequest(manga)).execute().use { response ->
+                chapterListParsePaginated(response)
+            }
+        }
+    }
+
     override fun chapterListRequest(manga: SManga): Request = GET("$baseUrl${manga.url}", headers)
 
-    override fun chapterListParse(response: Response): List<SChapter> {
+    override fun chapterListParse(response: Response): List<SChapter> = parseChapterList(response.asJsoup())
+
+    private fun chapterListParsePaginated(response: Response): List<SChapter> {
         val chapters = mutableListOf<SChapter>()
         val visitedPages = mutableSetOf<String>()
         var currentPageUrl = response.request.url.toString()
