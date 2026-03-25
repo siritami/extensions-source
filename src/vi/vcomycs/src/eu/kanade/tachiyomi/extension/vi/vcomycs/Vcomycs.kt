@@ -15,7 +15,6 @@ import keiyoushi.utils.tryParse
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -44,7 +43,7 @@ class Vcomycs : HttpSource() {
                 val linkElement = element.selectFirst("p.super-title a")!!
                 title = linkElement.text()
                 setUrlWithoutDomain(linkElement.absUrl("href"))
-                thumbnail_url = element.selectFirst("img.list-left-img")?.extractImageUrl()
+                thumbnail_url = element.selectFirst("img.list-left-img")?.absUrl("src")
             }
         }
         return MangasPage(mangas, hasNextPage = false)
@@ -64,7 +63,7 @@ class Vcomycs : HttpSource() {
                 val linkElement = element.selectFirst("h3.comic-title")!!.parent()!!
                 title = element.selectFirst("h3.comic-title")!!.text()
                 setUrlWithoutDomain(linkElement.absUrl("href"))
-                thumbnail_url = element.selectFirst("img")?.extractImageUrl()
+                thumbnail_url = element.selectFirst("img")?.absUrl("src")
             }
         }
         val hasNextPage = document.selectFirst("ul.pager li.next:not(.disabled) a") != null
@@ -122,9 +121,7 @@ class Vcomycs : HttpSource() {
         val document = response.asJsoup()
         return SManga.create().apply {
             title = document.selectFirst("h2.info-title")!!.text()
-            thumbnail_url = document.selectFirst(".comic-intro .comic-img img, img.info-cover")
-                ?.extractImageUrl()
-                ?: document.selectFirst("meta[property=og:image]")?.attr("content")?.ifBlank { null }
+            thumbnail_url = document.selectFirst("img.info-cover")?.absUrl("src")
             author = document.selectFirst("strong:contains(Tác giả) + span")?.text()
             status = document.selectFirst("span.comic-stt")?.text()
                 ?.let { parseStatus(it) }
@@ -140,31 +137,6 @@ class Vcomycs : HttpSource() {
         status.contains("Đang tiến hành", ignoreCase = true) -> SManga.ONGOING
         status.contains("Hoàn thành", ignoreCase = true) -> SManga.COMPLETED
         else -> SManga.UNKNOWN
-    }
-
-    private fun Element.extractImageUrl(): String? {
-        val primary = listOf(
-            "abs:data-src",
-            "abs:data-lazy-src",
-            "abs:data-original",
-            "abs:data-thumb",
-            "abs:src",
-        ).firstOrNull { attr(it).isNotBlank() }?.let { attr(it) }
-
-        if (!primary.isNullOrBlank()) return primary
-
-        val srcset = attr("srcset")
-            .substringBefore(",")
-            .substringBefore(" ")
-            .trim()
-        if (srcset.isBlank()) return null
-
-        return when {
-            srcset.startsWith("http") -> srcset
-            srcset.startsWith("//") -> "https:$srcset"
-            srcset.startsWith("/") -> "$baseUrl$srcset"
-            else -> "$baseUrl/$srcset"
-        }
     }
 
     // ========================= Chapters ==========================
