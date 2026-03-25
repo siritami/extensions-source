@@ -127,7 +127,9 @@ class Vcomycs : HttpSource() {
     private fun isImageReachable(url: String): Boolean {
         thumbReachableCache[url]?.let { return it }
 
-        val headRequest = GET(url, headers).newBuilder()
+        val requestHeaders = headersBuilder().build()
+
+        val headRequest = GET(url, requestHeaders).newBuilder()
             .head()
             .build()
 
@@ -136,7 +138,7 @@ class Vcomycs : HttpSource() {
                 when {
                     response.isSuccessful -> true
                     response.code == 403 || response.code == 405 ->
-                        client.newCall(GET(url, headers)).execute().use { getResponse ->
+                        client.newCall(GET(url, requestHeaders)).execute().use { getResponse ->
                             getResponse.isSuccessful
                         }
                     else -> false
