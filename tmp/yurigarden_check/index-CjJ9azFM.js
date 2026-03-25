@@ -1,1 +1,0 @@
-import{j as s}from"./main-EDFMHMVD.js";const a=({text:t})=>{const r=/(https?:\/\/[^\s]+)/g;return t.split(r).map((e,n)=>{if(e.match(r)){const l=e.replace(/[.,;:]$/,"");return s.jsx("a",{href:l,target:"_blank",rel:"noopener noreferrer",className:"text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 underline",children:e},n)}return e})};export{a as C};

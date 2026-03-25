@@ -1,1 +1,0 @@
-import{g as t}from"./main-D0qxmiEX.js";const o=()=>"Ngày",l=o,u=(n={},e={})=>(e.locale??t())==="en"?l():o(),r=()=>"Tháng",s=r,i=(n={},e={})=>(e.locale??t())==="en"?s():r(),c=()=>"Năm",_=c,y=(n={},e={})=>(e.locale??t())==="en"?_():c();export{i as a,y as b,u as d};

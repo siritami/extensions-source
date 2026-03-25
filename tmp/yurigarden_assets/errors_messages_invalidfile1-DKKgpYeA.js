@@ -1,1 +1,0 @@
-import{g as r}from"./main-D0qxmiEX.js";const l=e=>`Kích thước file quá lớn. Giới hạn: ${e?.size}MB`,a=l,c=(e,s={})=>(s.locale??r())==="en"?a(e):l(e),o=e=>`File không hợp lệ. Các loại file được phép: ${e?.types}`,n=o,_=(e,s={})=>(s.locale??r())==="en"?n(e):o(e);export{c as a,_ as e};
