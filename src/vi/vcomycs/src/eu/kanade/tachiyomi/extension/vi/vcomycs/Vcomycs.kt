@@ -15,7 +15,6 @@ import keiyoushi.utils.tryParse
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -33,15 +32,6 @@ class Vcomycs : HttpSource() {
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
 
-    private fun Element.lazyImgUrl(): String? = absUrl("data-lazy-src")
-        .ifEmpty { absUrl("data-src") }
-        .ifEmpty { absUrl("src") }
-        .takeUnless { it.isBlank() || it.startsWith("data:") }
-        ?.toPreferredThumbnailUrl()
-
-    private fun String.toPreferredThumbnailUrl(): String = this
-        .replace(THUMB_150_REGEX, "$1")
-
     // ========================= Popular ===========================
 
     override fun popularMangaRequest(page: Int) = GET("$baseUrl/nhieu-xem-nhat/", headers)
@@ -53,7 +43,7 @@ class Vcomycs : HttpSource() {
                 val linkElement = element.selectFirst("p.super-title a")!!
                 title = linkElement.text()
                 setUrlWithoutDomain(linkElement.absUrl("href"))
-                thumbnail_url = element.selectFirst("img.list-left-img, img")?.lazyImgUrl()
+                thumbnail_url = element.selectFirst("img.list-left-img")?.absUrl("src")
             }
         }
         return MangasPage(mangas, hasNextPage = false)
@@ -73,7 +63,7 @@ class Vcomycs : HttpSource() {
                 val linkElement = element.selectFirst("h3.comic-title")!!.parent()!!
                 title = element.selectFirst("h3.comic-title")!!.text()
                 setUrlWithoutDomain(linkElement.absUrl("href"))
-                thumbnail_url = element.selectFirst("img")?.lazyImgUrl()
+                thumbnail_url = element.selectFirst("img")?.absUrl("src")
             }
         }
         val hasNextPage = document.selectFirst("ul.pager li.next:not(.disabled) a") != null
@@ -117,7 +107,8 @@ class Vcomycs : HttpSource() {
                 SManga.create().apply {
                     title = result.title
                     setUrlWithoutDomain(result.link.removePrefix(baseUrl))
-                    thumbnail_url = result.img?.toPreferredThumbnailUrl()
+                    // Convert thumbnail size from -150x150 to -720x970
+                    thumbnail_url = result.img?.replace("-150x150", "-720x970")
                 }
             }.distinctBy { it.url }
 
@@ -130,7 +121,7 @@ class Vcomycs : HttpSource() {
         val document = response.asJsoup()
         return SManga.create().apply {
             title = document.selectFirst("h2.info-title")!!.text()
-            thumbnail_url = document.selectFirst(".comic-intro img.img-thumbnail, img.info-cover")?.lazyImgUrl()
+            thumbnail_url = document.selectFirst("img.info-cover")?.absUrl("src")
             author = document.selectFirst("strong:contains(Tác giả) + span")?.text()
             status = document.selectFirst("span.comic-stt")?.text()
                 ?.let { parseStatus(it) }
@@ -193,8 +184,6 @@ class Vcomycs : HttpSource() {
     override fun getFilterList(): FilterList = getFilters()
 
     companion object {
-        private val THUMB_150_REGEX = Regex("-150x150(\\.[a-zA-Z0-9]+)$")
-
         private val DATE_FORMAT_SHORT by lazy {
             SimpleDateFormat("dd/MM/yy", Locale.ROOT).apply {
                 timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
