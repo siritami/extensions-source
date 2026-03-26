@@ -125,8 +125,7 @@ class DamCoNuong : HttpSource() {
             )
 
             val descriptionElement = document.selectFirst("div.prose.dark\\:prose-invert.max-w-none")
-            description = descriptionElement?.wholeText()
-                ?.ifEmpty { descriptionElement.text() }
+            description = descriptionElement?.text()
                 ?.ifEmpty { null }
         }
     }
