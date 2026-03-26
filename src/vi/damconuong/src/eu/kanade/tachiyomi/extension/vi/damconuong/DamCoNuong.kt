@@ -85,7 +85,7 @@ class DamCoNuong : HttpSource() {
         val mangas = document.select("div.manga-vertical").map { element ->
             SManga.create().apply {
                 val titleElement = element.selectFirst("h3 a")!!
-                title = cleanTitle(titleElement.text())
+                title = titleElement.text()
                 setUrlWithoutDomain(titleElement.absUrl("href"))
 
                 val imageElement = element.selectFirst("div.cover-frame img")
@@ -108,7 +108,7 @@ class DamCoNuong : HttpSource() {
         val document = response.asJsoup()
 
         return SManga.create().apply {
-            title = cleanTitle(document.selectFirst("h1.text-xl.ml-1, h1.text-xl")!!.text())
+            title = document.selectFirst("h1.text-xl.ml-1, h1.text-xl")!!.text()
 
             val imageElement = document.selectFirst("div.cover-frame img")
             thumbnail_url = imageElement?.absUrl("src")
@@ -203,23 +203,12 @@ class DamCoNuong : HttpSource() {
 
     override fun getFilterList(): FilterList = getFilters()
 
-    private fun cleanTitle(rawTitle: String): String {
-        val cleaned = rawTitle
-            .replace(TITLE_TAG_REGEX, " ")
-            .replace(MULTI_SPACE_REGEX, " ")
-            .trim()
-
-        return cleaned.ifEmpty { rawTitle }
-    }
-
     companion object {
         private const val LATEST_SORT = "-updated_at"
         private const val POPULAR_SORT = "-views"
         private const val DEFAULT_STATUS = "2,1"
 
         private val NUMBER_REGEX = Regex("\\d+")
-        private val TITLE_TAG_REGEX = Regex("""\s*(?:『[^』]*』|\[[^\]]*])\s*""")
-        private val MULTI_SPACE_REGEX = Regex("""\s{2,}""")
 
         private val DATE_FORMAT by lazy {
             SimpleDateFormat("dd/MM/yyyy", Locale.ROOT).apply {
