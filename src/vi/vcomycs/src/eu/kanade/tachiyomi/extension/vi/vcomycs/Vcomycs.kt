@@ -16,7 +16,6 @@ import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
 import java.text.SimpleDateFormat
-import java.util.concurrent.ConcurrentHashMap
 import java.util.Locale
 import java.util.TimeZone
 
@@ -108,46 +107,12 @@ class Vcomycs : HttpSource() {
                 SManga.create().apply {
                     title = result.title
                     setUrlWithoutDomain(result.link.removePrefix(baseUrl))
-                    thumbnail_url = resolveSearchThumbnailUrl(result.img)
+                    // Remove -150x150 size suffix from thumbnail URL to get full-size image
+                    thumbnail_url = result.img?.replace("-150x150", "")
                 }
             }.distinctBy { it.url }
 
         return MangasPage(mangas, hasNextPage = false)
-    }
-
-    private fun resolveSearchThumbnailUrl(url: String?): String? {
-        if (url.isNullOrBlank() || !url.contains("-150x150")) return url
-
-        val removed = url.replace("-150x150", "")
-        if (isImageReachable(removed)) return removed
-
-        return url.replace("-150x150", "-720x970")
-    }
-
-    private fun isImageReachable(url: String): Boolean {
-        thumbReachableCache[url]?.let { return it }
-
-        val requestHeaders = headersBuilder().build()
-
-        val headRequest = GET(url, requestHeaders).newBuilder()
-            .head()
-            .build()
-
-        val reachable = runCatching {
-            client.newCall(headRequest).execute().use { response ->
-                when {
-                    response.isSuccessful -> true
-                    response.code == 403 || response.code == 405 ->
-                        client.newCall(GET(url, requestHeaders)).execute().use { getResponse ->
-                            getResponse.isSuccessful
-                        }
-                    else -> false
-                }
-            }
-        }.getOrDefault(false)
-
-        thumbReachableCache[url] = reachable
-        return reachable
     }
 
     // ========================= Details ===========================
@@ -219,8 +184,6 @@ class Vcomycs : HttpSource() {
     override fun getFilterList(): FilterList = getFilters()
 
     companion object {
-        private val thumbReachableCache = ConcurrentHashMap<String, Boolean>()
-
         private val DATE_FORMAT_SHORT by lazy {
             SimpleDateFormat("dd/MM/yy", Locale.ROOT).apply {
                 timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")

@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.extension.vi.yurigarden
 
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
-import eu.kanade.tachiyomi.lib.cryptoaes.CryptoAES
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservable
 import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
@@ -13,6 +12,7 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
+import keiyoushi.lib.cryptoaes.CryptoAES
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -186,7 +186,7 @@ class YuriGarden :
             title = comic.title
             author = comic.authors.joinToString { it.name }
             description = comic.description
-            genre = comic.genres.joinToString()
+            genre = comic.genres.mapNotNull { genreMap[it] }.joinToString()
             status = when (comic.status) {
                 "ongoing" -> SManga.ONGOING
                 "completed" -> SManga.COMPLETED
@@ -208,13 +208,30 @@ class YuriGarden :
     override fun chapterListParse(response: Response): List<SChapter> {
         val chapters = response.parseAs<List<ChapterData>>()
 
+        val comicId = response.request.url.pathSegments.last()
+
         return chapters
-            .sortedByDescending { it.order }
+            .sortedWith(
+                compareByDescending<ChapterData> { it.order }
+                    .thenByDescending { it.id },
+            )
             .map { chapter ->
                 SChapter.create().apply {
-                    url = "/chapter/${chapter.id}"
-                    name = "Chapter ${chapter.order.toBigDecimal().stripTrailingZeros().toPlainString()}"
+                    url = "/comic/$comicId/${chapter.id}"
+                    name = buildString {
+                        if (chapter.volume != null) {
+                            append("Vol.${chapter.volume.toBigDecimal().stripTrailingZeros().toPlainString()} ")
+                        }
+                        if (chapter.order < 0) {
+                            append("Oneshot")
+                        } else {
+                            append("Ch.${chapter.order.toBigDecimal().stripTrailingZeros().toPlainString()}")
+                        }
+                        if (chapter.name.isNotEmpty()) append(": ${chapter.name}")
+                    }
                     date_upload = chapter.publishedAt
+                    chapter_number = chapter.order.toFloat()
+                    scanlator = chapter.team?.name ?: "Unknown"
                 }
             }
     }
