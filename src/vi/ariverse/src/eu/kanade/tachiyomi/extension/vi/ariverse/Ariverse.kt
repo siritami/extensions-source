@@ -15,6 +15,11 @@ class Ariverse :
     ) {
 
     override val client: OkHttpClient = network.cloudflareClient.newBuilder()
-        .rateLimit(5)
+        .rateLimit(3)
         .build()
+
+    override val mangaDetailsSelectorTitle =
+        "div.post-content > h3, div.post-title h3, div.post-title h1, #manga-title > h1"
+
+    override val altNameSelector = ".post-content_item:contains(Tên Khác) .summary-content"
 }
