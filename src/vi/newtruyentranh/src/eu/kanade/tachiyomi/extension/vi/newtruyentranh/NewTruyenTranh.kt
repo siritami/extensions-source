@@ -28,7 +28,7 @@ class NewTruyenTranh :
     ConfigurableSource {
     override val name = "NewTruyenTranh"
     override val lang = "vi"
-    private val defaultBaseUrl = "https://newtruyentranh8.com"
+    private val defaultBaseUrl = "https://newtruyentranh7.com"
     override val baseUrl by lazy { getPrefBaseUrl() }
     override val supportsLatest = true
 
@@ -267,20 +267,8 @@ class NewTruyenTranh :
 
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, defaultBaseUrl)!!
 
-    init {
-        preferences.getString(DEFAULT_BASE_URL_PREF, null).let { prefDefaultBaseUrl ->
-            if (prefDefaultBaseUrl != defaultBaseUrl) {
-                preferences.edit()
-                    .putString(BASE_URL_PREF, defaultBaseUrl)
-                    .putString(DEFAULT_BASE_URL_PREF, defaultBaseUrl)
-                    .apply()
-            }
-        }
-    }
-
     companion object {
         private const val BASE_URL_PREF = "overrideBaseUrl"
-        private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF_SUMMARY =
             "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."

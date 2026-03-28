@@ -44,17 +44,9 @@ class Author(
 class ChapterData(
     val id: Int,
     val order: Double,
-    val name: String = "",
-    val volume: Double? = null,
+    val name: String? = null,
+    val volume: Int? = null,
     val publishedAt: Long = 0L,
-    val lastUpdated: Long? = null,
-    val team: Team? = null,
-)
-
-@Serializable
-class Team(
-    val id: Int? = null,
-    val name: String = "",
 )
 
 @Serializable

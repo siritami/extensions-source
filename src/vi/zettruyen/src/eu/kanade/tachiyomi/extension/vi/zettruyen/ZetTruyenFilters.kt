@@ -10,11 +10,10 @@ fun getFilters() = FilterList(
     GenreFilter(getGenres()),
 )
 
-class SortFilter :
-    Filter.Select<String>(
-        "Sắp xếp",
-        arrayOf("Mới cập nhật", "Xếp hạng", "Số lượng bookmark", "Tên A-Z", "Tên Z-A"),
-    ) {
+class SortFilter : Filter.Select<String>(
+    "Sắp xếp",
+    arrayOf("Mới cập nhật", "Xếp hạng", "Số lượng bookmark", "Tên A-Z", "Tên Z-A"),
+) {
     fun toUriPart(): String = when (state) {
         1 -> "rating"
         2 -> "bookmark"
@@ -24,11 +23,10 @@ class SortFilter :
     }
 }
 
-class StatusFilter :
-    Filter.Select<String>(
-        "Trạng thái",
-        arrayOf("Tất cả", "Đang tiến hành", "Hoàn thành"),
-    ) {
+class StatusFilter : Filter.Select<String>(
+    "Trạng thái",
+    arrayOf("Tất cả", "Đang tiến hành", "Hoàn thành"),
+) {
     fun toUriPart(): String = when (state) {
         1 -> "Đang"
         2 -> "Hoàn thành"
@@ -36,11 +34,10 @@ class StatusFilter :
     }
 }
 
-class TypeFilter :
-    Filter.Select<String>(
-        "Loại truyện",
-        arrayOf("Tất cả", "Manga", "Manhua", "Manhwa"),
-    ) {
+class TypeFilter : Filter.Select<String>(
+    "Loại truyện",
+    arrayOf("Tất cả", "Manga", "Manhua", "Manhwa"),
+) {
     fun toUriPart(): String = when (state) {
         1 -> "manga"
         2 -> "manhua"

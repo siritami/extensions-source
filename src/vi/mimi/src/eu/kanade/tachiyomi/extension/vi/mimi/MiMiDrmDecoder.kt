@@ -4,7 +4,7 @@ import kotlin.experimental.xor
 
 object MiMiDrmDecoder {
 
-    class Tile(
+    data class Tile(
         val srcX: Int,
         val srcY: Int,
         val dstX: Int,
