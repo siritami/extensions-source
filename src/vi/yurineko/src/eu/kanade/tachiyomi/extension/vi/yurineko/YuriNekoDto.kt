@@ -42,14 +42,6 @@ class LinkedPersonDto(
 )
 
 @Serializable
-class ChapterListDto(
-    val data: List<ChapterDto>,
-    val total: Int = 0,
-    val page: Int = 1,
-    val totalPages: Int = 1,
-)
-
-@Serializable
 class ChapterDto(
     val id: String,
     val title: String? = null,
