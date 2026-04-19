@@ -20,6 +20,7 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.time.Instant
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 class YuriNeko : HttpSource() {
@@ -262,15 +263,35 @@ class YuriNeko : HttpSource() {
 
     private fun normalizeChapterImageUrl(value: String?): String? {
         val raw = value?.takeIf(String::isNotBlank) ?: return null
+        val unescaped = raw
+            .replace("\\u0026", "&")
+            .replace("\\/", "/")
+        val resolved = decodeApiImageUrl(unescaped) ?: unescaped
+
         return when {
-            raw.startsWith("http://") || raw.startsWith("https://") -> {
-                raw.takeIf { CHAPTER_IMAGE_PATH_REGEX.containsMatchIn(it) }
+            resolved.startsWith("http://") || resolved.startsWith("https://") -> {
+                resolved.takeIf { CHAPTER_IMAGE_PATH_REGEX.containsMatchIn(it) }
             }
-            raw.startsWith("/chapters/") || raw.startsWith("chapters/") -> {
-                cdnImageUrl(raw)
+            resolved.startsWith("/chapters/") || resolved.startsWith("chapters/") -> {
+                cdnImageUrl(resolved)
             }
             else -> null
         }
+    }
+
+    private fun decodeApiImageUrl(rawValue: String): String? {
+        val value = rawValue.takeIf { it.contains("/api/img") } ?: return null
+        val url = value.toHttpUrlOrNull()
+            ?: "$baseUrl${value.takeIf { it.startsWith("/") } ?: "/$value"}".toHttpUrlOrNull()
+            ?: return null
+        val encoded = url.queryParameter("d")?.takeIf(String::isNotBlank) ?: return null
+        val decoded = runCatching {
+            val normalized = encoded.replace('-', '+').replace('_', '/')
+            val padded = normalized.padEnd((normalized.length + 3) / 4 * 4, '=')
+            String(Base64.getDecoder().decode(padded))
+        }.getOrNull() ?: return null
+
+        return decoded.substringBefore('|')
     }
 
     private fun HttpUrl.mangaId(): String {
@@ -296,7 +317,7 @@ class YuriNeko : HttpSource() {
         private const val CHAPTER_LIMIT = 100
 
         private val UUID_REGEX = Regex("""[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}""")
-        private val CHAPTER_IMAGE_REGEX = Regex("""\"url\":\"(chapters/[^\"]+)\"""")
+        private val CHAPTER_IMAGE_REGEX = Regex("""\"url\":\"([^\"]+)\"""")
         private val CHAPTER_IMAGE_PATH_REGEX = Regex("""(?:^|/)chapters/""")
     }
 }
