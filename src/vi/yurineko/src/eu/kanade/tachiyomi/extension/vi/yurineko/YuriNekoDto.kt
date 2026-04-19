@@ -11,6 +11,18 @@ class MangaListDto(
 )
 
 @Serializable
+class ChapterListDto(
+    val data: List<ChapterDto> = emptyList(),
+    val total: Int = 0,
+    val page: Int = 1,
+    val totalPages: Int? = null,
+    val lastPage: Int? = null,
+) {
+    val pageCount: Int
+        get() = totalPages ?: lastPage ?: 1
+}
+
+@Serializable
 class MangaDto(
     val id: String,
     val title: String,
