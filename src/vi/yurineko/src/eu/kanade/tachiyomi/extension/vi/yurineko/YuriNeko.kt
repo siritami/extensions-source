@@ -155,9 +155,7 @@ class YuriNeko : HttpSource() {
         }
     }
 
-    private fun fetchAllChapters(mangaId: String): List<ChapterDto> {
-        return fetchChaptersFromChapterApi(mangaId)
-    }
+    private fun fetchAllChapters(mangaId: String): List<ChapterDto> = fetchChaptersFromChapterApi(mangaId)
 
     private fun fetchChaptersFromChapterApi(mangaId: String): List<ChapterDto> {
         val chapters = linkedMapOf<String, ChapterDto>()
@@ -305,18 +303,14 @@ class YuriNeko : HttpSource() {
         return decoded.substringBefore('|')
     }
 
-    private fun resolveMangaId(response: Response): String {
-        return response.request.url.mangaIdOrNull()
-            ?: extractMangaIdFromDocument(response.asJsoup())
-            ?: throw IllegalArgumentException("Không tìm thấy manga id từ URL: ${response.request.url}")
-    }
+    private fun resolveMangaId(response: Response): String = response.request.url.mangaIdOrNull()
+        ?: extractMangaIdFromDocument(response.asJsoup())
+        ?: throw IllegalArgumentException("Không tìm thấy manga id từ URL: ${response.request.url}")
 
-    private fun extractMangaIdFromDocument(document: Document): String? {
-        return document.select("a[href*=/manga/]")
-            .asSequence()
-            .mapNotNull { MANGA_PATH_ID_REGEX.find(it.attr("href"))?.groupValues?.getOrNull(1) }
-            .firstOrNull()
-    }
+    private fun extractMangaIdFromDocument(document: Document): String? = document.select("a[href*=/manga/]")
+        .asSequence()
+        .mapNotNull { MANGA_PATH_ID_REGEX.find(it.attr("href"))?.groupValues?.getOrNull(1) }
+        .firstOrNull()
 
     private fun HttpUrl.mangaIdOrNull(): String? {
         val mangaIndex = pathSegments.indexOf("manga")
