@@ -155,27 +155,13 @@ class YuriNeko : HttpSource() {
     }
 
     private fun fetchAllChapters(mangaId: String): List<ChapterDto> {
-        val chapters = mutableListOf<ChapterDto>()
-        var page = 1
-        var totalPages = 1
-
-        while (page <= totalPages) {
-            val url = "$apiUrl/chapters/$mangaId".toHttpUrl().newBuilder()
-                .addQueryParameter("page", page.toString())
-                .addQueryParameter("limit", CHAPTER_LIMIT.toString())
-                .addQueryParameter("sort", "desc")
-                .build()
-
-            val payload = client.newCall(GET(url, headers)).execute().use { chapterResponse ->
-                chapterResponse.parseAs<ChapterListDto>()
-            }
-
-            chapters += payload.data
-            totalPages = payload.totalPages.coerceAtLeast(1)
-            page += 1
+        val chaptersFromMangaDetails = client.newCall(GET("$apiUrl/mangas/$mangaId", headers)).execute().use { detailsResponse ->
+            detailsResponse.parseAs<MangaDetailsDto>().chapters
         }
 
-        return chapters
+        return chaptersFromMangaDetails.sortedByDescending { chapter ->
+            parseChapterDate(chapter.publishedAt ?: chapter.createdAt)
+        }
     }
 
     private fun chapterName(chapter: ChapterDto): String {
@@ -314,7 +300,6 @@ class YuriNeko : HttpSource() {
         private const val POPULAR_LIMIT = 10
         private const val LATEST_LIMIT = 16
         private const val SEARCH_LIMIT = 20
-        private const val CHAPTER_LIMIT = 100
 
         private val UUID_REGEX = Regex("""[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}""")
         private val CHAPTER_IMAGE_REGEX = Regex("""\"url\":\"([^\"]+)\"""")
