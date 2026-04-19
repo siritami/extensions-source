@@ -12,9 +12,10 @@ fun getFilters(): FilterList = FilterList(
     KeywordFilter(),
 )
 
-class GenreFilter : UriPartFilter(
-    "Thể loại",
-    arrayOf(
+class GenreFilter :
+    UriPartFilter(
+        "Thể loại",
+        arrayOf(
             Pair("Tất cả", null),
             Pair("Ác Ma", "the-loai/ac-ma/"),
             Pair("Áo choàng", "the-loai/ao-choang/"),
@@ -169,13 +170,14 @@ class GenreFilter : UriPartFilter(
             Pair("Xuyên Không", "the-loai/xuyen-khong/"),
             Pair("Xuyên nhanh", "the-loai/xuyen-nhanh/"),
             Pair("Xuyên Sách", "the-loai/xuyen-sach/"),
-            Pair("Yêu Đương", "the-loai/yeu-duong/")
-    ),
-)
+            Pair("Yêu Đương", "the-loai/yeu-duong/"),
+        ),
+    )
 
-class TeamFilter : UriPartFilter(
-    "Nhóm",
-    arrayOf(
+class TeamFilter :
+    UriPartFilter(
+        "Nhóm",
+        arrayOf(
             Pair("Tất cả", null),
             Pair("2M Translation Group", "nhom/2m-translation-group/"),
             Pair("A Little Corner Of Myfanh", "nhom/a-little-corner-of-myfanh/"),
@@ -223,33 +225,35 @@ class TeamFilter : UriPartFilter(
             Pair("vlogmanhua", "nhom/vlogmanhua/"),
             Pair("Vườn Bông Bê Đê", "nhom/vuon-bong-be-de/"),
             Pair("Vườn Trẻ Hề", "nhom/vuon-tre-he/"),
-            Pair("Whitneyteam", "nhom/whitneyteam/")
-    ),
-)
+            Pair("Whitneyteam", "nhom/whitneyteam/"),
+        ),
+    )
 
-class SeriesFilter : UriPartFilter(
-    "Loạt truyện",
-    arrayOf(
+class SeriesFilter :
+    UriPartFilter(
+        "Loạt truyện",
+        arrayOf(
             Pair("Tất cả", null),
             Pair("Gặp Nhau Ở Trung Gian", "series/gap-nhau-o-trung-gian/"),
             Pair("Ngày Nào Đó Bỗng Trở Thành Tế Phẩm Công Chúa", "series/ngay-nao-do-bong-tro-thanh-te-pham-cong-chua/"),
             Pair("Trọn Bộ", "tron-bo/"),
             Pair("Hót Nhất", "truyen-hot-nhat/"),
-            Pair("Xem Nhiều", "xem-nhieu-nhat/")
-    ),
-)
+            Pair("Xem Nhiều", "xem-nhieu-nhat/"),
+        ),
+    )
 
-class KeywordFilter : UriPartFilter(
-    "Từ khóa",
-    arrayOf(
+class KeywordFilter :
+    UriPartFilter(
+        "Từ khóa",
+        arrayOf(
             Pair("Tất cả", null),
             Pair("#Ác Ma", "ac-ma/"),
             Pair("#Manh Bảo", "manh-bao/"),
             Pair("#Tổng Tài", "tong-tai/"),
             Pair("#Vương Gia", "vuong-gia/"),
-            Pair("#Vương Phi", "vuong-phi/")
-    ),
-)
+            Pair("#Vương Phi", "vuong-phi/"),
+        ),
+    )
 
 open class UriPartFilter(
     displayName: String,

@@ -199,9 +199,7 @@ class SoaiCaComic : HttpSource() {
         return rawName.substringAfterLast("–").substringAfterLast("-").trim()
     }
 
-    private fun parseChapterDate(date: String): Long {
-        return DATE_FORMAT.tryParse(date)
-    }
+    private fun parseChapterDate(date: String): Long = DATE_FORMAT.tryParse(date)
 
     // ============================== Pages =================================
 
@@ -254,8 +252,7 @@ class SoaiCaComic : HttpSource() {
         }
     }
 
-    private fun hasNextPage(document: Document): Boolean =
-        document.selectFirst("ul.pager li.next:not(.disabled) a") != null
+    private fun hasNextPage(document: Document): Boolean = document.selectFirst("ul.pager li.next:not(.disabled) a") != null
 
     private fun String?.nullIfBlank(): String? = this?.takeIf { it.isNotBlank() }
 
