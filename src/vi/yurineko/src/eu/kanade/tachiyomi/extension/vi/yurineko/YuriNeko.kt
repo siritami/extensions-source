@@ -176,6 +176,13 @@ class YuriNeko : HttpSource() {
             page += 1
         }
 
+        if (chapters.isEmpty()) {
+            val chapterFallback = client.newCall(GET("$webApiUrl/mangas/$mangaId", headers)).execute().use { response ->
+                response.parseAs<MangaDetailsDto>().chapters
+            }
+            chapters += chapterFallback
+        }
+
         return chapters.sortedByDescending { chapter ->
             parseChapterDate(chapter.publishedAt ?: chapter.createdAt)
         }
