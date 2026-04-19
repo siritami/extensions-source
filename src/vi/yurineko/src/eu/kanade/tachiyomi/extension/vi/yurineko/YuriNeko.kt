@@ -181,9 +181,13 @@ class YuriNeko : HttpSource() {
             currentPage++
         }
 
-        return chapters.values.sortedByDescending { chapter ->
-            parseChapterDate(chapter.publishedAt ?: chapter.createdAt)
-        }
+        return chapters.values.sortedByDescending(::chapterSortValue)
+    }
+
+    private fun chapterSortValue(chapter: ChapterDto): Double {
+        chapter.order?.let { return it }
+        return CHAPTER_NUMBER_REGEX.find(chapter.chapterNumber)?.value?.toDoubleOrNull()
+            ?: Double.NEGATIVE_INFINITY
     }
 
     private fun chapterName(chapter: ChapterDto): String {
@@ -336,6 +340,7 @@ class YuriNeko : HttpSource() {
         private const val UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
         private val UUID_REGEX = Regex(UUID_PATTERN, RegexOption.IGNORE_CASE)
         private val MANGA_PATH_ID_REGEX = Regex("/manga/($UUID_PATTERN)", RegexOption.IGNORE_CASE)
+        private val CHAPTER_NUMBER_REGEX = Regex("""\d+(?:\.\d+)?""")
         private val CHAPTER_PAGE_URL_REGEX = Regex("""(?:/api/img\?[^"'\\\s]+|/?chapters/[^"'\\\s]+)""")
         private val CHAPTER_IMAGE_PATH_REGEX = Regex("""(?:^|/)chapters/""")
     }
