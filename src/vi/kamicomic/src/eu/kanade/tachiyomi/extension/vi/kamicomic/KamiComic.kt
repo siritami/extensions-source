@@ -233,7 +233,7 @@ class KamiComic : HttpSource() {
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
 
-        if (document.selectFirst("#view-chapter .lock-card, #view-chapter #unlock-chapter, #view-chapter #xu-lock") != null) {
+        if (document.selectFirst("#chapter-content .lock-card, #chapter-content #unlock-chapter, #chapter-content #xu-lock") != null) {
             throw Exception(LOCKED_CHAPTER_MESSAGE)
         }
 
