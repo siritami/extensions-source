@@ -11,61 +11,52 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 object ImageDecryptor {
-    // Decryption key parts (concatenated: EhwuFpSJkhMVuUPzrw)
-    private const val KEY_PART_1 = "EhwuFp"
-    private const val KEY_PART_2 = "SJkhMV"
-    private const val KEY_PART_3 = "uUPzrw"
 
-    // PBKDF2 parameters (from CryptoJSAesDecrypt function)
+    private const val KEY_PART_1 = "p3Cr24"
+    private const val KEY_PART_2 = "4zAFC2"
+    private const val KEY_PART_3 = "GJ6m5e"
+
     private const val PBKDF2_ITERATIONS = 999
     private const val KEY_SIZE_BITS = 256
 
     private val ENCRYPTED_CONTENT_REGEX = Regex(
-        """var\s+htmlContent\s*=\s*(['"])(.*?)\1\s*;""",
+        """var\s+htmlContent\s*=\s*"(.*?)"\s*;""",
         RegexOption.DOT_MATCHES_ALL,
     )
 
     @Serializable
-    private class EncryptedData(
+    class EncryptedData(
         val ciphertext: String,
         val iv: String,
         val salt: String,
     )
 
-    /**
-     * Extract and decrypt image URLs from the page HTML.
-     * Returns a list of image URLs.
-     */
-    fun extractImageUrls(html: String): List<String> {
-        val match = ENCRYPTED_CONTENT_REGEX.find(html) ?: return extractFallbackImages(html)
-        val encryptedJsonString = match.groupValues[2]
+    fun extractImageUrls(html: String, baseUrl: String): List<String> {
+        val match = ENCRYPTED_CONTENT_REGEX.find(html)
+        if (match == null) {
+            return extractFallbackImages(html, baseUrl)
+        }
+
+        val encryptedJson = match.groupValues[1]
             .replace("\\\"", "\"")
-            .replace("\\'", "'")
             .replace("\\/", "/")
 
         return try {
-            val decryptedHtml = decryptContent(encryptedJsonString)
-            extractImagesFromDecryptedHtml(decryptedHtml)
-        } catch (e: Exception) {
-            // Fallback to regular image extraction if decryption fails
-            extractFallbackImages(html)
+            val decryptedHtml = decryptContent(encryptedJson)
+            extractImagesFromDecryptedHtml(decryptedHtml, baseUrl)
+        } catch (_: Exception) {
+            extractFallbackImages(html, baseUrl)
         }
     }
 
-    /**
-     * Decrypt the AES-encrypted content using CryptoJS format with PBKDF2.
-     */
     private fun decryptContent(encryptedJsonString: String): String {
         val encryptedData = encryptedJsonString.parseAs<EncryptedData>()
-
         val passphrase = KEY_PART_1 + KEY_PART_2 + KEY_PART_3
 
-        // Decode components
         val ciphertext = Base64.decode(encryptedData.ciphertext, Base64.DEFAULT)
-        val ivBytes = hexStringToByteArray(encryptedData.iv)
-        val saltBytes = hexStringToByteArray(encryptedData.salt)
+        val ivBytes = hexToByteArray(encryptedData.iv)
+        val saltBytes = hexToByteArray(encryptedData.salt)
 
-        // Derive key using PBKDF2 with SHA-512 (as used by CryptoJSAesDecrypt)
         val keySpec = PBEKeySpec(
             passphrase.toCharArray(),
             saltBytes,
@@ -75,71 +66,56 @@ object ImageDecryptor {
         val keyFactory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA512")
         val keyBytes = keyFactory.generateSecret(keySpec).encoded
 
-        // Decrypt using AES-CBC
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-        val secretKey = SecretKeySpec(keyBytes, "AES")
-        val ivSpec = IvParameterSpec(ivBytes)
-        cipher.init(Cipher.DECRYPT_MODE, secretKey, ivSpec)
+        cipher.init(
+            Cipher.DECRYPT_MODE,
+            SecretKeySpec(keyBytes, "AES"),
+            IvParameterSpec(ivBytes),
+        )
 
         return String(cipher.doFinal(ciphertext), Charsets.UTF_8)
     }
 
-    /**
-     * Extract image URLs from the decrypted HTML.
-     * For novel pages, the real URL is in data-ehwufp (obfuscated).
-     * For manga pages, src usually contains the real URL.
-     */
-    private fun extractImagesFromDecryptedHtml(html: String): List<String> {
-        val doc = Jsoup.parse(html)
-        return doc.select("img").mapNotNull { img ->
-            val dataEhwufp = img.attr("data-ehwufp")
-            if (dataEhwufp.isNotBlank()) {
-                return@mapNotNull deobfuscateUrl(dataEhwufp)
+    private fun extractImagesFromDecryptedHtml(html: String, baseUrl: String): List<String> {
+        val document = Jsoup.parse(html, baseUrl)
+
+        return document.select("img").mapNotNull { img ->
+            val obfuscated = img.attr("data-p3cr24")
+            if (obfuscated.isNotEmpty() && obfuscated != "loaded" && obfuscated != "stored") {
+                return@mapNotNull deobfuscateUrl(obfuscated)
             }
 
-            val src = img.absUrl("src")
-            if (src.startsWith("data:")) {
-                return@mapNotNull null
-            }
-
-            src.takeIf { it.isNotBlank() && it.startsWith("http") }
+            img.absUrl("src").ifEmpty { img.absUrl("data-src") }
+                .takeIf { it.isNotEmpty() && !it.startsWith("data:") }
         }
     }
 
-    /**
-     * De-obfuscate URL by replacing key parts with special characters.
-     * EhwuFp -> .
-     * SJkhMV -> :
-     * uUPzrw -> /
-     */
-    private fun deobfuscateUrl(url: String): String = url
-        .replace(KEY_PART_1, ".")
-        .replace(KEY_PART_2, ":")
-        .replace(KEY_PART_3, "/")
+    private fun deobfuscateUrl(url: String): String {
+        return url
+            .replace(KEY_PART_1, ".")
+            .replace(KEY_PART_2, ":")
+            .replace(KEY_PART_3, "/")
+    }
 
-    /**
-     * Fallback: extract images directly from HTML if decryption is not needed or fails.
-     */
-    private fun extractFallbackImages(html: String): List<String> {
-        val doc = Jsoup.parse(html)
-        val images = doc.select("#view-chapter img")
-            .ifEmpty { doc.select(".chapter-content img, .reading-content img, .content-chapter img") }
+    private fun extractFallbackImages(html: String, baseUrl: String): List<String> {
+        val document = Jsoup.parse(html, baseUrl)
+        val images = document.select("#view-chapter img")
+            .ifEmpty { document.select(".chapter-content img, .reading-content img, .content-chapter img") }
 
         return images.mapNotNull { element ->
-            val imageUrl = element.absUrl("data-src").ifEmpty { element.absUrl("src") }
-            imageUrl.takeIf { it.isNotBlank() }
+            element.absUrl("data-src")
+                .ifEmpty { element.absUrl("src") }
+                .takeIf { it.isNotEmpty() }
         }
     }
 
-    /**
-     * Convert hex string to byte array.
-     */
-    private fun hexStringToByteArray(hex: String): ByteArray {
-        val len = hex.length
-        val data = ByteArray(len / 2)
-        for (i in 0 until len step 2) {
-            data[i / 2] = ((Character.digit(hex[i], 16) shl 4) + Character.digit(hex[i + 1], 16)).toByte()
+    private fun hexToByteArray(hex: String): ByteArray {
+        val result = ByteArray(hex.length / 2)
+        var index = 0
+        while (index < hex.length) {
+            result[index / 2] = ((Character.digit(hex[index], 16) shl 4) + Character.digit(hex[index + 1], 16)).toByte()
+            index += 2
         }
-        return data
+        return result
     }
 }
