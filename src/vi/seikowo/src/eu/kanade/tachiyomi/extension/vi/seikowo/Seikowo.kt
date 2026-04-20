@@ -568,7 +568,7 @@ class Seikowo : HttpSource() {
         private const val WORKER_BLOG_ID = "5099059547407963215"
 
         private val popularDataRegex = Regex(
-            """window\.__POPULAR_POST__\s*=\s*JSON\.stringify\(\{[\s\S]*?data\s*:\s*\[(.*?)]\s*}\)""",
+            """window\.__POPULAR_POST__\s*=\s*JSON\.stringify\(\{[\s\S]*?data\s*:\s*\[(.*?)\]\s*\}\)""",
             setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
         )
 
