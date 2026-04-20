@@ -102,9 +102,9 @@ class Seikowo : HttpSource() {
     // ============================== Latest ================================
 
     override fun latestUpdatesRequest(page: Int): Request {
-        val startIndex = ((page - 1) * 30) + 1
+        val startIndex = ((page - 1) * latestPageSize) + 1
         val url = feedUrlBuilder()
-            .addQueryParameter("max-results", "30")
+            .addQueryParameter("max-results", latestPageSize.toString())
             .addQueryParameter("start-index", startIndex.toString())
             .build()
 
@@ -121,7 +121,7 @@ class Seikowo : HttpSource() {
         val hasNextPage = if (total != null) {
             startIndex - 1 + rawEntries.size < total
         } else {
-            rawEntries.size >= 30
+            rawEntries.size >= latestPageSize
         }
 
         return MangasPage(mangas, hasNextPage)
@@ -190,107 +190,15 @@ class Seikowo : HttpSource() {
             }
             .toList()
 
-        val fromIndex = (page - 1) * 30
+        val fromIndex = (page - 1) * searchPageSize
         if (fromIndex >= filtered.size) {
             return MangasPage(emptyList(), false)
         }
 
-        val toIndex = minOf(filtered.size, fromIndex + 30)
+        val toIndex = minOf(filtered.size, fromIndex + searchPageSize)
         val mangas = filtered.subList(fromIndex, toIndex).map { it.toSManga() }
 
         return MangasPage(mangas, toIndex < filtered.size)
-    }
-
-    @Synchronized
-    private fun getCatalogueEntries(): List<CatalogueEntry> {
-        val now = System.currentTimeMillis()
-        if (cachedCatalogueEntries.isNotEmpty() && now - cachedCatalogueEntriesAt < 10 * 60 * 1000L) {
-            return cachedCatalogueEntries
-        }
-
-        val entries = mutableListOf<CatalogueEntry>()
-        var startIndex = 1
-
-        while (true) {
-            val url = feedUrlBuilder()
-                .addQueryParameter("max-results", "500")
-                .addQueryParameter("start-index", startIndex.toString())
-                .build()
-
-            val feed = client.newCall(GET(url, headers)).execute().parseAs<FeedResponseDto>().feed
-            val batch = feed.entry.orEmpty()
-
-            entries += batch.mapNotNull(::toCatalogueEntry)
-
-            if (batch.size < 500) break
-
-            startIndex += 500
-            if (startIndex > 5_001) break
-        }
-
-        cachedCatalogueEntries = entries
-        cachedCatalogueEntriesAt = now
-
-        return entries
-    }
-
-    private fun toCatalogueEntry(entry: FeedEntryDto): CatalogueEntry? {
-        val metadata = parseMetadata(entry.content?.value) ?: return null
-        val title = metadata.title ?: entry.title?.value ?: return null
-
-        val absoluteUrl = entry.link
-            .orEmpty()
-            .firstOrNull { it.rel == "alternate" }
-            ?.href
-            ?: return null
-
-        val relativeUrl = toRelativeUrl(absoluteUrl) ?: return null
-
-        val statusTerm = statusTerm(entry, metadata)
-        val genres = genreTerms(entry, metadata)
-
-        return CatalogueEntry(
-            title = decodeHtmlEntities(title),
-            url = relativeUrl,
-            thumbnailUrl = metadata.coverImage ?: entry.thumbnail?.url,
-            updatedAt = parseDate(entry.updated?.value),
-            publishedAt = parseDate(entry.published?.value),
-            commentsCount = entry.commentsCount?.value?.toIntOrNull() ?: 0,
-            statusTerm = statusTerm,
-            genres = genres,
-        )
-    }
-
-    private fun statusTerm(entry: FeedEntryDto, metadata: SeriesMetadataDto): String? {
-        val normalizedStatus = metadata.status?.lowercase(Locale.ROOT)
-        if (normalizedStatus != null) {
-            if (normalizedStatus.contains("complete")) return "Status_Completed"
-            if (normalizedStatus.contains("ongoing")) return "Status_Ongoing"
-        }
-
-        return entry.category
-            .orEmpty()
-            .mapNotNull { it.term }
-            .firstOrNull { it.startsWith("Status_") }
-    }
-
-    private fun genreTerms(entry: FeedEntryDto, metadata: SeriesMetadataDto): Set<String> {
-        val fromLabels = entry.category
-            .orEmpty()
-            .mapNotNull { it.term }
-            .filterNot { term ->
-                term.startsWith("ID_") ||
-                    term.startsWith("Type_") ||
-                    term.startsWith("Status_") ||
-                    term.equals("Data_Node", ignoreCase = true) ||
-                    term.startsWith("Parent_")
-            }
-
-        val fromMetadata = metadata.tags.orEmpty()
-
-        return (fromLabels + fromMetadata)
-            .map(::decodeHtmlEntities)
-            .toSet()
     }
 
     // ============================== Details ===============================
@@ -364,32 +272,6 @@ class Seikowo : HttpSource() {
             }
     }
 
-    private fun fetchFeedEntry(postId: String): FeedEntryDto {
-        val url = "$baseUrl/feeds/posts/default/$postId".toHttpUrl().newBuilder()
-            .addQueryParameter("alt", "json")
-            .build()
-
-        return client.newCall(GET(url, headers)).execute().parseAs<FeedEntryResponseDto>().entry
-    }
-
-    private fun chapterReaderUrl(sourcePath: String, seriesId: String, chapterNumber: String): String {
-        val url = "$baseUrl$sourcePath".toHttpUrl().newBuilder()
-            .addQueryParameter("ch", chapterNumber)
-            .addQueryParameter("sid", seriesId)
-            .build()
-
-        return url.toString().removePrefix(baseUrl)
-    }
-
-    private fun formatChapterNumber(number: Double): String {
-        val longValue = number.toLong()
-        return if (number == longValue.toDouble()) {
-            longValue.toString()
-        } else {
-            number.toString().trimEnd('0').trimEnd('.')
-        }
-    }
-
     // ============================== Pages =================================
 
     override fun pageListParse(response: Response): List<Page> {
@@ -429,7 +311,7 @@ class Seikowo : HttpSource() {
             ?.replace(whitespaceRegex, "")
             ?: return emptyList()
 
-        val decrypted = runCatching { SeikowoDecryptor.decryptPayload(rawPayload) }
+        val decrypted = runCatching { ImageDecryptor.decryptPayload(rawPayload) }
             .getOrNull()
             ?: return emptyList()
 
@@ -444,11 +326,11 @@ class Seikowo : HttpSource() {
             labels = listOf("Data_Node", "Parent_$seriesId"),
             maxResults = 50,
             fetchFields = "items(id,content)",
-            blogId = WORKER_BLOG_ID,
+            blogId = workerBlogId,
         )
 
         val listRequest = POST(
-            WORKER_API_URL,
+            workerApiUrl,
             jsonHeaders(),
             listPayload.toJsonString().toRequestBody(contentTypeJson),
         )
@@ -474,11 +356,11 @@ class Seikowo : HttpSource() {
             action = "get",
             id = postId,
             fetchFields = "id,content",
-            blogId = WORKER_BLOG_ID,
+            blogId = workerBlogId,
         )
 
         val request = POST(
-            WORKER_API_URL,
+            workerApiUrl,
             jsonHeaders(),
             getPayload.toJsonString().toRequestBody(contentTypeJson),
         )
@@ -488,16 +370,73 @@ class Seikowo : HttpSource() {
         }.getOrNull()
     }
 
-    private fun isChapterNumberMatch(number: Double, rawChapterNumber: String): Boolean {
-        val asDouble = rawChapterNumber.toDoubleOrNull()
-        return if (asDouble != null) {
-            abs(number - asDouble) < 0.0001
-        } else {
-            formatChapterNumber(number) == rawChapterNumber
-        }
+    private fun fetchFeedEntry(postId: String): FeedEntryDto {
+        val url = "$baseUrl/feeds/posts/default/$postId".toHttpUrl().newBuilder()
+            .addQueryParameter("alt", "json")
+            .build()
+
+        return client.newCall(GET(url, headers)).execute().parseAs<FeedEntryResponseDto>().entry
     }
 
-    // ============================= Helpers ================================
+    @Synchronized
+    private fun getCatalogueEntries(): List<CatalogueEntry> {
+        val now = System.currentTimeMillis()
+        if (cachedCatalogueEntries.isNotEmpty() && now - cachedCatalogueEntriesAt < cacheDurationMs) {
+            return cachedCatalogueEntries
+        }
+
+        val entries = mutableListOf<CatalogueEntry>()
+        var startIndex = 1
+
+        while (true) {
+            val url = feedUrlBuilder()
+                .addQueryParameter("max-results", feedBatchSize.toString())
+                .addQueryParameter("start-index", startIndex.toString())
+                .build()
+
+            val feed = client.newCall(GET(url, headers)).execute().parseAs<FeedResponseDto>().feed
+            val batch = feed.entry.orEmpty()
+
+            entries += batch.mapNotNull(::toCatalogueEntry)
+
+            if (batch.size < feedBatchSize) break
+
+            startIndex += feedBatchSize
+            if (startIndex > maxFeedStartIndex) break
+        }
+
+        cachedCatalogueEntries = entries
+        cachedCatalogueEntriesAt = now
+
+        return entries
+    }
+
+    private fun toCatalogueEntry(entry: FeedEntryDto): CatalogueEntry? {
+        val metadata = parseMetadata(entry.content?.value) ?: return null
+        val title = metadata.title ?: entry.title?.value ?: return null
+
+        val absoluteUrl = entry.link
+            .orEmpty()
+            .firstOrNull { it.rel == "alternate" }
+            ?.href
+            ?: return null
+
+        val relativeUrl = toRelativeUrl(absoluteUrl) ?: return null
+
+        val statusTerm = statusTerm(entry, metadata)
+        val genres = genreTerms(entry, metadata)
+
+        return CatalogueEntry(
+            title = decodeHtmlEntities(title),
+            url = relativeUrl,
+            thumbnailUrl = metadata.coverImage ?: entry.thumbnail?.url,
+            updatedAt = parseDate(entry.updated?.value),
+            publishedAt = parseDate(entry.published?.value),
+            commentsCount = entry.commentsCount?.value?.toIntOrNull() ?: 0,
+            statusTerm = statusTerm,
+            genres = genres,
+        )
+    }
 
     private fun parseMetadata(content: String?): SeriesMetadataDto? {
         if (content.isNullOrBlank()) return null
@@ -508,6 +447,48 @@ class Seikowo : HttpSource() {
             ?: return null
 
         return runCatching { jsonString.parseAs<SeriesMetadataDto>() }.getOrNull()
+    }
+
+    private fun statusTerm(entry: FeedEntryDto, metadata: SeriesMetadataDto): String? {
+        val normalizedStatus = metadata.status?.lowercase(Locale.ROOT)
+        if (normalizedStatus != null) {
+            if (normalizedStatus.contains("complete")) return "Status_Completed"
+            if (normalizedStatus.contains("ongoing")) return "Status_Ongoing"
+        }
+
+        return entry.category
+            .orEmpty()
+            .mapNotNull { it.term }
+            .firstOrNull { it.startsWith("Status_") }
+    }
+
+    private fun genreTerms(entry: FeedEntryDto, metadata: SeriesMetadataDto): Set<String> {
+        val fromLabels = entry.category
+            .orEmpty()
+            .mapNotNull { it.term }
+            .map { it.trim() }
+            .filterNot { term ->
+                term.startsWith("ID_") ||
+                    term.startsWith("Type_") ||
+                    term.startsWith("Status_") ||
+                    term.equals("Data_Node", ignoreCase = true) ||
+                    term.startsWith("Parent_")
+            }
+
+        val fromMetadata = metadata.tags.orEmpty()
+
+        return (fromLabels + fromMetadata)
+            .map(::decodeHtmlEntities)
+            .toSet()
+    }
+
+    private fun chapterReaderUrl(sourcePath: String, seriesId: String, chapterNumber: String): String {
+        val url = "$baseUrl$sourcePath".toHttpUrl().newBuilder()
+            .addQueryParameter("ch", chapterNumber)
+            .addQueryParameter("sid", seriesId)
+            .build()
+
+        return url.toString().removePrefix(baseUrl)
     }
 
     private fun parseDate(date: String?): Long {
@@ -536,6 +517,24 @@ class Seikowo : HttpSource() {
         .add("Content-Type", "application/json")
         .build()
 
+    private fun isChapterNumberMatch(number: Double, rawChapterNumber: String): Boolean {
+        val asDouble = rawChapterNumber.toDoubleOrNull()
+        return if (asDouble != null) {
+            abs(number - asDouble) < 0.0001
+        } else {
+            formatChapterNumber(number) == rawChapterNumber
+        }
+    }
+
+    private fun formatChapterNumber(number: Double): String {
+        val longValue = number.toLong()
+        return if (number == longValue.toDouble()) {
+            longValue.toString()
+        } else {
+            number.toString().trimEnd('0').trimEnd('.')
+        }
+    }
+
     private fun decodeHtmlEntities(value: String): String = Jsoup.parse(value).text()
 
     private class ChapterItem(
@@ -562,9 +561,14 @@ class Seikowo : HttpSource() {
     }
 
     companion object {
+        private const val latestPageSize = 30
+        private const val searchPageSize = 30
+        private const val feedBatchSize = 500
+        private const val maxFeedStartIndex = 5_001
+        private const val cacheDurationMs = 10 * 60 * 1000L
 
-        private const val WORKER_API_URL = "https://seikowo.shimakazevn.workers.dev/api/v1/posts"
-        private const val WORKER_BLOG_ID = "5099059547407963215"
+        private const val workerApiUrl = "https://seikowo.shimakazevn.workers.dev/api/v1/posts"
+        private const val workerBlogId = "5099059547407963215"
 
         private val popularDataRegex = Regex(
             """window\.__POPULAR_POST__\s*=\s*JSON\.stringify\(\{[\s\S]*?data\s*:\s*\[(.*?)]\s*}\)""",

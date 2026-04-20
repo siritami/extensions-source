@@ -9,7 +9,7 @@ import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-object SeikowoDecryptor {
+object ImageDecryptor {
     private const val ENCRYPTION_KEY = "super_secret_key_for_manga_app_1"
     private const val IV_SIZE = 12
 
