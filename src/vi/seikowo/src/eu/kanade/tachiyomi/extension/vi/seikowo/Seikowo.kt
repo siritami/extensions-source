@@ -601,7 +601,7 @@ class Seikowo : HttpSource() {
         )
 
         private val securePayloadRegex = Regex(
-            """<script[^>]+id=["']post-metadata-secure["'][^>]*>([\s\S]*?)</script>""",
+            """<[^>]+id=["'](?:post-metadata-secure|seikowo-data-node)["'][^>]*>([\s\S]*?)</(?:script|div)>""",
             RegexOption.IGNORE_CASE,
         )
 
