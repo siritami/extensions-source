@@ -444,11 +444,11 @@ class Seikowo : HttpSource() {
             labels = listOf("Data_Node", "Parent_$seriesId"),
             maxResults = 50,
             fetchFields = "items(id,content)",
-            blogId = workerBlogId,
+            blogId = WORKER_BLOG_ID,
         )
 
         val listRequest = POST(
-            workerApiUrl,
+            WORKER_API_URL,
             jsonHeaders(),
             listPayload.toJsonString().toRequestBody(contentTypeJson),
         )
@@ -474,11 +474,11 @@ class Seikowo : HttpSource() {
             action = "get",
             id = postId,
             fetchFields = "id,content",
-            blogId = workerBlogId,
+            blogId = WORKER_BLOG_ID,
         )
 
         val request = POST(
-            workerApiUrl,
+            WORKER_API_URL,
             jsonHeaders(),
             getPayload.toJsonString().toRequestBody(contentTypeJson),
         )
@@ -563,8 +563,8 @@ class Seikowo : HttpSource() {
 
     companion object {
 
-        private const val workerApiUrl = "https://seikowo.shimakazevn.workers.dev/api/v1/posts"
-        private const val workerBlogId = "5099059547407963215"
+        private const val WORKER_API_URL = "https://seikowo.shimakazevn.workers.dev/api/v1/posts"
+        private const val WORKER_BLOG_ID = "5099059547407963215"
 
         private val popularDataRegex = Regex(
             """window\.__POPULAR_POST__\s*=\s*JSON\.stringify\(\{[\s\S]*?data\s*:\s*\[(.*?)]\s*}\)""",
