@@ -600,4 +600,3 @@ class Seikowo : HttpSource() {
         private val whitespaceRegex = Regex("""\s+""")
     }
 }
-
