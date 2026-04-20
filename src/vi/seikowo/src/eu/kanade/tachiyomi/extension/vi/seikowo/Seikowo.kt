@@ -326,10 +326,14 @@ class Seikowo : HttpSource() {
         val chapters = fetchWorkerPosts(seriesId)
             .flatMap { post -> parseDecryptedChapters(post.content) }
 
-        val targetChapter = chapters.firstOrNull { chapter ->
-            val number = chapter.number ?: chapter.chapterNum
-            number != null && isChapterNumberMatch(number, chapterNumber)
-        } ?: throw Exception("Cannot find chapter data")
+        val targetChapter = chapters
+            .asSequence()
+            .filter { chapter ->
+                val number = chapter.number ?: chapter.chapterNum
+                number != null && isChapterNumberMatch(number, chapterNumber)
+            }
+            .maxByOrNull { chapter -> chapter.images?.size ?: 0 }
+            ?: throw Exception("Cannot find chapter data")
 
         val imageUrls = targetChapter.images
             .orEmpty()
