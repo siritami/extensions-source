@@ -256,11 +256,9 @@ class SoaiCaComic : HttpSource() {
 
     // ============================== Chapters ==============================
 
-    override fun chapterListParse(response: Response): List<SChapter> {
-        return response.asJsoup()
-            .select(".chapter-table table tbody tr")
-            .mapNotNull(::chapterFromElement)
-    }
+    override fun chapterListParse(response: Response): List<SChapter> = response.asJsoup()
+        .select(".chapter-table table tbody tr")
+        .mapNotNull(::chapterFromElement)
 
     private fun chapterFromElement(element: org.jsoup.nodes.Element): SChapter? {
         val linkElement = element.selectFirst("a.text-capitalize[href]") ?: return null
@@ -293,20 +291,16 @@ class SoaiCaComic : HttpSource() {
         return rawName.substringAfterLast("–").substringAfterLast("-")
     }
 
-    private fun parseChapterDate(dateText: String): Long {
-        return DATE_FORMAT.tryParse(dateText)
-    }
+    private fun parseChapterDate(dateText: String): Long = DATE_FORMAT.tryParse(dateText)
 
     // ============================== Filter =================================
 
     override fun getFilterList(): FilterList = getFilters()
 
-    private fun selectedFilterPath(filters: FilterList): String? {
-        return filters.firstInstanceOrNull<TheLoaiFilter>()?.toUriPart()?.ifEmpty { null }
-            ?: filters.firstInstanceOrNull<NhomFilter>()?.toUriPart()?.ifEmpty { null }
-            ?: filters.firstInstanceOrNull<LoatTruyenFilter>()?.toUriPart()?.ifEmpty { null }
-            ?: filters.firstInstanceOrNull<TuKhoaFilter>()?.toUriPart()?.ifEmpty { null }
-    }
+    private fun selectedFilterPath(filters: FilterList): String? = filters.firstInstanceOrNull<TheLoaiFilter>()?.toUriPart()?.ifEmpty { null }
+        ?: filters.firstInstanceOrNull<NhomFilter>()?.toUriPart()?.ifEmpty { null }
+        ?: filters.firstInstanceOrNull<LoatTruyenFilter>()?.toUriPart()?.ifEmpty { null }
+        ?: filters.firstInstanceOrNull<TuKhoaFilter>()?.toUriPart()?.ifEmpty { null }
 
     // ============================== Pages =================================
 
