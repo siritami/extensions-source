@@ -56,26 +56,29 @@ private val genreOptions = arrayOf(
     Option("tragedy", "tragedy"),
 )
 
-class StatusFilter : Filter.Select<String>(
-    "Status",
-    statusOptions.map { it.displayName }.toTypedArray(),
-) {
+class StatusFilter :
+    Filter.Select<String>(
+        "Status",
+        statusOptions.map { it.displayName }.toTypedArray(),
+    ) {
     val selectedValue: String?
         get() = statusOptions[state].value
 }
 
-class SortByFilter : Filter.Select<String>(
-    "Sort By",
-    sortOptions.map { it.displayName }.toTypedArray(),
-) {
+class SortByFilter :
+    Filter.Select<String>(
+        "Sort By",
+        sortOptions.map { it.displayName }.toTypedArray(),
+    ) {
     val selectedValue: String
         get() = sortOptions[state].value ?: "updated"
 }
 
-class GenreFilter : Filter.Select<String>(
-    "Genres",
-    genreOptions.map { it.displayName }.toTypedArray(),
-) {
+class GenreFilter :
+    Filter.Select<String>(
+        "Genres",
+        genreOptions.map { it.displayName }.toTypedArray(),
+    ) {
     val selectedValue: String?
         get() = genreOptions[state].value
 }
