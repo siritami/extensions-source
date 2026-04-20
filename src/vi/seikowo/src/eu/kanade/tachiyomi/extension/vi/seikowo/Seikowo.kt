@@ -334,6 +334,7 @@ class Seikowo : HttpSource() {
         val imageUrls = targetChapter.images
             .orEmpty()
             .mapNotNull { image -> image.id ?: image.dataUrl }
+            .map(::toHighResolutionImageUrl)
             .ifEmpty { throw Exception("Cannot find chapter images") }
 
         return imageUrls.mapIndexed { index, imageUrl ->
@@ -540,6 +541,19 @@ class Seikowo : HttpSource() {
 
     private fun decodeHtmlEntities(value: String): String = Jsoup.parse(value).text()
 
+    private fun toHighResolutionImageUrl(url: String): String {
+        if (!url.contains("googleusercontent.com", ignoreCase = true)) {
+            return url
+        }
+
+        val replaced = googleImageSizeSegmentRegex.replace(url, "/s3200-rw/")
+        if (replaced != url) {
+            return replaced
+        }
+
+        return "${url.removeSuffix("/")}/s3200-rw/"
+    }
+
     private class ChapterItem(
         val number: Double,
         val title: String?,
@@ -599,5 +613,9 @@ class Seikowo : HttpSource() {
 
         private val htmlTagRegex = Regex("""<[^>]*>""")
         private val whitespaceRegex = Regex("""\s+""")
+        private val googleImageSizeSegmentRegex = Regex(
+            """/s\d+(?:-[a-z0-9]+)?/""",
+            RegexOption.IGNORE_CASE,
+        )
     }
 }
