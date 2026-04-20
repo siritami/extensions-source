@@ -102,9 +102,9 @@ class Seikowo : HttpSource() {
     // ============================== Latest ================================
 
     override fun latestUpdatesRequest(page: Int): Request {
-        val startIndex = ((page - 1) * latestPageSize) + 1
+        val startIndex = ((page - 1) * 30) + 1
         val url = feedUrlBuilder()
-            .addQueryParameter("max-results", latestPageSize.toString())
+            .addQueryParameter("max-results", "30")
             .addQueryParameter("start-index", startIndex.toString())
             .build()
 
@@ -112,16 +112,17 @@ class Seikowo : HttpSource() {
     }
 
     override fun latestUpdatesParse(response: Response): MangasPage {
+        val requestUrl = response.request.url
         val feed = response.parseAs<FeedResponseDto>().feed
         val rawEntries = feed.entry.orEmpty()
         val mangas = rawEntries.mapNotNull(::toCatalogueEntry).map { it.toSManga() }
 
-        val startIndex = response.request.url.queryParameter("start-index")?.toIntOrNull() ?: 1
+        val startIndex = requestUrl.queryParameter("start-index")?.toIntOrNull() ?: 1
         val total = feed.totalResults?.value?.toIntOrNull()
         val hasNextPage = if (total != null) {
             startIndex - 1 + rawEntries.size < total
         } else {
-            rawEntries.size >= latestPageSize
+            rawEntries.size >= 30
         }
 
         return MangasPage(mangas, hasNextPage)
@@ -190,12 +191,12 @@ class Seikowo : HttpSource() {
             }
             .toList()
 
-        val fromIndex = (page - 1) * searchPageSize
+        val fromIndex = (page - 1) * 30
         if (fromIndex >= filtered.size) {
             return MangasPage(emptyList(), false)
         }
 
-        val toIndex = minOf(filtered.size, fromIndex + searchPageSize)
+        val toIndex = minOf(filtered.size, fromIndex + 30)
         val mangas = filtered.subList(fromIndex, toIndex).map { it.toSManga() }
 
         return MangasPage(mangas, toIndex < filtered.size)
@@ -311,7 +312,7 @@ class Seikowo : HttpSource() {
             ?.replace(whitespaceRegex, "")
             ?: return emptyList()
 
-        val decrypted = runCatching { SeikowoDecryptor.decryptPayload(rawPayload) }
+        val decrypted = runCatching { ImageDecryptor.decryptPayload(rawPayload) }
             .getOrNull()
             ?: return emptyList()
 
@@ -381,7 +382,7 @@ class Seikowo : HttpSource() {
     @Synchronized
     private fun getCatalogueEntries(): List<CatalogueEntry> {
         val now = System.currentTimeMillis()
-        if (cachedCatalogueEntries.isNotEmpty() && now - cachedCatalogueEntriesAt < cacheDurationMs) {
+        if (cachedCatalogueEntries.isNotEmpty() && now - cachedCatalogueEntriesAt < 10 * 60 * 1000L) {
             return cachedCatalogueEntries
         }
 
@@ -390,7 +391,7 @@ class Seikowo : HttpSource() {
 
         while (true) {
             val url = feedUrlBuilder()
-                .addQueryParameter("max-results", feedBatchSize.toString())
+                .addQueryParameter("max-results", "500")
                 .addQueryParameter("start-index", startIndex.toString())
                 .build()
 
@@ -399,10 +400,10 @@ class Seikowo : HttpSource() {
 
             entries += batch.mapNotNull(::toCatalogueEntry)
 
-            if (batch.size < feedBatchSize) break
+            if (batch.size < 500) break
 
-            startIndex += feedBatchSize
-            if (startIndex > maxFeedStartIndex) break
+            startIndex += 500
+            if (startIndex > 5_001) break
         }
 
         cachedCatalogueEntries = entries
@@ -561,12 +562,6 @@ class Seikowo : HttpSource() {
     }
 
     companion object {
-        private const val latestPageSize = 30
-        private const val searchPageSize = 30
-        private const val feedBatchSize = 500
-        private const val maxFeedStartIndex = 5_001
-        private const val cacheDurationMs = 10 * 60 * 1000L
-
         private const val workerApiUrl = "https://seikowo.shimakazevn.workers.dev/api/v1/posts"
         private const val workerBlogId = "5099059547407963215"
 
