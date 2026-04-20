@@ -293,12 +293,13 @@ class Seikowo : HttpSource() {
             .sortedByDescending { it.number }
             .map { item ->
                 val chapterNumberText = formatChapterNumber(item.number)
+                val chapterTitle = item.title?.let(::decodeHtmlEntities)
                 SChapter.create().apply {
-                    name = if (item.title.isNullOrBlank()) {
+                    name = if (chapterTitle.isNullOrBlank()) {
                         "Chương $chapterNumberText"
                     } else {
-                        "Chương $chapterNumberText - ${decodeHtmlEntities(item.title)}"
-                    }
+                        "Chương $chapterNumberText - $chapterTitle"
+                    }.removeSuffix(" - None")
                     chapter_number = item.number.toFloat()
                     date_upload = parseDate(item.updatedAt)
                     url = chapterReaderUrl(sourcePath, seriesId, chapterNumberText)
