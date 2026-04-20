@@ -311,7 +311,7 @@ class Seikowo : HttpSource() {
             ?.replace(whitespaceRegex, "")
             ?: return emptyList()
 
-        val decrypted = runCatching { ImageDecryptor.decryptPayload(rawPayload) }
+        val decrypted = runCatching { SeikowoDecryptor.decryptPayload(rawPayload) }
             .getOrNull()
             ?: return emptyList()
 
