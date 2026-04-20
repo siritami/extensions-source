@@ -202,6 +202,39 @@ class Seikowo : HttpSource() {
         return MangasPage(mangas, toIndex < filtered.size)
     }
 
+    @Synchronized
+    private fun getCatalogueEntries(): List<CatalogueEntry> {
+        val now = System.currentTimeMillis()
+        if (cachedCatalogueEntries.isNotEmpty() && now - cachedCatalogueEntriesAt < 10 * 60 * 1000L) {
+            return cachedCatalogueEntries
+        }
+
+        val entries = mutableListOf<CatalogueEntry>()
+        var startIndex = 1
+
+        while (true) {
+            val url = feedUrlBuilder()
+                .addQueryParameter("max-results", "500")
+                .addQueryParameter("start-index", startIndex.toString())
+                .build()
+
+            val feed = client.newCall(GET(url, headers)).execute().parseAs<FeedResponseDto>().feed
+            val batch = feed.entry.orEmpty()
+
+            entries += batch.mapNotNull(::toCatalogueEntry)
+
+            if (batch.size < 500) break
+
+            startIndex += 500
+            if (startIndex > 5_001) break
+        }
+
+        cachedCatalogueEntries = entries
+        cachedCatalogueEntriesAt = now
+
+        return entries
+    }
+
     // ============================== Details ===============================
 
     override fun mangaDetailsParse(response: Response): SManga {
@@ -271,6 +304,14 @@ class Seikowo : HttpSource() {
                     url = chapterReaderUrl(sourcePath, seriesId, chapterNumberText)
                 }
             }
+    }
+
+    private fun fetchFeedEntry(postId: String): FeedEntryDto {
+        val url = "$baseUrl/feeds/posts/default/$postId".toHttpUrl().newBuilder()
+            .addQueryParameter("alt", "json")
+            .build()
+
+        return client.newCall(GET(url, headers)).execute().parseAs<FeedEntryResponseDto>().entry
     }
 
     // ============================== Pages =================================
@@ -371,46 +412,7 @@ class Seikowo : HttpSource() {
         }.getOrNull()
     }
 
-    private fun fetchFeedEntry(postId: String): FeedEntryDto {
-        val url = "$baseUrl/feeds/posts/default/$postId".toHttpUrl().newBuilder()
-            .addQueryParameter("alt", "json")
-            .build()
-
-        return client.newCall(GET(url, headers)).execute().parseAs<FeedEntryResponseDto>().entry
-    }
-
-    @Synchronized
-    private fun getCatalogueEntries(): List<CatalogueEntry> {
-        val now = System.currentTimeMillis()
-        if (cachedCatalogueEntries.isNotEmpty() && now - cachedCatalogueEntriesAt < 10 * 60 * 1000L) {
-            return cachedCatalogueEntries
-        }
-
-        val entries = mutableListOf<CatalogueEntry>()
-        var startIndex = 1
-
-        while (true) {
-            val url = feedUrlBuilder()
-                .addQueryParameter("max-results", "500")
-                .addQueryParameter("start-index", startIndex.toString())
-                .build()
-
-            val feed = client.newCall(GET(url, headers)).execute().parseAs<FeedResponseDto>().feed
-            val batch = feed.entry.orEmpty()
-
-            entries += batch.mapNotNull(::toCatalogueEntry)
-
-            if (batch.size < 500) break
-
-            startIndex += 500
-            if (startIndex > 5_001) break
-        }
-
-        cachedCatalogueEntries = entries
-        cachedCatalogueEntriesAt = now
-
-        return entries
-    }
+    // ============================== Helpers ===============================
 
     private fun toCatalogueEntry(entry: FeedEntryDto): CatalogueEntry? {
         val metadata = parseMetadata(entry.content?.value) ?: return null
