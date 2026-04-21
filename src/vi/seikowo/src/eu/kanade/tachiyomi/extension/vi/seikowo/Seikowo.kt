@@ -209,7 +209,7 @@ class Seikowo : HttpSource() {
             return cachedCatalogueEntries
         }
 
-        val feedBatchSize = 100
+        val feedBatchSize = 20
         val entries = mutableListOf<CatalogueEntry>()
         var startIndex = 1
 
