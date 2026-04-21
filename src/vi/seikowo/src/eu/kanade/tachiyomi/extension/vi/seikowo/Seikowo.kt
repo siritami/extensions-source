@@ -209,12 +209,13 @@ class Seikowo : HttpSource() {
             return cachedCatalogueEntries
         }
 
+        val feedBatchSize = 100
         val entries = mutableListOf<CatalogueEntry>()
         var startIndex = 1
 
         while (true) {
             val url = feedUrlBuilder()
-                .addQueryParameter("max-results", "500")
+                .addQueryParameter("max-results", feedBatchSize.toString())
                 .addQueryParameter("start-index", startIndex.toString())
                 .build()
 
@@ -223,9 +224,9 @@ class Seikowo : HttpSource() {
 
             entries += batch.mapNotNull(::toCatalogueEntry)
 
-            if (batch.size < 500) break
+            if (batch.size < feedBatchSize) break
 
-            startIndex += 500
+            startIndex += feedBatchSize
             if (startIndex > 5_001) break
         }
 
