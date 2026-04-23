@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.asObservable
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -12,6 +13,7 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
+import rx.Observable
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferences
 import keiyoushi.utils.parseAs
@@ -205,6 +207,9 @@ class KiraKira :
 
     // ============================== Pages =================================
 
+    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> =
+        client.newCall(pageListRequest(chapter)).asObservable().map(::pageListParse)
+
     override fun pageListRequest(chapter: SChapter): Request {
         val chapterUrl = "$baseUrl${chapter.url}".toHttpUrl()
         if (chapterUrl.queryParameter("is_locked") == "1") {
@@ -264,9 +269,9 @@ class KiraKira :
         while (true) {
             val imageUrl = "$baseUrl/manga/$slug/chapter-$chapterId/page-$index.jpg"
             val headRequest = Request.Builder().url(imageUrl).headers(headers).head().build()
-            val headResponse = client.newCall(headRequest).execute()
+            val isSuccessful = client.newCall(headRequest).execute().use { it.isSuccessful }
 
-            if (!headResponse.isSuccessful) break
+            if (!isSuccessful) break
 
             pages.add(Page(index - 1, imageUrl = imageUrl))
             index++
