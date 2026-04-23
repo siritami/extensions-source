@@ -158,6 +158,7 @@ class KiraKira : HttpSource() {
             val chapterTitle = chapter.name ?: return@mapNotNull null
             val isLocked = (chapter.coinPrice ?: 0) > 0
             val unlockDate = chapter.unlockAt?.let(::formatUnlockDate)
+            val chapterDate = chapter.unlockAt?.let(ISO_DATE_FORMAT::tryParse) ?: 0L
 
             SChapter.create().apply {
                 name = buildChapterName(chapterTitle, isLocked, unlockDate)
@@ -168,7 +169,7 @@ class KiraKira : HttpSource() {
                     }
                 }
                 setUrlWithoutDomain(chapterUrl)
-                date_upload = 0L
+                date_upload = chapterDate
             }
         }
     }
