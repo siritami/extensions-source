@@ -4,7 +4,6 @@ import android.content.SharedPreferences
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.HEAD
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -264,7 +263,7 @@ class KiraKira :
 
         while (true) {
             val imageUrl = "$baseUrl/manga/$slug/chapter-$chapterId/page-$index.jpg"
-            val headRequest = HEAD(imageUrl, headers)
+            val headRequest = Request.Builder().url(imageUrl).headers(headers).head().build()
             val headResponse = client.newCall(headRequest).execute()
 
             if (!headResponse.isSuccessful) break
