@@ -286,7 +286,7 @@ class KiraKira :
     }
 
     private fun extractChapterInfo(url: String): Pair<String, String>? {
-        val match = CHAPTER_INFO_REGEX.find(url) ?: return null
+        val match = (CHAPTER_INFO_REGEX.find(url) ?: API_CHAPTER_REGEX.find(url)) ?: return null
         val comicSlug = match.groupValues.getOrNull(1)
         val chapterId = match.groupValues.getOrNull(2)
         if (comicSlug.isNullOrBlank() || chapterId.isNullOrBlank()) return null
@@ -338,6 +338,7 @@ class KiraKira :
         private val WEBVIEW_TOKEN_REGEX = Regex(""";\s*wv\)""")
         private val COMIC_SLUG_REGEX = Regex("/comics/([^/?#]+)")
         private val CHAPTER_INFO_REGEX = Regex("/chapters/([^/?#]+)/([^/?#]+)")
+        private val API_CHAPTER_REGEX = Regex("/comics/([^/?#]+)/chapters/([^/?#]+)")
 
         private val ISO_DATE_FORMAT by lazy {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.ROOT).apply {
