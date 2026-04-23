@@ -223,6 +223,14 @@ class KiraKira : HttpSource() {
         }
     }
 
+    private fun extractChapterInfo(url: String): Pair<String, String>? {
+        val match = CHAPTER_INFO_REGEX.find(url) ?: return null
+        val comicSlug = match.groupValues.getOrNull(1)
+        val chapterId = match.groupValues.getOrNull(2)
+        if (comicSlug.isNullOrBlank() || chapterId.isNullOrBlank()) return null
+        return comicSlug to chapterId
+    }
+
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
     // ============================== Filters ===============================
@@ -242,14 +250,6 @@ class KiraKira : HttpSource() {
         }
 
         return MangasPage(mangas, current_page < total_pages)
-    }
-
-    private fun extractChapterInfo(url: String): Pair<String, String>? {
-        val match = CHAPTER_INFO_REGEX.find(url) ?: return null
-        val comicSlug = match.groupValues.getOrNull(1)
-        val chapterId = match.groupValues.getOrNull(2)
-        if (comicSlug.isNullOrBlank() || chapterId.isNullOrBlank()) return null
-        return comicSlug to chapterId
     }
 
     companion object {
