@@ -258,16 +258,16 @@ class KiraKira :
 
     /**
      * Build page list by constructing predictable image URLs.
-     * Images are hosted at: {baseUrl}/manga/{slug}/chapter-{id}/page-{i}.webp
-     * Probes pages with HEAD requests until the response Content-Type is not an image
-     * (the server returns 200 with text/html for non-existent pages).
+     * Images are hosted at: {baseUrl}/manga/{imageSlug}/chapter-{id}/page-{i}.jpg
+     * Probes pages with HEAD requests until the response Content-Type is not an image.
      */
-    private fun buildPageListFromPattern(slug: String, chapterId: String): List<Page> {
+    private fun buildPageListFromPattern(comicSlug: String, chapterId: String): List<Page> {
+        val imageSlug = fetchImageSlug(comicSlug) ?: comicSlug
         val pages = mutableListOf<Page>()
         var index = 1
 
         while (index <= MAX_PAGE_PROBE) {
-            val imageUrl = "$baseUrl/manga/$slug/chapter-$chapterId/page-$index.webp"
+            val imageUrl = "$baseUrl/manga/$imageSlug/chapter-$chapterId/page-$index.jpg"
             val headRequest = Request.Builder().url(imageUrl).headers(headers).head().build()
             val isImage = client.newCall(headRequest).execute().use {
                 it.isSuccessful && it.header("Content-Type")?.startsWith("image/") == true
@@ -284,6 +284,13 @@ class KiraKira :
         }
 
         return pages
+    }
+
+    private fun fetchImageSlug(comicSlug: String): String? {
+        val url = "$apiUrl/comics/$comicSlug".toHttpUrl().newBuilder().build()
+        val response = client.newCall(GET(url, apiHeaders)).execute()
+        val details = runCatching { response.parseAs<ComicDetailsDto>() }.getOrNull() ?: return null
+        return details.thumbnail?.let { IMAGE_SLUG_REGEX.find(it)?.groupValues?.getOrNull(1) }
     }
 
     private fun extractChapterInfo(url: String): Pair<String, String>? {
@@ -340,6 +347,7 @@ class KiraKira :
         private val COMIC_SLUG_REGEX = Regex("/comics/([^/?#]+)")
         private val CHAPTER_INFO_REGEX = Regex("/chapters/([^/?#]+)/([^/?#]+)")
         private val API_CHAPTER_REGEX = Regex("/comics/([^/?#]+)/chapters/([^/?#]+)")
+        private val IMAGE_SLUG_REGEX = Regex("/manga/([^/]+)/thumbnail")
 
         private val ISO_DATE_FORMAT by lazy {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.ROOT).apply {
