@@ -1,7 +1,12 @@
 package eu.kanade.tachiyomi.extension.vi.kirakira
 
+import android.content.SharedPreferences
+import androidx.preference.PreferenceScreen
+import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.HEAD
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -9,6 +14,7 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import keiyoushi.utils.firstInstanceOrNull
+import keiyoushi.utils.getPreferences
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import okhttp3.Headers
@@ -20,7 +26,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
-class KiraKira : HttpSource() {
+class KiraKira :
+    HttpSource(),
+    ConfigurableSource {
     override val name = "KiraKira"
     override val lang = "vi"
     override val baseUrl = "https://truyenkira.com"
@@ -152,6 +160,7 @@ class KiraKira : HttpSource() {
         val payload = response.parseAs<ComicDetailsDto>()
         val slug = extractComicSlug(response.request.url.toString()) ?: payload.id
             ?: throw Exception("Không tìm thấy mã truyện")
+        val autoUnlock = isAutoUnlockEnabled
 
         return payload.chapters.mapNotNull { chapter ->
             val chapterId = chapter.id ?: return@mapNotNull null
@@ -161,10 +170,10 @@ class KiraKira : HttpSource() {
             val chapterDate = chapter.unlockAt?.let(ISO_DATE_FORMAT::tryParse) ?: 0L
 
             SChapter.create().apply {
-                name = buildChapterName(chapterTitle, isLocked, unlockDate)
+                name = if (autoUnlock) chapterTitle else buildChapterName(chapterTitle, isLocked, unlockDate)
                 val chapterUrl = buildString {
                     append("/chapters/$slug/$chapterId")
-                    if (isLocked) {
+                    if (isLocked && !autoUnlock) {
                         append("?is_locked=1")
                     }
                 }
@@ -178,7 +187,7 @@ class KiraKira : HttpSource() {
         if (!isLocked) return chapterName
 
         return buildString {
-            append("🔒")
+            append("\uD83D\uDD12")
             append(" ")
             append(chapterName)
             if (unlockDate != null) {
@@ -215,7 +224,13 @@ class KiraKira : HttpSource() {
     }
 
     override fun pageListParse(response: Response): List<Page> {
+        val chapterInfo = extractChapterInfo(response.request.url.encodedPath)
+            ?: throw Exception("Không tìm thấy thông tin chương")
+
         if (!response.isSuccessful) {
+            if (response.code == 401 && isAutoUnlockEnabled) {
+                return buildPageListFromPattern(chapterInfo.first, chapterInfo.second)
+            }
             val error = runCatching { response.parseAs<ApiErrorDto>() }.getOrNull()
             throw Exception(error?.message ?: "Không thể tải dữ liệu chương")
         }
@@ -224,6 +239,9 @@ class KiraKira : HttpSource() {
         val imageUrls = payload.images.mapNotNull { it.src?.ifBlank { null } }
 
         if (imageUrls.isEmpty()) {
+            if (isAutoUnlockEnabled) {
+                return buildPageListFromPattern(chapterInfo.first, chapterInfo.second)
+            }
             if ((payload.coinPrice ?: 0) > 0 && payload.isPurchased == false) {
                 throw Exception(LOCKED_CHAPTER_MESSAGE)
             }
@@ -233,6 +251,35 @@ class KiraKira : HttpSource() {
         return imageUrls.mapIndexed { index, imageUrl ->
             Page(index, imageUrl = imageUrl)
         }
+    }
+
+    /**
+     * Build page list by constructing predictable image URLs.
+     * Images are hosted at: {baseUrl}/manga/{slug}/chapter-{id}/page-{i}.jpg
+     * Probes pages with HEAD requests until a non-200 response.
+     */
+    private fun buildPageListFromPattern(slug: String, chapterId: String): List<Page> {
+        val pages = mutableListOf<Page>()
+        var index = 1
+
+        while (true) {
+            val imageUrl = "$baseUrl/manga/$slug/chapter-$chapterId/page-$index.jpg"
+            val headRequest = HEAD(imageUrl, headers)
+            val headResponse = client.newCall(headRequest).execute()
+
+            if (!headResponse.isSuccessful) break
+
+            pages.add(Page(index - 1, imageUrl = imageUrl))
+            index++
+
+            if (index > MAX_PAGE_PROBE) break
+        }
+
+        if (pages.isEmpty()) {
+            throw Exception("Không tìm thấy hình ảnh")
+        }
+
+        return pages
     }
 
     private fun extractChapterInfo(url: String): Pair<String, String>? {
@@ -248,6 +295,22 @@ class KiraKira : HttpSource() {
     // ============================== Filters ===============================
 
     override fun getFilterList(): FilterList = getFilters()
+
+    // =========================== Preferences ==============================
+
+    private val preferences: SharedPreferences = getPreferences()
+
+    private val isAutoUnlockEnabled: Boolean
+        get() = preferences.getBoolean(KEY_AUTO_UNLOCK_CHAPTERS, false)
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        SwitchPreferenceCompat(screen.context).apply {
+            key = KEY_AUTO_UNLOCK_CHAPTERS
+            title = "Tự động mở khóa chương"
+            summary = "Có thể gây chậm hoặc crash cân nhắc khi sử dụng."
+            setDefaultValue(false)
+        }.let(screen::addPreference)
+    }
 
     private fun ComicListDto.toMangasPage(): MangasPage {
         val mangas = comics.mapNotNull { comic ->
@@ -265,7 +328,9 @@ class KiraKira : HttpSource() {
     }
 
     companion object {
+        private const val MAX_PAGE_PROBE = 200
         private const val LOCKED_CHAPTER_MESSAGE = "Vui lòng đăng nhập bằng tài khoản phù hợp qua webview để xem chương này"
+        private const val KEY_AUTO_UNLOCK_CHAPTERS = "autoUnlockChapters"
 
         private val WEBVIEW_TOKEN_REGEX = Regex(""";\s*wv\)""")
         private val COMIC_SLUG_REGEX = Regex("/comics/([^/?#]+)")
