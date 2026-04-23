@@ -161,7 +161,13 @@ class KiraKira : HttpSource() {
 
             SChapter.create().apply {
                 name = buildChapterName(chapterTitle, isLocked, unlockDate)
-                setUrlWithoutDomain("/chapters/$slug/$chapterId")
+                val chapterUrl = buildString {
+                    append("/chapters/$slug/$chapterId")
+                    if (isLocked) {
+                        append("?is_locked=1")
+                    }
+                }
+                setUrlWithoutDomain(chapterUrl)
                 date_upload = 0L
             }
         }
@@ -191,6 +197,11 @@ class KiraKira : HttpSource() {
     // ============================== Pages =================================
 
     override fun pageListRequest(chapter: SChapter): Request {
+        val chapterUrl = "$baseUrl${chapter.url}".toHttpUrl()
+        if (chapterUrl.queryParameter("is_locked") == "1") {
+            throw Exception(LOCKED_CHAPTER_MESSAGE)
+        }
+
         val chapterInfo = extractChapterInfo(chapter.url)
             ?: throw Exception("Không tìm thấy thông tin chương")
 
