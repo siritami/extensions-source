@@ -11,8 +11,8 @@ import eu.kanade.tachiyomi.source.online.HttpSource
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import java.text.SimpleDateFormat
