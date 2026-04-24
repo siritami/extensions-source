@@ -8,7 +8,7 @@ fun getFilters(): FilterList = FilterList(
     SortFilter(),
     StatusFilter(),
     Filter.Separator(),
-    Filter.Header("Thể loại: nhấn 1 lần để gồm, 2 lần để loại trừ"),
+    Filter.Header("Thể loại: Nhấn 1 lần để bao gồm, nhấn 2 lần để loại trừ"),
     GenreFilter(getGenreList()),
 )
 
