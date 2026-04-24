@@ -228,7 +228,7 @@ class LxHentai :
 
         return imageUrls.mapIndexed { index, imageUrl ->
             Page(index, imageUrl = imageUrl)
-        }
+        }.toList()
     }
 
     override fun imageRequest(page: Page): Request {
