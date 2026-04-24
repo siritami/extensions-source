@@ -151,7 +151,7 @@ class LxHentai :
         return SManga.create().apply {
             title = document.selectFirst("div.flex.flex-row.truncate.mb-4 span.grow.text-lg.ml-1.text-ellipsis.font-semibold")!!.text()
             thumbnail_url = document.selectFirst("div.md\\:col-span-2 div.cover-frame > div.cover")
-                ?.let { cover ->
+                ?.let { cover: Element ->
                     cover.absUrl("data-bg")
                         .ifEmpty { parseBackgroundUrl(cover.attr("style")).orEmpty() }
                         .ifEmpty { null }
