@@ -235,18 +235,9 @@ class LxHentai :
             .filter(String::isNotBlank)
             .toList()
 
-        val sanitizedImageUrls = imageUrls.toMutableList().apply {
-            var checks = 0
-            while (isNotEmpty() && checks < MAX_TRAILING_IMAGE_CHECKS) {
-                if (isImageReachable(last())) break
-                removeAt(lastIndex)
-                checks++
-            }
-        }
-
-        return sanitizedImageUrls.mapIndexed { index, imageUrl ->
+        return imageUrls.mapIndexed { index, imageUrl ->
             Page(index, imageUrl = imageUrl)
-        }.toList()
+        }
     }
 
     override fun imageRequest(page: Page): Request {
@@ -268,20 +259,6 @@ class LxHentai :
         .add("Origin", baseUrl)
         .add("Token", "364b9dccc5ef526587f108c4d4fd63ee35286e19e36ec55b93bd4d79410dbbf6")
         .build()
-
-    private fun isImageReachable(imageUrl: String): Boolean {
-        val request = GET(
-            imageUrl,
-            imageHeaders().newBuilder()
-                .add("Range", "bytes=0-0")
-                .build(),
-        )
-        return runCatching {
-            client.newCall(request).execute().use { response ->
-                response.code == 200 || response.code == 206
-            }
-        }.getOrDefault(false)
-    }
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
@@ -326,7 +303,6 @@ class LxHentai :
         private val ACTION_TOKEN_REGEX = Regex("""<meta\s+name=["']action_token["']\s+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         private val ENCRYPTED_IMAGES_REGEX = Regex("""var\s+_u\s*=\s*(\[\[.*?]]);""", setOf(RegexOption.DOT_MATCHES_ALL))
         private val ENCRYPTED_IMAGE_ROW_REGEX = Regex("""\[(\d+(?:,\d+)*)]""")
-        private const val MAX_TRAILING_IMAGE_CHECKS = 3
 
         private val DATE_TIME_FORMAT by lazy {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.ROOT).apply {
