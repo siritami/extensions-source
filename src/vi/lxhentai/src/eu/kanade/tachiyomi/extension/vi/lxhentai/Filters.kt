@@ -183,4 +183,3 @@ private fun getGenreList(): List<Genre> = listOf(
     Genre("Yaoi", "yaoi"),
     Genre("Yuri", "yuri"),
 )
-

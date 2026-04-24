@@ -175,10 +175,8 @@ class LxHentai :
         }
     }
 
-    private fun Document.infoRow(label: String): Element? {
-        return select("div.mt-2")
-            .firstOrNull { row -> row.selectFirst("span.font-semibold")?.text() == label }
-    }
+    private fun Document.infoRow(label: String): Element? = select("div.mt-2")
+        .firstOrNull { row -> row.selectFirst("span.font-semibold")?.text() == label }
 
     private fun parseStatus(rawStatus: String?): Int = when {
         rawStatus.isNullOrBlank() -> SManga.UNKNOWN
@@ -204,12 +202,10 @@ class LxHentai :
         }
     }
 
-    private fun parseChapterDate(timeElement: Element?): Long {
-        return timeElement?.attr("datetime")
-            ?.ifEmpty { null }
-            ?.let { value -> DATE_TIME_FORMAT.tryParse(value).takeIf { parsed -> parsed != 0L } }
-            ?: 0L
-    }
+    private fun parseChapterDate(timeElement: Element?): Long = timeElement?.attr("datetime")
+        ?.ifEmpty { null }
+        ?.let { value -> DATE_TIME_FORMAT.tryParse(value).takeIf { parsed -> parsed != 0L } }
+        ?: 0L
 
     // ============================== Pages =================================
 
