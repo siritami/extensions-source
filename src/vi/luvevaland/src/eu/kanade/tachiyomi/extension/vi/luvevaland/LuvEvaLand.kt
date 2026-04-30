@@ -278,9 +278,7 @@ class LuvEvaLand :
             .map { it.second }
     }
 
-    private fun extractChapterRows(document: Document): List<Element> {
-        return document.select("table.list-chapter tbody tr, table.list-chapter__container tbody tr, .chapter-list-inner tr")
-    }
+    private fun extractChapterRows(document: Document): List<Element> = document.select("table.list-chapter tbody tr, table.list-chapter__container tbody tr, .chapter-list-inner tr")
 
     private fun chapterFromRow(element: Element): Pair<Int, SChapter>? {
         val chapterNameElement = element.selectFirst("td.list-chapter__name a") ?: return null
