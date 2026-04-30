@@ -24,7 +24,9 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
-class LuvEvaLand : HttpSource(), ConfigurableSource {
+class LuvEvaLand :
+    HttpSource(),
+    ConfigurableSource {
     override val name = "LuvEvaLand"
     override val lang = "vi"
     private val defaultBaseUrl = "https://luvevalands2.co"
@@ -81,8 +83,7 @@ class LuvEvaLand : HttpSource(), ConfigurableSource {
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int) =
-        GET("$baseUrl/danh-sach-chuong-moi-cap-nhat?page=$page", headers)
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/danh-sach-chuong-moi-cap-nhat?page=$page", headers)
 
     override fun latestUpdatesParse(response: Response): MangasPage {
         val document = response.asJsoup()
@@ -229,8 +230,7 @@ class LuvEvaLand : HttpSource(), ConfigurableSource {
         throw Exception("Vui lòng đăng nhập bằng webview để xem chương này")
     }
 
-    override fun imageUrlParse(response: Response): String =
-        throw UnsupportedOperationException()
+    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
 
@@ -249,8 +249,7 @@ class LuvEvaLand : HttpSource(), ConfigurableSource {
 
     // ============================== Helpers ===============================
 
-    private fun Element.absDataSrc(): String? =
-        attr("abs:data-src").ifEmpty { absUrl("src") }.ifEmpty { null }
+    private fun Element.absDataSrc(): String? = attr("abs:data-src").ifEmpty { absUrl("src") }.ifEmpty { null }
 
     companion object {
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"

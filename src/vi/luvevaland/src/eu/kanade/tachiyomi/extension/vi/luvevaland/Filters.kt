@@ -24,34 +24,37 @@ open class UriPartFilter(
     fun toUriPart(): String = options[state].second
 }
 
-class StatusFilter : UriPartFilter(
-    "Trạng thái",
-    arrayOf(
-        Pair("Tất Cả", ""),
-        Pair("Raw", "1"),
-        Pair("Chưa hoàn", "2"),
-        Pair("Hoàn thành", "3"),
-        Pair("Drop", "4"),
-    ),
-)
+class StatusFilter :
+    UriPartFilter(
+        "Trạng thái",
+        arrayOf(
+            Pair("Tất Cả", ""),
+            Pair("Raw", "1"),
+            Pair("Chưa hoàn", "2"),
+            Pair("Hoàn thành", "3"),
+            Pair("Drop", "4"),
+        ),
+    )
 
-class SortByFilter : UriPartFilter(
-    "Sắp xếp",
-    arrayOf(
-        Pair("Ngày cập nhật", "updated_at"),
-        Pair("Tên", "name"),
-        Pair("Lượt xem", "views"),
-        Pair("Số chương", "number_chapter"),
-    ),
-)
+class SortByFilter :
+    UriPartFilter(
+        "Sắp xếp",
+        arrayOf(
+            Pair("Ngày cập nhật", "updated_at"),
+            Pair("Tên", "name"),
+            Pair("Lượt xem", "views"),
+            Pair("Số chương", "number_chapter"),
+        ),
+    )
 
-class SortOrderFilter : UriPartFilter(
-    "Thứ tự",
-    arrayOf(
-        Pair("Giảm dần", "desc"),
-        Pair("Tăng dần", "asc"),
-    ),
-)
+class SortOrderFilter :
+    UriPartFilter(
+        "Thứ tự",
+        arrayOf(
+            Pair("Giảm dần", "desc"),
+            Pair("Tăng dần", "asc"),
+        ),
+    )
 
 private fun getGenreList(): List<Genre> = listOf(
     Genre("1Vs1", "72"),
