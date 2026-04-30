@@ -19,6 +19,7 @@ import keiyoushi.utils.tryParse
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -27,8 +28,11 @@ import java.util.TimeZone
 class LuvEvaLand :
     HttpSource(),
     ConfigurableSource {
+
     override val name = "LuvEvaLand"
+
     override val lang = "vi"
+
     private val defaultBaseUrl = "https://luvevalands2.co"
 
     override val baseUrl get() = getPrefBaseUrl()
@@ -64,119 +68,180 @@ class LuvEvaLand :
 
     // ============================== Popular ===============================
 
-    override fun popularMangaRequest(page: Int) = GET("$baseUrl/truyen-tranh", headers)
+    override fun popularMangaRequest(page: Int): Request = GET("$baseUrl/truyen-tranh", headers)
 
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
-        val mangas = document.select("#total-tab-content .comic-item").map { element ->
-            SManga.create().apply {
-                element.selectFirst("a.comic-name")!!.let {
-                    title = it.text()
-                    setUrlWithoutDomain(it.absUrl("href"))
-                }
-                thumbnail_url = element.selectFirst(".comic-img img")
-                    ?.absDataSrc()
-            }
-        }
-        return MangasPage(mangas, false)
+
+        val mangas = document.select("#total-tab-content .comic-item")
+            .mapNotNull(::popularMangaFromElement)
+            .distinctBy { it.url }
+
+        return MangasPage(mangas, hasNextPage = false)
     }
 
-    // =============================== Latest ===============================
+    private fun popularMangaFromElement(element: Element): SManga? {
+        val mangaLinkElement = element.select("a[href*=/truyen-tranh/]")
+            .firstOrNull {
+                val href = it.absUrl("href")
+                href.isNotEmpty() && !CHAPTER_PATH_REGEX.containsMatchIn(href)
+            }
+            ?: return null
 
-    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/danh-sach-chuong-moi-cap-nhat?page=$page", headers)
+        val titleElement = element.selectFirst("a.comic-name") ?: mangaLinkElement
+        val mangaTitle = titleElement.text().ifEmpty { mangaLinkElement.selectFirst("img")?.attr("alt").orEmpty() }
+        if (mangaTitle.isEmpty()) return null
+
+        return SManga.create().apply {
+            title = mangaTitle
+            setUrlWithoutDomain(mangaLinkElement.absUrl("href"))
+            thumbnail_url = normalizeThumbnail(extractImageUrl(element.selectFirst(".comic-img img, img")))
+        }
+    }
+
+    // ============================== Latest ================================
+
+    override fun latestUpdatesRequest(page: Int): Request {
+        val url = "$baseUrl/danh-sach-chuong-moi-cap-nhat".toHttpUrl().newBuilder()
+            .addQueryParameter("page", page.toString())
+            .build()
+
+        return GET(url, headers)
+    }
 
     override fun latestUpdatesParse(response: Response): MangasPage {
         val document = response.asJsoup()
-        val mangas = document.select(".comic-box-container .comic-image-card-item")
-            .mapNotNull { element ->
-                val link = element.selectFirst(".book__lg-title a")
-                    ?: element.selectFirst(".book__lg-image a")
-                    ?: return@mapNotNull null
-                val url = link.absUrl("href")
-                if ("/truyen-tranh/" !in url) return@mapNotNull null
-                SManga.create().apply {
-                    setUrlWithoutDomain(url)
-                    title = element.selectFirst(".book__lg-title a")?.text()
-                        ?: link.selectFirst("img")?.attr("alt")
-                        ?: throw Exception("Title not found")
-                    thumbnail_url = element.selectFirst(".book__lg-image img")
-                        ?.absDataSrc()
-                }
-            }
-        val hasNextPage = document.selectFirst(".pagination .page-item.active + .page-item a") != null
+
+        val mangas = document.select(".home__lg-book .book-vertical__item")
+            .mapNotNull(::latestMangaFromElement)
+            .distinctBy { it.url }
+
+        val hasNextPage = document.selectFirst("ul.pagination a[rel=next]") != null
         return MangasPage(mangas, hasNextPage)
     }
 
-    // =============================== Search ===============================
+    private fun latestMangaFromElement(element: Element): SManga? {
+        val mangaLinkElement = element.selectFirst(".book__lg-title a[href*=/truyen-tranh/], .book__lg-image a[href*=/truyen-tranh/]")
+            ?: return null
+
+        val mangaUrl = mangaLinkElement.absUrl("href")
+        if (!MANGA_PATH_REGEX.containsMatchIn(mangaUrl)) return null
+
+        val mangaTitle = mangaLinkElement.text().ifEmpty {
+            element.selectFirst(".book__lg-image img")?.attr("alt").orEmpty()
+        }
+        if (mangaTitle.isEmpty()) return null
+
+        return SManga.create().apply {
+            title = mangaTitle
+            setUrlWithoutDomain(mangaUrl)
+            thumbnail_url = normalizeThumbnail(extractImageUrl(element.selectFirst(".book__lg-image img, img")))
+        }
+    }
+
+    // ============================== Search ================================
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        val url = "$baseUrl/tim-kiem".toHttpUrl().newBuilder().apply {
-            addQueryParameter("s", query)
-            addQueryParameter("comic_type", "1")
-            if (query.isBlank()) {
-                filters.firstInstanceOrNull<GenreFilter>()?.selectedValues()?.forEach {
-                    addQueryParameter("genres[]", it)
-                }
-                filters.firstInstanceOrNull<StatusFilter>()?.let {
-                    addQueryParameter("status", it.toUriPart())
-                }
-                filters.firstInstanceOrNull<SortByFilter>()?.let {
-                    addQueryParameter("sort-by", it.toUriPart())
-                }
-                filters.firstInstanceOrNull<SortOrderFilter>()?.let {
-                    addQueryParameter("sort-desc", it.toUriPart())
-                }
-            }
-            addQueryParameter("page", page.toString())
-        }.build()
-        return GET(url, headers)
+        val genres = filters.firstInstanceOrNull<GenreFilter>()?.selectedValues().orEmpty()
+        val status = filters.firstInstanceOrNull<StatusFilter>()?.toUriPart()
+        val sortBy = filters.firstInstanceOrNull<SortByFilter>()?.toUriPart() ?: "name"
+        val sortOrder = filters.firstInstanceOrNull<SortOrderFilter>()?.toUriPart() ?: "desc"
+
+        val urlBuilder = "$baseUrl/tim-kiem".toHttpUrl().newBuilder()
+            .addQueryParameter("page", page.toString())
+            .addQueryParameter("s", query)
+            .addQueryParameter("comic_type", "1")
+            .addQueryParameter("status", status)
+            .addQueryParameter("sort-by", sortBy)
+            .addQueryParameter("sort-desc", sortOrder)
+            .addQueryParameter("sort-view", null)
+            .addQueryParameter("sort-number-chapter", null)
+            .addQueryParameter("sort-date-update", null)
+            .addQueryParameter("sort-number-word", null)
+
+        genres.forEach { genreId ->
+            urlBuilder.addQueryParameter("genres[]", genreId)
+        }
+
+        return GET(urlBuilder.build(), headers)
     }
 
     override fun searchMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
-        val mangas = document.select(".comic-wrap-grid .book__list-item")
-            .mapNotNull { element ->
-                val link = element.selectFirst(".book__list-name a")
-                    ?: return@mapNotNull null
-                val url = link.absUrl("href")
-                if ("/truyen-tranh/" !in url) return@mapNotNull null
-                SManga.create().apply {
-                    setUrlWithoutDomain(url)
-                    title = link.text()
-                    thumbnail_url = element.selectFirst(".book__list-image img")
-                        ?.absDataSrc()
-                        ?.replace(THUMBNAIL_SIZE_REGEX, ".")
-                }
-            }
-        val hasNextPage = document.selectFirst(".pagination .page-item.active + .page-item a") != null
+
+        val mangas = parseSearchManga(document)
+            .distinctBy { it.url }
+
+        val hasNextPage = document.selectFirst("ul.pagination a[rel=next]") != null
         return MangasPage(mangas, hasNextPage)
     }
 
-    override fun getFilterList() = getFilters()
+    private fun parseSearchManga(document: Document): List<SManga> {
+        val titleElement = document.select("div.title__color")
+            .firstOrNull { RESULT_TITLE_REGEX.matches(it.text()) }
+            ?: return emptyList()
 
-    // =============================== Details ==============================
+        val table = titleElement.nextElementSibling()
+            ?.takeIf { it.tagName() == "table" }
+            ?: titleElement.parent()?.selectFirst("table.book__list")
+            ?: return emptyList()
 
-    override fun mangaDetailsParse(response: Response): SManga {
-        val document = response.asJsoup()
+        return table.select("tr.book__list-item")
+            .mapNotNull(::searchMangaFromRow)
+    }
+
+    private fun searchMangaFromRow(element: Element): SManga? {
+        val linkElement = element.selectFirst("td.book__list-name a[href], td.book__list-image a[href]") ?: return null
+        val mangaUrl = linkElement.absUrl("href")
+        if (!MANGA_PATH_REGEX.containsMatchIn(mangaUrl)) return null
+
+        val mangaTitle = linkElement.ownText()
+            .ifEmpty { linkElement.text() }
+            .ifEmpty { element.selectFirst("img")?.attr("alt").orEmpty() }
+        if (mangaTitle.isEmpty()) return null
+
         return SManga.create().apply {
-            title = document.selectFirst(".book__detail-name")?.text()
-                ?: throw Exception("Title not found")
-            thumbnail_url = document.selectFirst(".book__detail-image img")
-                ?.absUrl("src")
-            author = document.selectFirst(".book__detail-text:contains(Tác giả) a")?.text()
-            genre = document.select(".book__detail-text:contains(Tag) a").joinToString { it.text() }
-                .ifEmpty { null }
-            status = document.selectFirst(".book__detail-text:contains(Tình trạng)")?.text()
-                .parseStatus()
-            description = document.selectFirst("#home")?.text()
+            title = mangaTitle
+            setUrlWithoutDomain(mangaUrl)
+            thumbnail_url = normalizeThumbnail(extractImageUrl(element.selectFirst("td.book__list-image img, img")))
         }
     }
 
-    private fun String?.parseStatus(): Int = when {
-        this == null -> SManga.UNKNOWN
-        contains("Hoàn thành") -> SManga.COMPLETED
-        contains("Đang tiến hành") -> SManga.ONGOING
-        contains("Drop") -> SManga.CANCELLED
+    // ============================== Details ===============================
+
+    override fun mangaDetailsParse(response: Response): SManga {
+        val document = response.asJsoup()
+
+        return SManga.create().apply {
+            title = document.selectFirst("h1.comic-name-detail, .comic-name-detail, h1.comic-name")!!.text()
+            thumbnail_url = normalizeThumbnail(
+                extractImageUrl(document.selectFirst(".comic-image img, .comic-info img, .comic-image-detail img")),
+            )
+            author = document.selectFirst(".comic-author a")?.text()
+                ?: document.selectFirst(".comic-author")?.text()?.substringAfter(": ")
+            status = parseStatus(document.selectFirst(".comic-status-detail, .comic-status")?.text())
+            genre = document.select("a[href*=/the-loai/]")
+                .joinToString { it.text() }
+                .ifEmpty { null }
+            description = parseDescription(document)
+        }
+    }
+
+    private fun parseDescription(document: Document): String? {
+        val introPaneId = document.selectFirst("a[role=tab][href^=#]:matchesOwn((?i)GIỚI THIỆU)")
+            ?.attr("href")
+
+        val introElement = introPaneId?.let { document.selectFirst(it) }
+            ?: document.selectFirst("#intro-tab-content, #comic-intro, .tab-content .tab-pane.active.in, .tab-content .tab-pane.active")
+
+        return introElement?.text()?.ifEmpty { null }
+    }
+
+    private fun parseStatus(statusText: String?): Int = when {
+        statusText == null -> SManga.UNKNOWN
+        statusText.contains("đang tiến hành", ignoreCase = true) -> SManga.ONGOING
+        statusText.contains("hoàn thành", ignoreCase = true) -> SManga.COMPLETED
+        statusText.contains("truyện full", ignoreCase = true) -> SManga.COMPLETED
         else -> SManga.UNKNOWN
     }
 
@@ -184,53 +249,112 @@ class LuvEvaLand :
 
     override fun chapterListParse(response: Response): List<SChapter> {
         val document = response.asJsoup()
-        return document.select("table tr.sort-item").map { element ->
-            SChapter.create().apply {
-                val nameCell = element.selectFirst("td.list-chapter__name a")!!
-                val costCell = element.selectFirst("td.list-chapter__cost")
 
-                val isLocked = costCell?.selectFirst("img[src*=lock-chapter]") != null
-                val chapterUrl = if (isLocked) {
-                    costCell!!.selectFirst("a")!!.absUrl("href")
-                } else {
-                    nameCell.absUrl("href")
-                }
-                setUrlWithoutDomain(chapterUrl)
-
-                name = buildString {
-                    if (isLocked) append("🔒 ")
-                    append(nameCell.text())
-                }
-
-                date_upload = element.selectFirst("td.list-chapter__date")?.text()
-                    .let { DATE_FORMAT.tryParse(it ?: "") }
-            }
-        }.reversed()
+        return document.select("table.list-chapter tbody tr.sort-item")
+            .mapNotNull(::chapterFromRow)
+            .sortedByDescending { it.first }
+            .map { it.second }
     }
 
-    // =============================== Pages ================================
+    private fun chapterFromRow(element: Element): Pair<Int, SChapter>? {
+        val chapterNameElement = element.selectFirst("td.list-chapter__name a") ?: return null
+
+        val chapterLinkElement = element.selectFirst("td.list-chapter__cost a[href]") ?: chapterNameElement
+        val chapterUrl = chapterLinkElement.absUrl("href")
+        if (!CHAPTER_PATH_REGEX.containsMatchIn(chapterUrl)) return null
+
+        val chapterName = chapterNameElement.ownText().ifEmpty { chapterNameElement.text() }
+
+        val isLocked =
+            chapterNameElement.attr("href").startsWith("javascript") ||
+                element.selectFirst("td.list-chapter__cost img[src*=lock], td.list-chapter__cost img[alt*=khóa], td.list-chapter__cost .chapter-icon") != null
+
+        val chapterOrder = element.attr("data-order").toIntOrNull()
+            ?: CHAPTER_NUMBER_REGEX.find(chapterUrl)?.groupValues?.get(1)?.toIntOrNull()
+            ?: 0
+
+        val chapterDate = element.selectFirst("td.list-chapter__date")
+            ?.text()
+            ?.let { DATE_FORMAT.tryParse(it) }
+            ?: 0L
+
+        return chapterOrder to SChapter.create().apply {
+            name = if (isLocked) "🔒 $chapterName" else chapterName
+            setUrlWithoutDomain(chapterUrl)
+            date_upload = chapterDate
+        }
+    }
+
+    // ============================== Pages =================================
 
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
 
-        val images = document.select(".chapter__content img[data-src]")
-        if (images.isNotEmpty()) {
-            return images.mapIndexed { idx, img ->
-                Page(idx, imageUrl = img.absUrl("data-src"))
+        if (isPasswordRequired(response, document)) {
+            throw Exception(PASSWORD_WEBVIEW_MESSAGE)
+        }
+
+        val images = document.select("#view-chapter img, .chapter-content img, .reading-content img, .content-chapter img, .box-chapter-content img")
+            .map { imageElement ->
+                imageElement.absUrl("data-src").ifEmpty { imageElement.absUrl("src") }
             }
+            .filter { imageUrl ->
+                imageUrl.isNotBlank() && !imageUrl.startsWith("data:image")
+            }
+
+        if (images.isEmpty() && isLoginRequired(response, document)) {
+            throw Exception(LOGIN_WEBVIEW_MESSAGE)
         }
 
-        val hasPasswordForm = document.select("form:has(input[type=password])")
-            .any { !it.hasClass("login-form") && !it.hasClass("register-form") }
-
-        if (hasPasswordForm) {
-            throw Exception("Vui lòng nhập mật khẩu cho chương này bằng webview")
+        if (images.isEmpty()) {
+            throw Exception("Không tìm thấy hình ảnh")
         }
 
-        throw Exception("Vui lòng đăng nhập bằng webview để xem chương này")
+        return images.mapIndexed { index, imageUrl ->
+            Page(index, imageUrl = imageUrl)
+        }
+    }
+
+    private fun isPasswordRequired(response: Response, document: Document): Boolean {
+        val path = response.request.url.encodedPath
+
+        return path.contains("/mo-khoa/chap/") ||
+            document.selectFirst("form.unlock-chapter-form input[name=password], form.unlock-chapter-form") != null
+    }
+
+    private fun isLoginRequired(response: Response, document: Document): Boolean {
+        val path = response.request.url.encodedPath
+
+        return !CHAPTER_PATH_REGEX.containsMatchIn(path) ||
+            document.selectFirst(".swal2-container .swal2-content:matchesOwn((?i)đăng nhập)") != null ||
+            (
+                document.selectFirst("form.login-form") != null &&
+                    document.selectFirst("table.list-chapter") != null &&
+                    document.selectFirst("#view-chapter img") == null
+                )
     }
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
+
+    // ============================== Helpers ===============================
+
+    private fun extractImageUrl(element: Element?): String? {
+        if (element == null) return null
+
+        val imageUrl = element.absUrl("data-src")
+            .ifEmpty { element.absUrl("src") }
+
+        return imageUrl.ifEmpty { null }
+    }
+
+    private fun normalizeThumbnail(url: String?): String? {
+        if (url == null) return null
+        return url.replace(THUMBNAIL_SIZE_REGEX, "")
+    }
+
+    // ============================== Filters ===============================
+
+    override fun getFilterList(): FilterList = getFilters()
 
     // ============================== Settings ==============================
 
@@ -247,21 +371,26 @@ class LuvEvaLand :
 
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, defaultBaseUrl)!!
 
-    // ============================== Helpers ===============================
-
-    private fun Element.absDataSrc(): String? = attr("abs:data-src").ifEmpty { absUrl("src") }.ifEmpty { null }
-
     companion object {
+        private const val LOGIN_WEBVIEW_MESSAGE = "Vui lòng đăng nhập bằng webview để xem chương này"
+        private const val PASSWORD_WEBVIEW_MESSAGE = "Vui lòng nhập mật khẩu cho chương này bằng webview"
+
+        private val WEBVIEW_TOKEN_REGEX = Regex(""";\s*wv\)""")
+        private val MANGA_PATH_REGEX = Regex("""/truyen-tranh/""")
+        private val CHAPTER_PATH_REGEX = Regex("""/chap-[^/]+\.[0-9]+/?$""")
+        private val CHAPTER_NUMBER_REGEX = Regex("""/chap-([0-9]+)""")
+        private val RESULT_TITLE_REGEX = Regex("""(?i)kết\s+quả\s+truyện""")
+        private val THUMBNAIL_SIZE_REGEX = Regex("""-[0-9]+x[0-9]+(?=\.(?:jpe?g|png|webp)$)""")
+
+        private val DATE_FORMAT by lazy {
+            SimpleDateFormat("dd/MM/yyyy", Locale.ROOT).apply {
+                timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+            }
+        }
+
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
         private const val BASE_URL_PREF = "overrideBaseUrl"
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF_SUMMARY = "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
-        private val WEBVIEW_TOKEN_REGEX = Regex("""\;\s*wv\)""")
-
-        private val THUMBNAIL_SIZE_REGEX = Regex("""-\d+x\d+\.""")
-
-        private val DATE_FORMAT = SimpleDateFormat("dd/MM/yyyy", Locale.ROOT).apply {
-            timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
-        }
     }
 }
