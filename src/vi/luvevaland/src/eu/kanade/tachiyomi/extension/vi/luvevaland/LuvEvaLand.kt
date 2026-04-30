@@ -181,10 +181,11 @@ class LuvEvaLand :
             .firstOrNull { RESULT_TITLE_REGEX.matches(it.text()) }
             ?: return emptyList()
 
-        val table = titleElement.nextElementSibling()
-            ?.takeIf { it.tagName() == "table" }
-            ?: titleElement.parent()?.selectFirst("table.book__list")
-            ?: return emptyList()
+        val nextSibling: Element? = titleElement.nextElementSibling()
+        val table: Element = (
+            nextSibling?.takeIf { it.tagName() == "table" }
+                ?: titleElement.parent()?.selectFirst("table.book__list")
+            ) ?: return emptyList()
 
         return table.select("tr.book__list-item")
             .mapNotNull(::searchMangaFromRow)
