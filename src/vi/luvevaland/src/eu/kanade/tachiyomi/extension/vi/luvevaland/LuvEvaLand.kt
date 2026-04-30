@@ -3,7 +3,9 @@ package eu.kanade.tachiyomi.extension.vi.luvevaland
 import android.content.SharedPreferences
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
+import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.asObservable
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -21,6 +23,7 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import rx.Observable
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -306,7 +309,7 @@ class LuvEvaLand :
             ?: 0L
 
         return chapterOrder to SChapter.create().apply {
-            name = if (isLocked) "🔒 $chapterName" else chapterName
+            name = if (isLocked && !isAutoUnlockEnabled) "🔒 $chapterName" else chapterName
             setUrlWithoutDomain(chapterUrl)
             date_upload = chapterDate
         }
@@ -314,24 +317,110 @@ class LuvEvaLand :
 
     // ============================== Pages =================================
 
-    override fun pageListParse(response: Response): List<Page> {
+    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> =
+        client.newCall(pageListRequest(chapter)).asObservable().map { response ->
+            parsePageList(response, chapter.url)
+        }
+
+    private fun parsePageList(response: Response, chapterUrl: String): List<Page> {
         val document = response.asJsoup()
 
-        val images = document.select("#view-chapter img, .chapter-content img, .reading-content img, .content-chapter img, .box-chapter-content img")
-            .map { imageElement ->
-                imageElement.absUrl("data-src").ifEmpty { imageElement.absUrl("src") }
-            }
-            .filter { imageUrl ->
-                imageUrl.isNotBlank() && !imageUrl.startsWith("data:image")
-            }
+        val images = document.select("#view-chapter img, #chapter-content img, .chapter-content img, .reading-content img, .content-chapter img, .box-chapter-content img")
+            .map { it.absUrl("data-src").ifEmpty { it.absUrl("src") } }
+            .filter { it.isNotBlank() && !it.startsWith("data:image") }
 
-        if (images.isEmpty()) {
-            throw Exception(LOGIN_WEBVIEW_MESSAGE)
+        if (images.isNotEmpty()) {
+            return images.mapIndexed { index, imageUrl -> Page(index, imageUrl = imageUrl) }
         }
 
-        return images.mapIndexed { index, imageUrl ->
-            Page(index, imageUrl = imageUrl)
+        if (isAutoUnlockEnabled) {
+            return buildPageListFromPattern(chapterUrl)
         }
+
+        throw Exception(LOGIN_WEBVIEW_MESSAGE)
+    }
+
+    override fun pageListParse(response: Response): List<Page> = throw UnsupportedOperationException()
+
+    /**
+     * Build page list by probing predictable CDN image URLs.
+     * Discovers the CDN URL pattern from a free chapter of the same manga,
+     * then probes pages with HEAD requests until a non-image response.
+     */
+    private fun buildPageListFromPattern(chapterUrl: String): List<Page> {
+        val mangaPath = MANGA_PATH_FROM_CHAPTER_REGEX.find(chapterUrl)?.value
+            ?: throw Exception("Không tìm thấy đường dẫn truyện")
+        val chapterNum = CHAPTER_NUMBER_REGEX.find(chapterUrl)?.groupValues?.get(1)?.toIntOrNull()
+            ?: throw Exception("Không tìm thấy số chương")
+
+        val cdnInfo = discoverCdnPattern(mangaPath, chapterNum)
+            ?: throw Exception("Không thể xác định đường dẫn hình ảnh")
+
+        val pages = mutableListOf<Page>()
+        var index = 1
+
+        while (index <= 200) {
+            val imageUrl = "${cdnInfo.basePath}/${cdnInfo.chapterPrefix}$chapterNum/$index.${cdnInfo.extension}"
+            val headRequest = Request.Builder().url(imageUrl).headers(headers).head().build()
+            val isImage = client.newCall(headRequest).execute().use {
+                it.isSuccessful && it.header("Content-Type")?.startsWith("image/") == true
+            }
+
+            if (!isImage) break
+
+            pages.add(Page(index - 1, imageUrl = imageUrl))
+            index++
+        }
+
+        if (pages.isEmpty()) {
+            throw Exception("Không tìm thấy hình ảnh cho chương khóa")
+        }
+
+        return pages
+    }
+
+    private data class CdnInfo(
+        val basePath: String,
+        val chapterPrefix: String,
+        val extension: String,
+    )
+
+    private fun discoverCdnPattern(mangaPath: String, targetChapterNum: Int): CdnInfo? {
+        val mangaDoc = client.newCall(GET("$baseUrl$mangaPath", headers)).execute().asJsoup()
+
+        val freeChapterUrl = mangaDoc.select("table tr td.list-chapter__name a")
+            .firstOrNull { !it.attr("href").startsWith("javascript") }
+            ?.absUrl("href")
+            ?: return null
+
+        val freeChapterNum = CHAPTER_NUMBER_REGEX.find(freeChapterUrl)
+            ?.groupValues?.get(1)?.toIntOrNull()
+            ?: return null
+
+        val chapterDoc = client.newCall(GET(freeChapterUrl, headers)).execute().asJsoup()
+
+        val firstImageUrl = chapterDoc
+            .select("#view-chapter img, #chapter-content img, .chapter-content img")
+            .mapNotNull { img ->
+                img.absUrl("data-src").ifEmpty { img.absUrl("src") }.ifEmpty { null }
+            }
+            .firstOrNull { url ->
+                val cloudPath = url.substringAfter("/cloud/", "")
+                cloudPath.isNotEmpty() && cloudPath.count { it == '/' } >= 2
+            }
+            ?: return null
+
+        val parsedUrl = firstImageUrl.toHttpUrl()
+        val pathSegments = parsedUrl.pathSegments
+        if (pathSegments.size < 3) return null
+
+        val chapterFolder = pathSegments[pathSegments.size - 2]
+        val extension = pathSegments.last().substringAfterLast('.', "")
+        val chapterPrefix = chapterFolder.removeSuffix(freeChapterNum.toString())
+        val basePath = "${parsedUrl.scheme}://${parsedUrl.host}/" +
+            pathSegments.subList(0, pathSegments.size - 2).joinToString("/")
+
+        return CdnInfo(basePath, chapterPrefix, extension)
     }
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
@@ -359,6 +448,13 @@ class LuvEvaLand :
     // ============================== Settings ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        SwitchPreferenceCompat(screen.context).apply {
+            key = KEY_AUTO_UNLOCK_CHAPTERS
+            title = "Tự mở khóa chương"
+            summary = "Tự động mở khóa chương bị khóa bằng cách tải ảnh từ CDN. Có thể gây chậm."
+            setDefaultValue(false)
+        }.let(screen::addPreference)
+
         EditTextPreference(screen.context).apply {
             key = BASE_URL_PREF
             title = BASE_URL_PREF_TITLE
@@ -371,11 +467,17 @@ class LuvEvaLand :
 
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, defaultBaseUrl)!!
 
+    private val isAutoUnlockEnabled: Boolean
+        get() = preferences.getBoolean(KEY_AUTO_UNLOCK_CHAPTERS, false)
+
     companion object {
         private const val LOGIN_WEBVIEW_MESSAGE = "Vui lòng đăng nhập vào tài khoản phù hợp để xem chương này"
 
-        private val WEBVIEW_TOKEN_REGEX = Regex(""";\s*wv\)""")
+        private const val KEY_AUTO_UNLOCK_CHAPTERS = "autoUnlockChapters"
+
+        private val WEBVIEW_TOKEN_REGEX = Regex("""\;\s*wv\)""")
         private val MANGA_PATH_REGEX = Regex("""/truyen-tranh/""")
+        private val MANGA_PATH_FROM_CHAPTER_REGEX = Regex("""/truyen-tranh/[^/]+""")
         private val CHAPTER_URL_REGEX = Regex("""/(?:chap|chuong|chapter|mo-khoa/chap)""", RegexOption.IGNORE_CASE)
         private val CHAPTER_NUMBER_REGEX = Regex("""/(?:chap|chuong|chapter)-([0-9]+)""", RegexOption.IGNORE_CASE)
         private val RESULT_TITLE_REGEX = Regex("""(?i)kết\s+quả\s+truyện""")
