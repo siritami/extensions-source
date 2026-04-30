@@ -450,7 +450,7 @@ class LuvEvaLand :
         SwitchPreferenceCompat(screen.context).apply {
             key = KEY_AUTO_UNLOCK_CHAPTERS
             title = "Tự mở khóa chương"
-            summary = "Tự động mở khóa chương bị khóa bằng cách tải ảnh từ CDN. Có thể gây chậm."
+            summary = "Có thể gây chậm hoặc crash cân nhắc khi sử dụng."
             setDefaultValue(false)
         }.let(screen::addPreference)
 
