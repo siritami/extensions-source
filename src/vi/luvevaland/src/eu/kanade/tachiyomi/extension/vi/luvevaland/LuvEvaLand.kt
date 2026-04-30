@@ -258,15 +258,28 @@ class LuvEvaLand :
     }
 
     override fun chapterListParse(response: Response): List<SChapter> {
-        val document = response.asJsoup()
+        var chapterRows = extractChapterRows(response.asJsoup())
 
-        val chapterRows = document.select("table.list-chapter tbody tr, table.list-chapter__container tbody tr, .chapter-list-inner tr")
+        if (chapterRows.isEmpty() && response.request.url.encodedPath.contains("/un-lock")) {
+            val unlockUrl = response.request.url.queryParameter("link")
+            if (!unlockUrl.isNullOrBlank()) {
+                val targetUrl = if (unlockUrl.startsWith("http")) unlockUrl else baseUrl + unlockUrl
+                client.newCall(GET(targetUrl, headers)).execute().use { unlockResponse ->
+                    chapterRows = extractChapterRows(unlockResponse.asJsoup())
+                }
+            }
+        }
+
         if (chapterRows.isEmpty()) return emptyList()
 
         return chapterRows
             .mapNotNull(::chapterFromRow)
             .sortedByDescending { it.first }
             .map { it.second }
+    }
+
+    private fun extractChapterRows(document: Document): List<Element> {
+        return document.select("table.list-chapter tbody tr, table.list-chapter__container tbody tr, .chapter-list-inner tr")
     }
 
     private fun chapterFromRow(element: Element): Pair<Int, SChapter>? {
