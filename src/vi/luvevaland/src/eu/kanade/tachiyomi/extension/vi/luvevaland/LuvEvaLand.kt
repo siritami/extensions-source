@@ -198,7 +198,7 @@ class LuvEvaLand :
                 setUrlWithoutDomain(chapterUrl)
 
                 name = buildString {
-                    if (isLocked) append(LOCK_PREFIX)
+                    if (isLocked) append("🔒 ")
                     append(nameCell.text())
                 }
 
@@ -256,8 +256,6 @@ class LuvEvaLand :
         private const val BASE_URL_PREF = "overrideBaseUrl"
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF_SUMMARY = "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
-        private const val LOCK_PREFIX = "\uD83D\uDD12 "
-
         private val WEBVIEW_TOKEN_REGEX = Regex("""\;\s*wv\)""")
 
         private val THUMBNAIL_SIZE_REGEX = Regex("""-\d+x\d+\.""")
