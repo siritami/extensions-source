@@ -372,7 +372,7 @@ class LuvEvaLand :
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, defaultBaseUrl)!!
 
     companion object {
-        private const val LOGIN_WEBVIEW_MESSAGE = "Vui lòng đăng nhập vào tài khoản phù hợp để em chương này"
+        private const val LOGIN_WEBVIEW_MESSAGE = "Vui lòng đăng nhập vào tài khoản phù hợp để xem chương này"
 
         private val WEBVIEW_TOKEN_REGEX = Regex(""";\s*wv\)""")
         private val MANGA_PATH_REGEX = Regex("""/truyen-tranh/""")
