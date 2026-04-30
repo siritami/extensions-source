@@ -336,11 +336,19 @@ class LuvEvaLand :
     private fun isPasswordRequired(response: Response, document: Document): Boolean {
         val path = response.request.url.encodedPath
 
-        return path.contains("/mo-khoa/chap/") ||
-            document.selectFirst("form.unlock-chapter-form input[name=password], form.unlock-chapter-form") != null
+        return path.contains("/mo-khoa/") ||
+            document.selectFirst(
+                "form.unlock-chapter-form, " +
+                    "form:has(input[name=password]), " +
+                    "input[name=password], " +
+                    "input[type=password].input-password, " +
+                    "input[type=password]",
+            ) != null
     }
 
     private fun isLoginRequired(response: Response, document: Document): Boolean {
+        if (isPasswordRequired(response, document)) return false
+
         val path = response.request.url.encodedPath
 
         return !CHAPTER_URL_REGEX.containsMatchIn(path) ||
