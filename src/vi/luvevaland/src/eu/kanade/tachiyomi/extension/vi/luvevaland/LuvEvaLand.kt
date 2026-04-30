@@ -210,16 +210,25 @@ class LuvEvaLand :
 
     override fun mangaDetailsParse(response: Response): SManga {
         val document = response.asJsoup()
+        val detailElement = document.selectFirst(".book__detail-container, .book__detail-contain, .comic-info")
+        val titleElement = detailElement?.selectFirst(".book__detail-name, .comic-name-detail, .comic-name")
+            ?: document.selectFirst(".book__detail-name, .comic-name-detail, .comic-name")
+        val thumbnailElement = detailElement?.selectFirst(".book__detail-image img[alt], .comic-image img[alt], img[alt]")
+            ?: document.selectFirst(".book__detail-image img[alt], .comic-image img[alt]")
 
         return SManga.create().apply {
-            title = document.selectFirst(".book__detail-name, h1.comic-name-detail, .comic-name-detail, h1.comic-name")!!.text()
-            thumbnail_url = normalizeThumbnail(
-                extractImageUrl(document.selectFirst(".book__detail-image img, .comic-image img, .comic-info img, .comic-image-detail img")),
+            title = titleElement!!.text()
+            thumbnail_url = normalizeThumbnail(extractImageUrl(thumbnailElement))
+            author = detailElement?.selectFirst(".book__detail-text:matchesOwn((?i)^\\s*Tác giả:) a, .comic-author a")
+                ?.text()
+                ?: detailElement?.selectFirst(".book__detail-text:matchesOwn((?i)^\\s*Tác giả:), .comic-author")
+                    ?.text()
+                    ?.substringAfter(": ")
+            status = parseStatus(
+                detailElement?.selectFirst(".book__detail-text:matchesOwn((?i)^\\s*Tình trạng:), .comic-status-detail, .comic-status")?.text()
+                    ?: document.selectFirst(".comic-status-detail, .comic-status")?.text(),
             )
-            author = document.selectFirst(".comic-author a")?.text()
-                ?: document.selectFirst(".comic-author")?.text()?.substringAfter(": ")
-            status = parseStatus(document.selectFirst(".comic-status-detail, .comic-status")?.text())
-            genre = document.select("a[href*=/the-loai/]")
+            genre = (detailElement ?: document).select(".book__detail-text:matchesOwn((?i)^\\s*Tag:) a[href*=/the-loai/], a[href*=/the-loai/]")
                 .joinToString { it.text() }
                 .ifEmpty { null }
             description = parseDescription(document)
