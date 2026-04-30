@@ -84,7 +84,7 @@ class LuvEvaLand :
         val mangaLinkElement = element.select("a[href*=/truyen-tranh/]")
             .firstOrNull {
                 val href = it.absUrl("href")
-                href.isNotEmpty() && !CHAPTER_PATH_REGEX.containsMatchIn(href)
+                href.isNotEmpty() && !CHAPTER_URL_REGEX.containsMatchIn(href)
             }
             ?: return null
 
@@ -248,10 +248,22 @@ class LuvEvaLand :
 
     // ============================== Chapters ==============================
 
+    override fun chapterListRequest(manga: SManga): Request {
+        val stableUrl = STABLE_COMIC_URL_REGEX.find(manga.url)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.let { slug -> "$baseUrl/truyen/$slug" }
+
+        return GET(stableUrl ?: (baseUrl + manga.url), headers)
+    }
+
     override fun chapterListParse(response: Response): List<SChapter> {
         val document = response.asJsoup()
 
-        return document.select("table.list-chapter tbody tr.sort-item")
+        val chapterRows = document.select("table.list-chapter tbody tr, table.list-chapter__container tbody tr, .chapter-list-inner tr")
+        if (chapterRows.isEmpty()) return emptyList()
+
+        return chapterRows
             .mapNotNull(::chapterFromRow)
             .sortedByDescending { it.first }
             .map { it.second }
@@ -260,9 +272,9 @@ class LuvEvaLand :
     private fun chapterFromRow(element: Element): Pair<Int, SChapter>? {
         val chapterNameElement = element.selectFirst("td.list-chapter__name a") ?: return null
 
-        val chapterLinkElement = element.selectFirst("td.list-chapter__cost a[href]") ?: chapterNameElement
+        val chapterLinkElement = element.selectFirst("a[href*=\\/chap], a[href*=\\/chuong], a[href*=\\/chapter], a[href*=\\/mo-khoa\\/chap]") ?: return null
         val chapterUrl = chapterLinkElement.absUrl("href")
-        if (!CHAPTER_PATH_REGEX.containsMatchIn(chapterUrl)) return null
+        if (!CHAPTER_URL_REGEX.containsMatchIn(chapterUrl)) return null
 
         val chapterName = chapterNameElement.ownText().ifEmpty { chapterNameElement.text() }
 
@@ -326,7 +338,7 @@ class LuvEvaLand :
     private fun isLoginRequired(response: Response, document: Document): Boolean {
         val path = response.request.url.encodedPath
 
-        return !CHAPTER_PATH_REGEX.containsMatchIn(path) ||
+        return !CHAPTER_URL_REGEX.containsMatchIn(path) ||
             document.selectFirst(".swal2-container .swal2-content:matchesOwn((?i)đăng nhập)") != null ||
             (
                 document.selectFirst("form.login-form") != null &&
@@ -378,8 +390,9 @@ class LuvEvaLand :
 
         private val WEBVIEW_TOKEN_REGEX = Regex(""";\s*wv\)""")
         private val MANGA_PATH_REGEX = Regex("""/truyen-tranh/""")
-        private val CHAPTER_PATH_REGEX = Regex("""/chap-[^/]+\.[0-9]+/?$""")
+        private val CHAPTER_URL_REGEX = Regex("""/(?:chap|chuong|chapter|mo-khoa/chap)""", RegexOption.IGNORE_CASE)
         private val CHAPTER_NUMBER_REGEX = Regex("""/chap-([0-9]+)""")
+        private val STABLE_COMIC_URL_REGEX = Regex("""/truyen-tranh/([^./?#]+(?:-[^./?#]+)*)\.[0-9]+""")
         private val RESULT_TITLE_REGEX = Regex("""(?i)kết\s+quả\s+truyện""")
         private val THUMBNAIL_SIZE_REGEX = Regex("""-[0-9]+x[0-9]+(?=\.(?:jpe?g|png|webp)$)""")
 
