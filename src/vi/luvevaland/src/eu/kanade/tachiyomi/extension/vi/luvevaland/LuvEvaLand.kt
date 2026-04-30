@@ -212,9 +212,9 @@ class LuvEvaLand :
         val document = response.asJsoup()
 
         return SManga.create().apply {
-            title = document.selectFirst("h1.comic-name-detail, .comic-name-detail, h1.comic-name")!!.text()
+            title = document.selectFirst(".book__detail-name, h1.comic-name-detail, .comic-name-detail, h1.comic-name")!!.text()
             thumbnail_url = normalizeThumbnail(
-                extractImageUrl(document.selectFirst(".comic-image img, .comic-info img, .comic-image-detail img")),
+                extractImageUrl(document.selectFirst(".book__detail-image img, .comic-image img, .comic-info img, .comic-image-detail img")),
             )
             author = document.selectFirst(".comic-author a")?.text()
                 ?: document.selectFirst(".comic-author")?.text()?.substringAfter(": ")
