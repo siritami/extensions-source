@@ -4,19 +4,16 @@ import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 
 internal class GenreFilter :
-    Filter.Group<Filter.CheckBox>(
+    Filter.Group<Genre>(
         "Tag",
-        GENRE_OPTIONS.map { Filter.CheckBox(it.first, false) },
+        GENRE_OPTIONS.map { Genre(it.first, it.second) },
     ) {
     fun selectedValues(): List<String> = state
-        .mapIndexedNotNull { index, checkBox ->
-            if (checkBox.state) {
-                GENRE_OPTIONS[index].second
-            } else {
-                null
-            }
-        }
+        .filter { it.state }
+        .map { it.id }
 }
+
+internal class Genre(name: String, val id: String) : Filter.CheckBox(name, false)
 
 internal class StatusFilter :
     UriPartFilterNullable(
