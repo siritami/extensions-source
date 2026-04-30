@@ -49,7 +49,6 @@ internal abstract class UriPartFilterNullable(
 }
 
 internal fun getFilters(): FilterList = FilterList(
-    Filter.Header("Bộ lọc này luôn tìm trong mục Truyện tranh (comic_type=1)."),
     GenreFilter(),
     StatusFilter(),
     SortByFilter(),
@@ -218,7 +217,6 @@ private val GENRE_OPTIONS = listOf(
         Pair("Xuyên sách", "112"),
         Pair("Y thuật - Bác sĩ", "54"),
         Pair("Yêu thầm", "130"),
-        Pair("📚 Tập truyện (Click vào tên tác giả để xem các phần khác)", "179"),
         Pair("️🏏Dụng cụ/Play đủ kiểu", "172"),
         Pair("️🏅Kim bài đề cử", "152"),
         Pair("💣Mìn", "171"),
