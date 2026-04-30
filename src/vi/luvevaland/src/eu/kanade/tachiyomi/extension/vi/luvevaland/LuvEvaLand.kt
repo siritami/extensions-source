@@ -317,10 +317,6 @@ class LuvEvaLand :
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
 
-        if (isPasswordRequired(response, document)) {
-            throw Exception(PASSWORD_WEBVIEW_MESSAGE)
-        }
-
         val images = document.select("#view-chapter img, .chapter-content img, .reading-content img, .content-chapter img, .box-chapter-content img")
             .map { imageElement ->
                 imageElement.absUrl("data-src").ifEmpty { imageElement.absUrl("src") }
@@ -329,44 +325,13 @@ class LuvEvaLand :
                 imageUrl.isNotBlank() && !imageUrl.startsWith("data:image")
             }
 
-        if (images.isEmpty() && isLoginRequired(response, document)) {
-            throw Exception(LOGIN_WEBVIEW_MESSAGE)
-        }
-
         if (images.isEmpty()) {
-            throw Exception("Không tìm thấy hình ảnh")
+            throw Exception(LOGIN_WEBVIEW_MESSAGE)
         }
 
         return images.mapIndexed { index, imageUrl ->
             Page(index, imageUrl = imageUrl)
         }
-    }
-
-    private fun isPasswordRequired(response: Response, document: Document): Boolean {
-        val path = response.request.url.encodedPath
-
-        return path.contains("/mo-khoa/") ||
-            document.selectFirst(
-                "form.unlock-chapter-form, " +
-                    "form:has(input[name=password]), " +
-                    "input[name=password], " +
-                    "input[type=password].input-password, " +
-                    "input[type=password]",
-            ) != null
-    }
-
-    private fun isLoginRequired(response: Response, document: Document): Boolean {
-        if (isPasswordRequired(response, document)) return false
-
-        val path = response.request.url.encodedPath
-
-        return !CHAPTER_URL_REGEX.containsMatchIn(path) ||
-            document.selectFirst(".swal2-container .swal2-content:matchesOwn((?i)đăng nhập)") != null ||
-            (
-                document.selectFirst("form.login-form") != null &&
-                    document.selectFirst("table.list-chapter") != null &&
-                    document.selectFirst("#view-chapter img") == null
-                )
     }
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
@@ -407,8 +372,7 @@ class LuvEvaLand :
     private fun getPrefBaseUrl(): String = preferences.getString(BASE_URL_PREF, defaultBaseUrl)!!
 
     companion object {
-        private const val LOGIN_WEBVIEW_MESSAGE = "Vui lòng đăng nhập bằng webview để xem chương này"
-        private const val PASSWORD_WEBVIEW_MESSAGE = "Vui lòng nhập mật khẩu cho chương này bằng webview"
+        private const val LOGIN_WEBVIEW_MESSAGE = "Vui lòng đăng nhập vào tài khoản phù hợp để em chương này"
 
         private val WEBVIEW_TOKEN_REGEX = Regex(""";\s*wv\)""")
         private val MANGA_PATH_REGEX = Regex("""/truyen-tranh/""")
