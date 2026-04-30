@@ -317,10 +317,9 @@ class LuvEvaLand :
 
     // ============================== Pages =================================
 
-    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> =
-        client.newCall(pageListRequest(chapter)).asObservable().map { response ->
-            parsePageList(response, chapter.url)
-        }
+    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> = client.newCall(pageListRequest(chapter)).asObservable().map { response ->
+        parsePageList(response, chapter.url)
+    }
 
     private fun parsePageList(response: Response, chapterUrl: String): List<Page> {
         val document = response.asJsoup()
