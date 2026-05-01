@@ -326,7 +326,10 @@ class LuvEvaLand :
 
         val images = document.select("#view-chapter img, #chapter-content img, .chapter-content img, .reading-content img, .content-chapter img, .box-chapter-content img")
             .map { it.absUrl("data-src").ifEmpty { it.absUrl("src") } }
-            .filter { it.isNotBlank() && !it.startsWith("data:image") }
+            .filter { url ->
+                url.isNotBlank() && !url.startsWith("data:image") &&
+                    url.substringAfter("/cloud/", "").let { it.isEmpty() || it.contains("/") }
+            }
 
         if (images.isNotEmpty()) {
             return images.mapIndexed { index, imageUrl -> Page(index, imageUrl = imageUrl) }
@@ -384,10 +387,6 @@ class LuvEvaLand :
         val extension: String,
     )
 
-    /**
-     * Probe common CDN URL patterns to find the correct one for this manga.
-     * Tries combinations of chapter prefix (c{n} vs {n}) and extension (png vs jpg).
-     */
     private fun probeCdnPattern(mangaSlug: String, chapterNum: Int): CdnInfo? {
         val patterns = listOf(
             CdnInfo("$CDN_BASE_URL/$mangaSlug", "c", "png"),
