@@ -91,8 +91,7 @@ class LuvEvaLand :
             }
             ?: return null
 
-        val titleElement = element.selectFirst("a.comic-name") ?: mangaLinkElement
-        val mangaTitle = titleElement.text().ifEmpty { mangaLinkElement.selectFirst("img")?.attr("alt").orEmpty() }
+        val mangaTitle = (element.selectFirst("a.comic-name") ?: mangaLinkElement).text()
         if (mangaTitle.isEmpty()) return null
 
         return SManga.create().apply {
@@ -130,9 +129,7 @@ class LuvEvaLand :
         val mangaUrl = mangaLinkElement.absUrl("href")
         if (!MANGA_PATH_REGEX.containsMatchIn(mangaUrl)) return null
 
-        val mangaTitle = mangaLinkElement.text().ifEmpty {
-            element.selectFirst(".book__lg-image img")?.attr("alt").orEmpty()
-        }
+        val mangaTitle = mangaLinkElement.text()
         if (mangaTitle.isEmpty()) return null
 
         return SManga.create().apply {
@@ -185,9 +182,7 @@ class LuvEvaLand :
         val mangaUrl = linkElement.absUrl("href")
         if (!MANGA_PATH_REGEX.containsMatchIn(mangaUrl)) return null
 
-        val mangaTitle = linkElement.ownText()
-            .ifEmpty { linkElement.text() }
-            .ifEmpty { element.selectFirst("img")?.attr("alt").orEmpty() }
+        val mangaTitle = linkElement.text()
         if (mangaTitle.isEmpty()) return null
 
         return SManga.create().apply {
