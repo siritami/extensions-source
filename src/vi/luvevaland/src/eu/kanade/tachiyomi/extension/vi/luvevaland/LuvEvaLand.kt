@@ -343,23 +343,24 @@ class LuvEvaLand :
 
     /**
      * Build page list by probing predictable CDN image URLs.
-     * Discovers the CDN URL pattern from a free chapter of the same manga,
-     * then probes pages with HEAD requests until a non-image response.
+     * Extracts manga slug from the chapter URL and probes common CDN patterns
+     * with HEAD requests until a non-image response.
      */
     private fun buildPageListFromPattern(chapterUrl: String): List<Page> {
-        val mangaPath = MANGA_PATH_FROM_CHAPTER_REGEX.find(chapterUrl)?.value
-            ?: throw Exception("Không tìm thấy đường dẫn truyện")
+        val mangaSlug = MANGA_SLUG_REGEX.find(chapterUrl)?.groupValues?.get(1)
+            ?: throw Exception("Không tìm thấy slug truyện")
         val chapterNum = CHAPTER_NUMBER_REGEX.find(chapterUrl)?.groupValues?.get(1)?.toIntOrNull()
             ?: throw Exception("Không tìm thấy số chương")
 
-        val cdnInfo = discoverCdnPattern(mangaPath, chapterNum)
+        val cdnInfo = probeCdnPattern(mangaSlug, chapterNum)
+            ?: throw Exception("Không tìm thấy hình ảnh CDN cho chương này")
 
         val pages = mutableListOf<Page>()
         var index = 1
 
         while (index <= 200) {
             val imageUrl = "${cdnInfo.basePath}/${cdnInfo.chapterPrefix}$chapterNum/$index.${cdnInfo.extension}"
-            val headRequest = Request.Builder().url(imageUrl).headers(headers).head().build()
+            val headRequest = Request.Builder().url(imageUrl).head().build()
             val isImage = client.newCall(headRequest).execute().use {
                 it.isSuccessful && it.header("Content-Type")?.startsWith("image/") == true
             }
@@ -383,44 +384,25 @@ class LuvEvaLand :
         val extension: String,
     )
 
-    private fun discoverCdnPattern(mangaPath: String, targetChapterNum: Int): CdnInfo {
-        val mangaDoc = client.newCall(GET("$baseUrl$mangaPath", headers)).execute().asJsoup()
+    /**
+     * Probe common CDN URL patterns to find the correct one for this manga.
+     * Tries combinations of chapter prefix (c{n} vs {n}) and extension (png vs jpg).
+     */
+    private fun probeCdnPattern(mangaSlug: String, chapterNum: Int): CdnInfo? {
+        val patterns = listOf(
+            CdnInfo("$CDN_BASE_URL/$mangaSlug", "c", "png"),
+            CdnInfo("$CDN_BASE_URL/$mangaSlug", "c", "jpg"),
+            CdnInfo("$CDN_BASE_URL/$mangaSlug", "", "png"),
+            CdnInfo("$CDN_BASE_URL/$mangaSlug", "", "jpg"),
+        )
 
-        val freeChapterUrl = mangaDoc.select("table tr td.list-chapter__name a")
-            .firstOrNull { !it.attr("href").startsWith("javascript") }
-            ?.absUrl("href")
-            ?: throw Exception("Không tìm thấy chương miễn phí")
-
-        val freeChapterNum = CHAPTER_NUMBER_REGEX.find(freeChapterUrl)
-            ?.groupValues?.get(1)?.toIntOrNull()
-            ?: throw Exception("Không tìm thấy số chương miễn phí: $freeChapterUrl")
-
-        val chapterDoc = client.newCall(GET(freeChapterUrl, headers)).execute().asJsoup()
-
-        val firstImageUrl = chapterDoc
-            .select("#view-chapter img, #chapter-content img, .chapter-content img")
-            .mapNotNull { img ->
-                img.absUrl("data-src").ifEmpty { img.absUrl("src") }.ifEmpty { null }
+        return patterns.firstOrNull { cdnInfo ->
+            val testUrl = "${cdnInfo.basePath}/${cdnInfo.chapterPrefix}$chapterNum/1.${cdnInfo.extension}"
+            val headRequest = Request.Builder().url(testUrl).head().build()
+            client.newCall(headRequest).execute().use {
+                it.isSuccessful && it.header("Content-Type")?.startsWith("image/") == true
             }
-            .firstOrNull { url ->
-                val cloudPath = url.substringAfter("/cloud/", "")
-                cloudPath.isNotEmpty() && cloudPath.count { it == '/' } >= 2
-            }
-            ?: throw Exception("Không tìm thấy hình ảnh CDN trong chương miễn phí")
-
-        val parsedUrl = firstImageUrl.toHttpUrl()
-        val pathSegments = parsedUrl.pathSegments
-        if (pathSegments.size < 3) {
-            throw Exception("Đường dẫn CDN không hợp lệ: $firstImageUrl")
         }
-
-        val chapterFolder = pathSegments[pathSegments.size - 2]
-        val extension = pathSegments.last().substringAfterLast('.', "")
-        val chapterPrefix = chapterFolder.removeSuffix(freeChapterNum.toString())
-        val basePath = "${parsedUrl.scheme}://${parsedUrl.host}/" +
-            pathSegments.subList(0, pathSegments.size - 2).joinToString("/")
-
-        return CdnInfo(basePath, chapterPrefix, extension)
     }
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
@@ -477,7 +459,8 @@ class LuvEvaLand :
 
         private val WEBVIEW_TOKEN_REGEX = Regex("""\;\s*wv\)""")
         private val MANGA_PATH_REGEX = Regex("""/truyen-tranh/""")
-        private val MANGA_PATH_FROM_CHAPTER_REGEX = Regex("""/truyen-tranh/[^/]+""")
+        private const val CDN_BASE_URL = "https://picevaland.xyz/cloud"
+        private val MANGA_SLUG_REGEX = Regex("""/truyen-tranh/([^/.]+)""")
         private val CHAPTER_URL_REGEX = Regex("""/(?:chap|chuong|chapter|mo-khoa/chap)""", RegexOption.IGNORE_CASE)
         private val CHAPTER_NUMBER_REGEX = Regex("""/(?:chap|chuong|chapter)-([0-9]+)""", RegexOption.IGNORE_CASE)
         private val RESULT_TITLE_REGEX = Regex("""(?i)kết\s+quả\s+truyện""")
