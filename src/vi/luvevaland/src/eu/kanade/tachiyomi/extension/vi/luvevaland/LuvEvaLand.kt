@@ -145,46 +145,39 @@ class LuvEvaLand :
     // ============================== Search ================================
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        val genres = filters.firstInstanceOrNull<GenreFilter>()?.selectedValues().orEmpty()
-        val status = filters.firstInstanceOrNull<StatusFilter>()?.toUriPart()
-        val sortBy = filters.firstInstanceOrNull<SortByFilter>()?.toUriPart() ?: "name"
-        val sortOrder = filters.firstInstanceOrNull<SortOrderFilter>()?.toUriPart() ?: "desc"
-
-        val urlBuilder = "$baseUrl/tim-kiem".toHttpUrl().newBuilder()
-            .addQueryParameter("page", page.toString())
-            .addQueryParameter("s", query)
-            .addQueryParameter("status", status)
-            .addQueryParameter("sort-by", sortBy)
-            .addQueryParameter("sort-desc", sortOrder)
-
-        genres.forEach { genreId ->
-            urlBuilder.addQueryParameter("genres[]", genreId)
+        if (query.isNotBlank()) {
+            val url = "$baseUrl/tim-kiem".toHttpUrl().newBuilder()
+                .addQueryParameter("page", page.toString())
+                .addQueryParameter("s", query)
+                .build()
+            return GET(url, headers)
         }
 
-        return GET(urlBuilder.build(), headers)
+        val tagSlug = filters.firstInstanceOrNull<TagFilter>()?.toSlug()
+        if (tagSlug != null) {
+            val url = "$baseUrl/the-loai/$tagSlug".toHttpUrl().newBuilder()
+                .addQueryParameter("page", page.toString())
+                .build()
+            return GET(url, headers)
+        }
+
+        return GET("$baseUrl/tim-kiem?page=$page", headers)
     }
 
     override fun searchMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
+        val requestUrl = response.request.url.toString()
 
-        val mangas = parseSearchManga(document)
-            .distinctBy { it.url }
+        val mangas = if (requestUrl.contains("/the-loai/")) {
+            document.select(".book-vertical__item")
+                .mapNotNull(::latestMangaFromElement)
+        } else {
+            document.select("table.book__list tr.book__list-item")
+                .mapNotNull(::searchMangaFromRow)
+        }.distinctBy { it.url }
 
         val hasNextPage = document.selectFirst("ul.pagination a[rel=next]") != null
         return MangasPage(mangas, hasNextPage)
-    }
-
-    private fun parseSearchManga(document: Document): List<SManga> {
-        val titleElement = document.select("div.title__color")
-            .firstOrNull { RESULT_TITLE_REGEX.matches(it.text()) }
-            ?: return emptyList()
-
-        val table = titleElement.parent()?.selectFirst("table.book__list")
-            ?: document.selectFirst("table.book__list")
-            ?: return emptyList()
-
-        return table.select("tr.book__list-item")
-            .mapNotNull(::searchMangaFromRow)
     }
 
     private fun searchMangaFromRow(element: Element): SManga? {
@@ -454,7 +447,6 @@ class LuvEvaLand :
         private val MANGA_SLUG_REGEX = Regex("""/truyen-tranh/([^/.]+)""")
         private val CHAPTER_URL_REGEX = Regex("""/(?:chap|chuong|chapter|mo-khoa/chap)""", RegexOption.IGNORE_CASE)
         private val CHAPTER_NUMBER_REGEX = Regex("""/(?:chap|chuong|chapter)-([0-9]+)""", RegexOption.IGNORE_CASE)
-        private val RESULT_TITLE_REGEX = Regex("""(?i)kết\s+quả\s+truyện""")
         private val THUMBNAIL_SIZE_REGEX = Regex("""-[0-9]+x[0-9]+(?=\.(?:jpe?g|png|webp)$)""")
 
         private val DATE_FORMAT by lazy {
