@@ -3,10 +3,11 @@ package eu.kanade.tachiyomi.extension.vi.luvevaland
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 
-internal class TagFilter : Filter.Select<String>(
-    "Thể loại",
-    TAG_OPTIONS.map { it.first }.toTypedArray(),
-) {
+internal class TagFilter :
+    Filter.Select<String>(
+        "Thể loại",
+        TAG_OPTIONS.map { it.first }.toTypedArray(),
+    ) {
     fun toSlug(): String? = TAG_OPTIONS[state].second
 }
 
