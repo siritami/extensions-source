@@ -153,14 +153,9 @@ class LuvEvaLand :
         val urlBuilder = "$baseUrl/tim-kiem".toHttpUrl().newBuilder()
             .addQueryParameter("page", page.toString())
             .addQueryParameter("s", query)
-            .addQueryParameter("comic_type", "1")
             .addQueryParameter("status", status)
             .addQueryParameter("sort-by", sortBy)
             .addQueryParameter("sort-desc", sortOrder)
-            .addQueryParameter("sort-view", null)
-            .addQueryParameter("sort-number-chapter", null)
-            .addQueryParameter("sort-date-update", null)
-            .addQueryParameter("sort-number-word", null)
 
         genres.forEach { genreId ->
             urlBuilder.addQueryParameter("genres[]", genreId)
@@ -326,10 +321,7 @@ class LuvEvaLand :
 
         val images = document.select("#view-chapter img, #chapter-content img, .chapter-content img, .reading-content img, .content-chapter img, .box-chapter-content img")
             .map { it.absUrl("data-src").ifEmpty { it.absUrl("src") } }
-            .filter { url ->
-                url.isNotBlank() && !url.startsWith("data:image") &&
-                    url.substringAfter("/cloud/", "").let { it.isEmpty() || it.contains("/") }
-            }
+            .filter { it.isNotBlank() && !it.startsWith("data:image") }
 
         if (images.isNotEmpty()) {
             return images.mapIndexed { index, imageUrl -> Page(index, imageUrl = imageUrl) }
