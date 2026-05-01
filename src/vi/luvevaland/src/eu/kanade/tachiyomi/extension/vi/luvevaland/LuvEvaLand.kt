@@ -353,7 +353,6 @@ class LuvEvaLand :
             ?: throw Exception("Không tìm thấy số chương")
 
         val cdnInfo = discoverCdnPattern(mangaPath, chapterNum)
-            ?: throw Exception("Không thể xác định đường dẫn hình ảnh")
 
         val pages = mutableListOf<Page>()
         var index = 1
@@ -384,17 +383,17 @@ class LuvEvaLand :
         val extension: String,
     )
 
-    private fun discoverCdnPattern(mangaPath: String, targetChapterNum: Int): CdnInfo? {
+    private fun discoverCdnPattern(mangaPath: String, targetChapterNum: Int): CdnInfo {
         val mangaDoc = client.newCall(GET("$baseUrl$mangaPath", headers)).execute().asJsoup()
 
         val freeChapterUrl = mangaDoc.select("table tr td.list-chapter__name a")
             .firstOrNull { !it.attr("href").startsWith("javascript") }
             ?.absUrl("href")
-            ?: return null
+            ?: throw Exception("Không tìm thấy chương miễn phí")
 
         val freeChapterNum = CHAPTER_NUMBER_REGEX.find(freeChapterUrl)
             ?.groupValues?.get(1)?.toIntOrNull()
-            ?: return null
+            ?: throw Exception("Không tìm thấy số chương miễn phí: $freeChapterUrl")
 
         val chapterDoc = client.newCall(GET(freeChapterUrl, headers)).execute().asJsoup()
 
@@ -407,11 +406,13 @@ class LuvEvaLand :
                 val cloudPath = url.substringAfter("/cloud/", "")
                 cloudPath.isNotEmpty() && cloudPath.count { it == '/' } >= 2
             }
-            ?: return null
+            ?: throw Exception("Không tìm thấy hình ảnh CDN trong chương miễn phí")
 
         val parsedUrl = firstImageUrl.toHttpUrl()
         val pathSegments = parsedUrl.pathSegments
-        if (pathSegments.size < 3) return null
+        if (pathSegments.size < 3) {
+            throw Exception("Đường dẫn CDN không hợp lệ: $firstImageUrl")
+        }
 
         val chapterFolder = pathSegments[pathSegments.size - 2]
         val extension = pathSegments.last().substringAfterLast('.', "")
