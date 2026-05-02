@@ -19,6 +19,8 @@ import keiyoushi.utils.getPreferences
 import keiyoushi.utils.tryParse
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
@@ -253,11 +255,12 @@ class LxHentai :
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
         val html = document.outerHtml()
+        val chapterUrl = response.request.url.toString()
         val actionToken = ACTION_TOKEN_REGEX.find(html)?.groupValues?.get(1)
             ?: throw Exception("Không tìm thấy action token")
         val encryptedPayload = ENCRYPTED_IMAGES_REGEX.find(html)?.groupValues?.get(1)
             ?: throw Exception("Không tìm thấy dữ liệu ảnh")
-        val imageToken = actionToken
+        val imageToken = resolveImageToken(chapterUrl, actionToken)
 
         val encryptedRows = ENCRYPTED_IMAGE_ROW_REGEX.findAll(encryptedPayload)
             .mapNotNull { row: MatchResult ->
@@ -365,6 +368,42 @@ class LxHentai :
             ?: "$baseUrl${rawUrl.takeIf { it.startsWith("/") } ?: "/$rawUrl"}"
     }
 
+    private fun resolveImageToken(chapterUrl: String, latestToken: String): String {
+        if (IMAGE_TOKEN_REGEX.matches(latestToken)) return latestToken
+        val refreshed = fetchImageTokenFromSession(chapterUrl, latestToken)
+        return refreshed?.takeIf { IMAGE_TOKEN_REGEX.matches(it) } ?: latestToken
+    }
+
+    private fun fetchImageTokenFromSession(chapterUrl: String, csrfToken: String): String? {
+        val baseHttpUrl = baseUrl.toHttpUrl()
+        val cookies = client.cookieJar.loadForRequest(baseHttpUrl)
+        val hasCfClearance = cookies.any { it.name.equals("cf_clearance", ignoreCase = true) }
+        if (!hasCfClearance) return null
+
+        val payload = """{"cf-turnstile-response":""}"""
+        val request = Request.Builder()
+            .url("$baseUrl/get_token")
+            .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .headers(
+                headersBuilder()
+                    .set("Referer", chapterUrl)
+                    .set("Origin", baseUrl)
+                    .set("X-CSRF-TOKEN", csrfToken)
+                    .set("X-Requested-With", "XMLHttpRequest")
+                    .set("Accept", "application/json, text/plain, */*")
+                    .build(),
+            )
+            .build()
+
+        return runCatching {
+            client.newCall(request).execute().use { tokenResponse ->
+                if (!tokenResponse.isSuccessful) return@use null
+                val responseBody = tokenResponse.body.string()
+                IMAGE_TOKEN_RESPONSE_REGEX.find(responseBody)?.groupValues?.get(1)
+            }
+        }.getOrNull()
+    }
+
     companion object {
         const val PREFIX_ID_SEARCH = "id:"
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
@@ -373,6 +412,8 @@ class LxHentai :
         private const val BASE_URL_PREF_SUMMARY = "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
         private const val CLOUDFLARE_VERIFY_MESSAGE = "Mở webview để xác minh cloudflare cho chương này"
         private val BACKGROUND_URL_REGEX = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
+        private val IMAGE_TOKEN_REGEX = Regex("""^[a-f0-9]{64}$""")
+        private val IMAGE_TOKEN_RESPONSE_REGEX = Regex("""["']action_token["']\s*:\s*["']([a-f0-9]{64})["']""")
         private val ACTION_TOKEN_REGEX = Regex("""<meta\s+name=["']action_token["']\s+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         private val ENCRYPTED_IMAGES_REGEX = Regex("""var\s+_u\s*=\s*(\[\[.*?]]);""", RegexOption.DOT_MATCHES_ALL)
         private val ENCRYPTED_IMAGE_ROW_REGEX = Regex("""\[(\d+(?:,\d+)*)]""")
