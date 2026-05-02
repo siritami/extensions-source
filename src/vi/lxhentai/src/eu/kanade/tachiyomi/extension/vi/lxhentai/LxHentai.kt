@@ -58,8 +58,6 @@ class LxHentai :
         .rateLimit(3)
         .build()
 
-    private val chapterTokenCache = LinkedHashMap<String, String>(30, 0.75f, true)
-
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
 
@@ -239,7 +237,7 @@ class LxHentai :
             ?: throw Exception("Không tìm thấy action token")
         val encryptedPayload = ENCRYPTED_IMAGES_REGEX.find(html)?.groupValues?.get(1)
             ?: throw Exception("Không tìm thấy dữ liệu ảnh")
-        cacheChapterToken(chapterUrl, actionToken)
+        val pageMetadata = encodePageMetadata(chapterUrl, actionToken)
 
         val encryptedRows = ENCRYPTED_IMAGE_ROW_REGEX.findAll(encryptedPayload)
             .mapNotNull { row: MatchResult ->
@@ -261,14 +259,14 @@ class LxHentai :
             .toList()
 
         return imageUrls.mapIndexed { index: Int, imageUrl: String ->
-            Page(index, chapterUrl, imageUrl)
+            Page(index, pageMetadata, imageUrl)
         }
     }
 
     override fun imageRequest(page: Page): Request {
-        val chapterUrl = page.url
+        val (chapterUrl, actionToken) = decodePageMetadata(page.url)
         val imageUrl = page.imageUrl ?: throw Exception("Không tìm thấy URL ảnh")
-        return GET(imageUrl, imageHeaders(chapterUrl, getChapterToken(chapterUrl)))
+        return GET(imageUrl, imageHeaders(chapterUrl, actionToken))
     }
 
     private fun decodeImageUrl(codes: List<Int>, actionToken: String): String {
@@ -313,18 +311,20 @@ class LxHentai :
             ?: "$baseUrl${rawUrl.takeIf { it.startsWith("/") } ?: "/$rawUrl"}"
     }
 
-    private fun cacheChapterToken(chapterUrl: String, token: String) {
-        synchronized(chapterTokenCache) {
-            if (chapterTokenCache.size >= 30 && chapterUrl !in chapterTokenCache) {
-                chapterTokenCache.entries.firstOrNull()?.key?.let(chapterTokenCache::remove)
-            }
-            chapterTokenCache[chapterUrl] = token
-        }
+    private fun encodePageMetadata(chapterUrl: String, actionToken: String): String {
+        return "$chapterUrl\n$actionToken"
     }
 
-    private fun getChapterToken(chapterUrl: String): String = synchronized(chapterTokenCache) {
-        chapterTokenCache[chapterUrl]
-    } ?: throw Exception("Không tìm thấy token ảnh cho chương hiện tại")
+    private fun decodePageMetadata(rawMetadata: String): Pair<String, String> {
+        val separatorIndex = rawMetadata.lastIndexOf('\n')
+        if (separatorIndex <= 0 || separatorIndex == rawMetadata.lastIndex) {
+            throw Exception("Không đọc được thông tin token ảnh")
+        }
+
+        val chapterUrl = rawMetadata.substring(0, separatorIndex)
+        val actionToken = rawMetadata.substring(separatorIndex + 1)
+        return chapterUrl to actionToken
+    }
 
     companion object {
         const val PREFIX_ID_SEARCH = "id:"
