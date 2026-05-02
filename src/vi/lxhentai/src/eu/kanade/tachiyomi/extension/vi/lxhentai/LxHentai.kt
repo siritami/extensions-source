@@ -58,7 +58,7 @@ class LxHentai :
         .rateLimit(3)
         .build()
 
-    private val chapterTokenCache = LinkedHashMap<String, String>(TOKEN_CACHE_LIMIT, 0.75f, true)
+    private val chapterTokenCache = LinkedHashMap<String, String>(30, 0.75f, true)
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
@@ -315,7 +315,7 @@ class LxHentai :
 
     private fun cacheChapterToken(chapterUrl: String, token: String) {
         synchronized(chapterTokenCache) {
-            if (chapterTokenCache.size >= TOKEN_CACHE_LIMIT && chapterUrl !in chapterTokenCache) {
+            if (chapterTokenCache.size >= 30 && chapterUrl !in chapterTokenCache) {
                 chapterTokenCache.entries.firstOrNull()?.key?.let(chapterTokenCache::remove)
             }
             chapterTokenCache[chapterUrl] = token
@@ -332,7 +332,6 @@ class LxHentai :
         private const val BASE_URL_PREF = "overrideBaseUrl"
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF_SUMMARY = "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
-        private const val TOKEN_CACHE_LIMIT = 30
 
         private val BACKGROUND_URL_REGEX = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
         private val ACTION_TOKEN_REGEX = Regex("""<meta\s+name=["']action_token["']\s+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
