@@ -28,6 +28,8 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import rx.Observable
 import java.text.SimpleDateFormat
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import java.util.Locale
 import java.util.TimeZone
 
@@ -371,7 +373,8 @@ class LxHentai :
     private fun resolveImageToken(chapterUrl: String, latestToken: String): String {
         if (IMAGE_TOKEN_REGEX.matches(latestToken)) return latestToken
         val refreshed = fetchImageTokenFromSession(chapterUrl, latestToken)
-        return refreshed?.takeIf { IMAGE_TOKEN_REGEX.matches(it) } ?: latestToken
+        return refreshed?.takeIf { IMAGE_TOKEN_REGEX.matches(it) }
+            ?: throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
     }
 
     private fun fetchImageTokenFromSession(chapterUrl: String, csrfToken: String): String? {
@@ -379,6 +382,9 @@ class LxHentai :
         val cookies = client.cookieJar.loadForRequest(baseHttpUrl)
         val hasCfClearance = cookies.any { it.name.equals("cf_clearance", ignoreCase = true) }
         if (!hasCfClearance) return null
+        val xsrfToken = cookies.firstOrNull { it.name.equals("XSRF-TOKEN", ignoreCase = true) }
+            ?.value
+            ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
 
         val payload = """{"cf-turnstile-response":""}"""
         val request = Request.Builder()
@@ -391,6 +397,11 @@ class LxHentai :
                     .set("X-CSRF-TOKEN", csrfToken)
                     .set("X-Requested-With", "XMLHttpRequest")
                     .set("Accept", "application/json, text/plain, */*")
+                    .apply {
+                        if (!xsrfToken.isNullOrBlank()) {
+                            set("X-XSRF-TOKEN", xsrfToken)
+                        }
+                    }
                     .build(),
             )
             .build()
@@ -399,6 +410,7 @@ class LxHentai :
             client.newCall(request).execute().use { tokenResponse ->
                 if (!tokenResponse.isSuccessful) return@use null
                 val responseBody = tokenResponse.body.string()
+                if (!responseBody.contains("\"is_bot\":false")) return@use null
                 IMAGE_TOKEN_RESPONSE_REGEX.find(responseBody)?.groupValues?.get(1)
             }
         }.getOrNull()
