@@ -403,8 +403,8 @@ class LxHentai :
         val xsrfToken = extractCookieValue(mergedCookieHeader, "XSRF-TOKEN")
             ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
             ?: jarCookies.firstOrNull { it.name.equals("XSRF-TOKEN", ignoreCase = true) }
-            ?.value
-            ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
+                ?.value
+                ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
 
         val payload = """{"cf-turnstile-response":""}"""
         val request = Request.Builder()
