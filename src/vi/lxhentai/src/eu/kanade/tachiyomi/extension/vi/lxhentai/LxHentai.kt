@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.asObservable
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -20,6 +21,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import rx.Observable
@@ -229,6 +231,25 @@ class LxHentai :
 
     // ============================== Pages =================================
 
+    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> = client.newCall(pageListRequest(chapter))
+        .asObservable()
+        .doOnNext { response ->
+            if (response.code == 403) {
+                val body = runCatching { response.peekBody(1024 * 1024).string() }.getOrDefault("")
+                val hasTurnstile = isTurnstileChallenge(response, body)
+                response.close()
+                if (hasTurnstile || hasTurnstileChallenge(chapter)) {
+                    throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
+                }
+                throw Exception("HTTP error 403")
+            }
+            if (!response.isSuccessful) {
+                response.close()
+                throw Exception("HTTP error ${response.code}")
+            }
+        }
+        .map(::pageListParse)
+
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
         val html = document.outerHtml()
@@ -285,6 +306,40 @@ class LxHentai :
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
+    private fun hasTurnstileChallenge(chapter: SChapter): Boolean {
+        val chapterUrl = getChapterUrl(chapter)
+
+        return runCatching {
+            client.newCall(GET(chapterUrl, headers)).execute().use { response ->
+                val body = runCatching { response.body.string() }.getOrDefault("")
+                isTurnstileChallenge(response, body)
+            }
+        }.getOrDefault(false)
+    }
+
+    private fun isTurnstileChallenge(response: Response, body: String): Boolean = response.header("cf-mitigated")?.equals("challenge", ignoreCase = true) == true ||
+        hasTurnstileElement(body) ||
+        body.contains("/cdn-cgi/challenge-platform", ignoreCase = true) ||
+        body.contains("Just a moment", ignoreCase = true)
+
+    private fun hasTurnstileElement(html: String): Boolean {
+        if (html.isBlank()) return false
+
+        val document = Jsoup.parse(html)
+        return document.selectFirst(
+            "div.cf-turnstile, " +
+                "input[name=cf-turnstile-response], " +
+                "iframe[src*=challenges.cloudflare.com], " +
+                "form#challenge-form, " +
+                "#cf-challenge-running, " +
+                "#challenge-stage",
+        ) != null ||
+            html.contains("cf-turnstile", ignoreCase = true) ||
+            html.contains("challenges.cloudflare.com/turnstile", ignoreCase = true)
+    }
+
+    override fun getChapterUrl(chapter: SChapter): String = "$baseUrl${chapter.url}"
+
     // ============================== Settings ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -320,6 +375,7 @@ class LxHentai :
         private const val BASE_URL_PREF = "overrideBaseUrl"
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF_SUMMARY = "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
+        private const val CLOUDFLARE_VERIFY_MESSAGE = "Mở webview để xác minh cloudflare cho chương này"
         private const val IMAGE_TOKEN = "0408bb30f559a8b0b0d1b486402b509d212c9f205a204ecaa66b71fe3702d8e2"
 
         private val BACKGROUND_URL_REGEX = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
