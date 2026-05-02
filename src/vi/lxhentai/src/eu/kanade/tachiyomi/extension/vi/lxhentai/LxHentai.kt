@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.extension.vi.lxhentai
 
 import android.content.SharedPreferences
+import android.webkit.CookieManager
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
@@ -324,8 +325,7 @@ class LxHentai :
 
     private fun isTurnstileChallenge(response: Response, body: String): Boolean = response.header("cf-mitigated")?.equals("challenge", ignoreCase = true) == true ||
         hasTurnstileElement(body) ||
-        body.contains("/cdn-cgi/challenge-platform", ignoreCase = true) ||
-        body.contains("Just a moment", ignoreCase = true)
+        body.contains("<title>Just a moment", ignoreCase = true)
 
     private fun hasTurnstileElement(html: String): Boolean {
         if (html.isBlank()) return false
@@ -338,9 +338,7 @@ class LxHentai :
                 "form#challenge-form, " +
                 "#cf-challenge-running, " +
                 "#challenge-stage",
-        ) != null ||
-            html.contains("cf-turnstile", ignoreCase = true) ||
-            html.contains("challenges.cloudflare.com/turnstile", ignoreCase = true)
+        ) != null
     }
 
     override fun getChapterUrl(chapter: SChapter): String = "$baseUrl${chapter.url}"
@@ -370,19 +368,41 @@ class LxHentai :
             ?: "$baseUrl${rawUrl.takeIf { it.startsWith("/") } ?: "/$rawUrl"}"
     }
 
+    private var cachedImageToken: String? = null
+
     private fun resolveImageToken(chapterUrl: String, latestToken: String): String {
-        if (IMAGE_TOKEN_REGEX.matches(latestToken)) return latestToken
+        if (IMAGE_TOKEN_REGEX.matches(latestToken)) {
+            cachedImageToken = latestToken
+            return latestToken
+        }
+
         val refreshed = fetchImageTokenFromSession(chapterUrl, latestToken)
-        return refreshed?.takeIf { IMAGE_TOKEN_REGEX.matches(it) }
+        if (refreshed != null && IMAGE_TOKEN_REGEX.matches(refreshed)) {
+            cachedImageToken = refreshed
+            return refreshed
+        }
+
+        return cachedImageToken?.takeIf { IMAGE_TOKEN_REGEX.matches(it) }
             ?: throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
     }
 
     private fun fetchImageTokenFromSession(chapterUrl: String, csrfToken: String): String? {
         val baseHttpUrl = baseUrl.toHttpUrl()
-        val cookies = client.cookieJar.loadForRequest(baseHttpUrl)
-        val hasCfClearance = cookies.any { it.name.equals("cf_clearance", ignoreCase = true) }
+        val jarCookies = client.cookieJar.loadForRequest(baseHttpUrl)
+        val jarCookieHeader = jarCookies.joinToString("; ") { cookie -> "${cookie.name}=${cookie.value}" }
+        val webViewCookieHeader = runCatching { CookieManager.getInstance().getCookie(baseUrl) }.getOrNull().orEmpty()
+        val mergedCookieHeader = sequenceOf(jarCookieHeader, webViewCookieHeader)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString("; ")
+
+        val hasCfClearance = mergedCookieHeader.contains("cf_clearance=", ignoreCase = true)
         if (!hasCfClearance) return null
-        val xsrfToken = cookies.firstOrNull { it.name.equals("XSRF-TOKEN", ignoreCase = true) }
+
+        val xsrfToken = extractCookieValue(mergedCookieHeader, "XSRF-TOKEN")
+            ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
+            ?: jarCookies.firstOrNull { it.name.equals("XSRF-TOKEN", ignoreCase = true) }
             ?.value
             ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
 
@@ -398,6 +418,9 @@ class LxHentai :
                     .set("X-Requested-With", "XMLHttpRequest")
                     .set("Accept", "application/json, text/plain, */*")
                     .apply {
+                        if (mergedCookieHeader.isNotBlank()) {
+                            set("Cookie", mergedCookieHeader)
+                        }
                         if (!xsrfToken.isNullOrBlank()) {
                             set("X-XSRF-TOKEN", xsrfToken)
                         }
@@ -410,10 +433,21 @@ class LxHentai :
             client.newCall(request).execute().use { tokenResponse ->
                 if (!tokenResponse.isSuccessful) return@use null
                 val responseBody = tokenResponse.body.string()
-                if (!responseBody.contains("\"is_bot\":false")) return@use null
+                if (!IS_BOT_FALSE_REGEX.containsMatchIn(responseBody)) return@use null
                 IMAGE_TOKEN_RESPONSE_REGEX.find(responseBody)?.groupValues?.get(1)
             }
         }.getOrNull()
+    }
+
+    private fun extractCookieValue(cookieHeader: String, cookieName: String): String? {
+        if (cookieHeader.isBlank()) return null
+        return cookieHeader.split(';')
+            .asSequence()
+            .map { it.trim() }
+            .firstOrNull { cookie -> cookie.startsWith("$cookieName=", ignoreCase = true) }
+            ?.substringAfter('=')
+            ?.trim()
+            ?.ifBlank { null }
     }
 
     companion object {
@@ -425,6 +459,7 @@ class LxHentai :
         private const val CLOUDFLARE_VERIFY_MESSAGE = "Mở webview để xác minh cloudflare cho chương này"
         private val BACKGROUND_URL_REGEX = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
         private val IMAGE_TOKEN_REGEX = Regex("""^[a-f0-9]{64}$""")
+        private val IS_BOT_FALSE_REGEX = Regex("""["']is_bot["']\s*:\s*false""", RegexOption.IGNORE_CASE)
         private val IMAGE_TOKEN_RESPONSE_REGEX = Regex("""["']action_token["']\s*:\s*["']([a-f0-9]{64})["']""")
         private val ACTION_TOKEN_REGEX = Regex("""<meta\s+name=["']action_token["']\s+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         private val ENCRYPTED_IMAGES_REGEX = Regex("""var\s+_u\s*=\s*(\[\[.*?]]);""", RegexOption.DOT_MATCHES_ALL)
