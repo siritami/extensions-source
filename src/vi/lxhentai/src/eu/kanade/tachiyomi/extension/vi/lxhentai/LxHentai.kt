@@ -58,6 +58,8 @@ class LxHentai :
         .rateLimit(3)
         .build()
 
+    private val chapterTokenCache = LinkedHashMap<String, String>(TOKEN_CACHE_LIMIT, 0.75f, true)
+
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
 
@@ -232,10 +234,12 @@ class LxHentai :
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
         val html = document.outerHtml()
+        val chapterUrl = response.request.url.toString()
         val actionToken = ACTION_TOKEN_REGEX.find(html)?.groupValues?.get(1)
             ?: throw Exception("Không tìm thấy action token")
         val encryptedPayload = ENCRYPTED_IMAGES_REGEX.find(html)?.groupValues?.get(1)
             ?: throw Exception("Không tìm thấy dữ liệu ảnh")
+        cacheChapterToken(chapterUrl, actionToken)
 
         val encryptedRows = ENCRYPTED_IMAGE_ROW_REGEX.findAll(encryptedPayload)
             .mapNotNull { row: MatchResult ->
@@ -257,13 +261,14 @@ class LxHentai :
             .toList()
 
         return imageUrls.mapIndexed { index: Int, imageUrl: String ->
-            Page(index, imageUrl = imageUrl)
+            Page(index, chapterUrl, imageUrl)
         }
     }
 
     override fun imageRequest(page: Page): Request {
+        val chapterUrl = page.url
         val imageUrl = page.imageUrl ?: throw Exception("Không tìm thấy URL ảnh")
-        return GET(imageUrl, imageHeaders())
+        return GET(imageUrl, imageHeaders(chapterUrl, getChapterToken(chapterUrl)))
     }
 
     private fun decodeImageUrl(codes: List<Int>, actionToken: String): String {
@@ -275,10 +280,10 @@ class LxHentai :
         return result.toString()
     }
 
-    private fun imageHeaders() = super.headersBuilder()
-        .add("Referer", "$baseUrl/")
+    private fun imageHeaders(chapterUrl: String, actionToken: String) = super.headersBuilder()
+        .add("Referer", chapterUrl)
         .add("Origin", baseUrl)
-        .add("Token", "364b9dccc5ef526587f108c4d4fd63ee35286e19e36ec55b93bd4d79410dbbf6")
+        .add("Token", actionToken)
         .build()
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
@@ -308,12 +313,26 @@ class LxHentai :
             ?: "$baseUrl${rawUrl.takeIf { it.startsWith("/") } ?: "/$rawUrl"}"
     }
 
+    private fun cacheChapterToken(chapterUrl: String, token: String) {
+        synchronized(chapterTokenCache) {
+            if (chapterTokenCache.size >= TOKEN_CACHE_LIMIT && chapterUrl !in chapterTokenCache) {
+                chapterTokenCache.entries.firstOrNull()?.key?.let(chapterTokenCache::remove)
+            }
+            chapterTokenCache[chapterUrl] = token
+        }
+    }
+
+    private fun getChapterToken(chapterUrl: String): String = synchronized(chapterTokenCache) {
+        chapterTokenCache[chapterUrl]
+    } ?: throw Exception("Không tìm thấy token ảnh cho chương hiện tại")
+
     companion object {
         const val PREFIX_ID_SEARCH = "id:"
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
         private const val BASE_URL_PREF = "overrideBaseUrl"
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF_SUMMARY = "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
+        private const val TOKEN_CACHE_LIMIT = 30
 
         private val BACKGROUND_URL_REGEX = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
         private val ACTION_TOKEN_REGEX = Regex("""<meta\s+name=["']action_token["']\s+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
