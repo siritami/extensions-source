@@ -232,12 +232,10 @@ class LxHentai :
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
         val html = document.outerHtml()
-        val chapterUrl = response.request.url.toString()
         val actionToken = ACTION_TOKEN_REGEX.find(html)?.groupValues?.get(1)
             ?: throw Exception("Không tìm thấy action token")
         val encryptedPayload = ENCRYPTED_IMAGES_REGEX.find(html)?.groupValues?.get(1)
             ?: throw Exception("Không tìm thấy dữ liệu ảnh")
-        val pageMetadata = encodePageMetadata(chapterUrl, actionToken)
 
         val encryptedRows = ENCRYPTED_IMAGE_ROW_REGEX.findAll(encryptedPayload)
             .mapNotNull { row: MatchResult ->
@@ -259,14 +257,13 @@ class LxHentai :
             .toList()
 
         return imageUrls.mapIndexed { index: Int, imageUrl: String ->
-            Page(index, pageMetadata, imageUrl)
+            Page(index, imageUrl = imageUrl)
         }
     }
 
     override fun imageRequest(page: Page): Request {
-        val (chapterUrl, actionToken) = decodePageMetadata(page.url)
         val imageUrl = page.imageUrl ?: throw Exception("Không tìm thấy URL ảnh")
-        return GET(imageUrl, imageHeaders(chapterUrl, actionToken))
+        return GET(imageUrl, imageHeaders())
     }
 
     private fun decodeImageUrl(codes: List<Int>, actionToken: String): String {
@@ -278,10 +275,8 @@ class LxHentai :
         return result.toString()
     }
 
-    private fun imageHeaders(chapterUrl: String, actionToken: String) = super.headersBuilder()
-        .add("Referer", chapterUrl)
-        .add("Origin", baseUrl)
-        .add("Token", actionToken)
+    private fun imageHeaders() = super.headersBuilder()
+        .add("Accept", "image/webp,image/apng,image/*,*/*;q=0.8")
         .build()
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
@@ -309,19 +304,6 @@ class LxHentai :
         val rawUrl = BACKGROUND_URL_REGEX.find(styleValue)?.groupValues?.get(1) ?: return null
         return rawUrl.toHttpUrlOrNull()?.toString()
             ?: "$baseUrl${rawUrl.takeIf { it.startsWith("/") } ?: "/$rawUrl"}"
-    }
-
-    private fun encodePageMetadata(chapterUrl: String, actionToken: String): String = "$chapterUrl\n$actionToken"
-
-    private fun decodePageMetadata(rawMetadata: String): Pair<String, String> {
-        val separatorIndex = rawMetadata.lastIndexOf('\n')
-        if (separatorIndex <= 0 || separatorIndex == rawMetadata.lastIndex) {
-            throw Exception("Không đọc được thông tin token ảnh")
-        }
-
-        val chapterUrl = rawMetadata.substring(0, separatorIndex)
-        val actionToken = rawMetadata.substring(separatorIndex + 1)
-        return chapterUrl to actionToken
     }
 
     companion object {
