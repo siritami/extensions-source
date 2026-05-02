@@ -252,7 +252,14 @@ class LxHentai :
 
         client.newCall(request).execute().use { response ->
             if (response.isSuccessful) {
-                return@fromCallable pageListParse(response)
+                return@fromCallable runCatching { pageListParse(response) }
+                    .getOrElse {
+                        val webViewPages = fetchWebViewTokens(chapterUrl).toPages()
+                        if (webViewPages.isNotEmpty()) {
+                            return@fromCallable webViewPages
+                        }
+                        throw it
+                    }
             }
 
             if (response.code == 403) {
