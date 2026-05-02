@@ -1,13 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.lxhentai
 
-import android.annotation.SuppressLint
-import android.app.Application
 import android.content.SharedPreferences
-import android.os.Handler
-import android.os.Looper
-import android.webkit.CookieManager
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
@@ -25,23 +18,14 @@ import keiyoushi.utils.getPreferences
 import keiyoushi.utils.tryParse
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import rx.Observable
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 class LxHentai :
     HttpSource(),
@@ -245,53 +229,6 @@ class LxHentai :
 
     // ============================== Pages =================================
 
-    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> = Observable.fromCallable {
-        val chapterUrl = getChapterUrl(chapter)
-        val request = pageListRequest(chapter)
-        val webViewCookies = runCatching { CookieManager.getInstance().getCookie(baseUrl) }.getOrNull().orEmpty()
-
-        client.newCall(request).execute().use { response ->
-            if (response.isSuccessful) {
-                return@fromCallable runCatching { pageListParse(response) }
-                    .getOrElse {
-                        val webViewPages = fetchWebViewTokens(chapterUrl).toPages()
-                        if (webViewPages.isNotEmpty()) {
-                            return@fromCallable webViewPages
-                        }
-                        throw it
-                    }
-            }
-
-            if (response.code == 403) {
-                val body = runCatching { response.peekBody(1024 * 1024).string() }.getOrDefault("")
-                val hasTurnstile = isTurnstileChallenge(response, body) || hasTurnstileChallenge(chapter)
-
-                if (webViewCookies.isNotBlank()) {
-                    val retriedRequest = request.newBuilder()
-                        .header("Cookie", webViewCookies)
-                        .build()
-                    client.newCall(retriedRequest).execute().use { retriedResponse ->
-                        if (retriedResponse.isSuccessful) {
-                            return@fromCallable pageListParse(retriedResponse)
-                        }
-                    }
-                }
-
-                val webViewData = fetchWebViewTokens(chapterUrl)
-                val webViewPages = webViewData.toPages()
-                if (webViewPages.isNotEmpty()) {
-                    return@fromCallable webViewPages
-                }
-
-                if (hasTurnstile) {
-                    throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
-                }
-            }
-
-            throw Exception("HTTP error ${response.code}")
-        }
-    }
-
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
         val html = document.outerHtml()
@@ -300,7 +237,7 @@ class LxHentai :
             ?: throw Exception("Không tìm thấy action token")
         val encryptedPayload = ENCRYPTED_IMAGES_REGEX.find(html)?.groupValues?.get(1)
             ?: throw Exception("Không tìm thấy dữ liệu ảnh")
-        val imageToken = resolveImageToken(chapterUrl, actionToken)
+        val pageMetadata = encodePageMetadata(chapterUrl, actionToken)
 
         val encryptedRows = ENCRYPTED_IMAGE_ROW_REGEX.findAll(encryptedPayload)
             .mapNotNull { row: MatchResult ->
@@ -322,14 +259,14 @@ class LxHentai :
             .toList()
 
         return imageUrls.mapIndexed { index: Int, imageUrl: String ->
-            Page(index, imageToken, imageUrl)
+            Page(index, pageMetadata, imageUrl)
         }
     }
 
     override fun imageRequest(page: Page): Request {
+        val (chapterUrl, actionToken) = decodePageMetadata(page.url)
         val imageUrl = page.imageUrl ?: throw Exception("Không tìm thấy URL ảnh")
-        val imageToken = page.url
-        return GET(imageUrl, imageHeaders(imageToken))
+        return GET(imageUrl, imageHeaders(chapterUrl, actionToken))
     }
 
     private fun decodeImageUrl(codes: List<Int>, actionToken: String): String {
@@ -341,44 +278,13 @@ class LxHentai :
         return result.toString()
     }
 
-    private fun imageHeaders(imageToken: String) = super.headersBuilder()
-        .add("Referer", "$baseUrl/")
+    private fun imageHeaders(chapterUrl: String, actionToken: String) = super.headersBuilder()
+        .add("Referer", chapterUrl)
         .add("Origin", baseUrl)
-        .add("Token", imageToken)
+        .add("Token", actionToken)
         .build()
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
-
-    private fun hasTurnstileChallenge(chapter: SChapter): Boolean {
-        val chapterUrl = getChapterUrl(chapter)
-
-        return runCatching {
-            client.newCall(GET(chapterUrl, headers)).execute().use { response ->
-                val body = runCatching { response.body.string() }.getOrDefault("")
-                isTurnstileChallenge(response, body)
-            }
-        }.getOrDefault(false)
-    }
-
-    private fun isTurnstileChallenge(response: Response, body: String): Boolean = response.header("cf-mitigated")?.equals("challenge", ignoreCase = true) == true ||
-        hasTurnstileElement(body) ||
-        body.contains("<title>Just a moment", ignoreCase = true)
-
-    private fun hasTurnstileElement(html: String): Boolean {
-        if (html.isBlank()) return false
-
-        val document = Jsoup.parse(html)
-        return document.selectFirst(
-            "div.cf-turnstile, " +
-                "input[name=cf-turnstile-response], " +
-                "iframe[src*=challenges.cloudflare.com], " +
-                "form#challenge-form, " +
-                "#cf-challenge-running, " +
-                "#challenge-stage",
-        ) != null
-    }
-
-    override fun getChapterUrl(chapter: SChapter): String = "$baseUrl${chapter.url}"
 
     // ============================== Settings ==============================
 
@@ -405,178 +311,17 @@ class LxHentai :
             ?: "$baseUrl${rawUrl.takeIf { it.startsWith("/") } ?: "/$rawUrl"}"
     }
 
-    private var cachedImageToken: String? = null
+    private fun encodePageMetadata(chapterUrl: String, actionToken: String): String = "$chapterUrl\n$actionToken"
 
-    private fun resolveImageToken(chapterUrl: String, latestToken: String): String {
-        if (IMAGE_TOKEN_REGEX.matches(latestToken)) {
-            cachedImageToken = latestToken
-            return latestToken
+    private fun decodePageMetadata(rawMetadata: String): Pair<String, String> {
+        val separatorIndex = rawMetadata.lastIndexOf('\n')
+        if (separatorIndex <= 0 || separatorIndex == rawMetadata.lastIndex) {
+            throw Exception("Không đọc được thông tin token ảnh")
         }
 
-        val webViewTokens = fetchWebViewTokens(chapterUrl)
-        webViewTokens.actionToken?.takeIf { IMAGE_TOKEN_REGEX.matches(it) }?.let { actionToken ->
-            cachedImageToken = actionToken
-            return actionToken
-        }
-
-        val refreshed = fetchImageTokenFromSession(chapterUrl, latestToken, webViewTokens.turnstileToken)
-        if (refreshed != null && IMAGE_TOKEN_REGEX.matches(refreshed)) {
-            cachedImageToken = refreshed
-            return refreshed
-        }
-
-        return cachedImageToken?.takeIf { IMAGE_TOKEN_REGEX.matches(it) }
-            ?: throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
-    }
-
-    private fun WebViewTokens.toPages(): List<Page> {
-        val token = actionToken?.takeIf(IMAGE_TOKEN_REGEX::matches) ?: return emptyList()
-        if (imageUrls.isEmpty()) return emptyList()
-        return imageUrls.mapIndexed { index, imageUrl -> Page(index, token, imageUrl) }
-    }
-
-    @SuppressLint("SetJavaScriptEnabled")
-    @Synchronized
-    private fun fetchWebViewTokens(chapterUrl: String): WebViewTokens {
-        val handler = Handler(Looper.getMainLooper())
-        val latch = CountDownLatch(1)
-        val webViewRef = arrayOfNulls<WebView>(1)
-        var tokens = WebViewTokens()
-
-        handler.post {
-            val webView = WebView(Injekt.get<Application>())
-            webViewRef[0] = webView
-
-            with(webView.settings) {
-                javaScriptEnabled = true
-                domStorageEnabled = true
-                databaseEnabled = true
-                blockNetworkImage = true
-            }
-
-            fun complete() {
-                latch.countDown()
-            }
-
-            fun evaluateTokens(attempt: Int) {
-                webView.evaluateJavascript(WEBVIEW_TOKEN_EXTRACT_SCRIPT) { rawValue ->
-                    val payload = rawValue
-                        ?.takeUnless { it == "null" }
-                        ?.removeSurrounding("\"")
-                        ?.replace("\\\\", "\\")
-                        .orEmpty()
-
-                    val actionToken = payload.substringAfter("ACTION::", "").substringBefore("::TURN::", "")
-                        .takeIf { IMAGE_TOKEN_REGEX.matches(it) }
-                    val turnstileToken = payload.substringAfter("::TURN::", "").substringBefore("::URLS::", "")
-                        .takeIf { it.isNotBlank() }
-                    val imageUrls = payload.substringAfter("::URLS::", "")
-                        .split('|')
-                        .mapNotNull { encoded ->
-                            val value = encoded.trim()
-                            if (value.isBlank()) return@mapNotNull null
-                            runCatching { URLDecoder.decode(value, StandardCharsets.UTF_8.name()) }
-                                .getOrNull()
-                                ?.takeIf(String::isNotBlank)
-                        }
-
-                    if (actionToken != null || turnstileToken != null || imageUrls.isNotEmpty()) {
-                        tokens = WebViewTokens(actionToken, turnstileToken, imageUrls)
-                    }
-
-                    if ((tokens.actionToken != null && tokens.imageUrls.isNotEmpty()) || attempt + 1 >= WEBVIEW_TOKEN_MAX_RETRIES) {
-                        complete()
-                    } else {
-                        handler.postDelayed({ evaluateTokens(attempt + 1) }, WEBVIEW_TOKEN_RETRY_DELAY_MS)
-                    }
-                }
-            }
-
-            webView.webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    evaluateTokens(0)
-                }
-            }
-            webView.loadUrl(chapterUrl)
-        }
-
-        latch.await(WEBVIEW_TOKEN_WAIT_SECONDS, TimeUnit.SECONDS)
-        handler.post {
-            webViewRef[0]?.apply {
-                stopLoading()
-                destroy()
-            }
-            webViewRef[0] = null
-        }
-
-        return tokens
-    }
-
-    private fun fetchImageTokenFromSession(chapterUrl: String, csrfToken: String, turnstileToken: String?): String? {
-        val baseHttpUrl = baseUrl.toHttpUrl()
-        val jarCookies = client.cookieJar.loadForRequest(baseHttpUrl)
-        val jarCookieHeader = jarCookies.joinToString("; ") { cookie -> "${cookie.name}=${cookie.value}" }
-        val webViewCookieHeader = runCatching { CookieManager.getInstance().getCookie(baseUrl) }.getOrNull().orEmpty()
-        val mergedCookieHeader = sequenceOf(jarCookieHeader, webViewCookieHeader)
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .joinToString("; ")
-
-        val hasCfClearance = mergedCookieHeader.contains("cf_clearance=", ignoreCase = true)
-        if (!hasCfClearance) return null
-
-        val xsrfToken = extractCookieValue(mergedCookieHeader, "XSRF-TOKEN")
-            ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
-            ?: jarCookies.firstOrNull { it.name.equals("XSRF-TOKEN", ignoreCase = true) }
-                ?.value
-                ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
-
-        val escapedTurnstile = turnstileToken.orEmpty()
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-        val payload = """{"cf-turnstile-response":"$escapedTurnstile"}"""
-        val request = Request.Builder()
-            .url("$baseUrl/get_token")
-            .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
-            .headers(
-                headersBuilder()
-                    .set("Referer", chapterUrl)
-                    .set("Origin", baseUrl)
-                    .set("X-CSRF-TOKEN", csrfToken)
-                    .set("X-Requested-With", "XMLHttpRequest")
-                    .set("Accept", "application/json, text/plain, */*")
-                    .apply {
-                        if (mergedCookieHeader.isNotBlank()) {
-                            set("Cookie", mergedCookieHeader)
-                        }
-                        if (!xsrfToken.isNullOrBlank()) {
-                            set("X-XSRF-TOKEN", xsrfToken)
-                        }
-                    }
-                    .build(),
-            )
-            .build()
-
-        return runCatching {
-            client.newCall(request).execute().use { tokenResponse ->
-                if (!tokenResponse.isSuccessful) return@use null
-                val responseBody = tokenResponse.body.string()
-                if (!IS_BOT_FALSE_REGEX.containsMatchIn(responseBody)) return@use null
-                IMAGE_TOKEN_RESPONSE_REGEX.find(responseBody)?.groupValues?.get(1)
-            }
-        }.getOrNull()
-    }
-
-    private fun extractCookieValue(cookieHeader: String, cookieName: String): String? {
-        if (cookieHeader.isBlank()) return null
-        return cookieHeader.split(';')
-            .asSequence()
-            .map { it.trim() }
-            .firstOrNull { cookie -> cookie.startsWith("$cookieName=", ignoreCase = true) }
-            ?.substringAfter('=')
-            ?.trim()
-            ?.ifBlank { null }
+        val chapterUrl = rawMetadata.substring(0, separatorIndex)
+        val actionToken = rawMetadata.substring(separatorIndex + 1)
+        return chapterUrl to actionToken
     }
 
     companion object {
@@ -585,76 +330,11 @@ class LxHentai :
         private const val BASE_URL_PREF = "overrideBaseUrl"
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF_SUMMARY = "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
-        private const val CLOUDFLARE_VERIFY_MESSAGE = "Mở webview để xác minh cloudflare cho chương này"
-        private const val WEBVIEW_TOKEN_WAIT_SECONDS = 15L
-        private const val WEBVIEW_TOKEN_MAX_RETRIES = 40
-        private const val WEBVIEW_TOKEN_RETRY_DELAY_MS = 250L
+
         private val BACKGROUND_URL_REGEX = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
-        private val IMAGE_TOKEN_REGEX = Regex("""^[a-f0-9]{64}$""")
-        private val IS_BOT_FALSE_REGEX = Regex("""["']is_bot["']\s*:\s*false""", RegexOption.IGNORE_CASE)
-        private val IMAGE_TOKEN_RESPONSE_REGEX = Regex("""["']action_token["']\s*:\s*["']([a-f0-9]{64})["']""")
         private val ACTION_TOKEN_REGEX = Regex("""<meta\s+name=["']action_token["']\s+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         private val ENCRYPTED_IMAGES_REGEX = Regex("""var\s+_u\s*=\s*(\[\[.*?]]);""", RegexOption.DOT_MATCHES_ALL)
         private val ENCRYPTED_IMAGE_ROW_REGEX = Regex("""\[(\d+(?:,\d+)*)]""")
-        private val WEBVIEW_TOKEN_EXTRACT_SCRIPT = """
-            (function() {
-                var action = '';
-                var candidates = [window.actionToken, window.__actionToken, window.imageToken, window.__imageToken];
-                for (var i = 0; i < candidates.length; i++) {
-                    var v = candidates[i];
-                    if (typeof v === 'string' && /^[a-f0-9]{64}$/.test(v)) {
-                        action = v;
-                        break;
-                    }
-                }
-                var turn = '';
-                var selectors = [
-                    'input[name="cf-turnstile-response"]',
-                    'textarea[name="cf-turnstile-response"]',
-                    '#cf-turnstile-response',
-                    '#report-cf-turnstile-response'
-                ];
-                for (var j = 0; j < selectors.length; j++) {
-                    var el = document.querySelector(selectors[j]);
-                    if (!el) continue;
-                    var val = (el.value || el.getAttribute('value') || '').trim();
-                    if (val.length > 0) {
-                        turn = val;
-                        break;
-                    }
-                }
-                if (!turn && typeof window.turnstile !== 'undefined') {
-                    try {
-                        var maybe = window.turnstile.getResponse();
-                        if (typeof maybe === 'string' && maybe.length > 0) {
-                            turn = maybe;
-                        }
-                    } catch (e) {}
-                }
-                var urls = [];
-                if (Array.isArray(window.__imgSrcs)) {
-                    for (var k = 0; k < window.__imgSrcs.length; k++) {
-                        var src = window.__imgSrcs[k];
-                        if (typeof src === 'string' && src.length > 0) {
-                            urls.push(src);
-                        }
-                    }
-                }
-                if (urls.length === 0) {
-                    var domImgs = document.querySelectorAll('#image-container img, .chapter-content img, .reading-content img, .content-chapter img');
-                    for (var x = 0; x < domImgs.length; x++) {
-                        var img = domImgs[x];
-                        var src2 = (img.getAttribute('src') || img.getAttribute('data-src') || '').trim();
-                        if (src2.length > 0) urls.push(src2);
-                    }
-                }
-                var encodedUrls = [];
-                for (var y = 0; y < urls.length; y++) {
-                    try { encodedUrls.push(encodeURIComponent(urls[y])); } catch (e) {}
-                }
-                return 'ACTION::' + action + '::TURN::' + turn + '::URLS::' + encodedUrls.join('|');
-            })();
-        """.trimIndent()
 
         private val DATE_TIME_FORMAT by lazy {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.ROOT).apply {
@@ -662,10 +342,4 @@ class LxHentai :
             }
         }
     }
-
-    private data class WebViewTokens(
-        val actionToken: String? = null,
-        val turnstileToken: String? = null,
-        val imageUrls: List<String> = emptyList(),
-    )
 }
