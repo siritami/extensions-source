@@ -11,7 +11,6 @@ import android.webkit.WebViewClient
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.asObservable
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -246,24 +245,45 @@ class LxHentai :
 
     // ============================== Pages =================================
 
-    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> = client.newCall(pageListRequest(chapter))
-        .asObservable()
-        .doOnNext { response ->
+    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> = Observable.fromCallable {
+        val chapterUrl = getChapterUrl(chapter)
+        val request = pageListRequest(chapter)
+        val webViewCookies = runCatching { CookieManager.getInstance().getCookie(baseUrl) }.getOrNull().orEmpty()
+
+        client.newCall(request).execute().use { response ->
+            if (response.isSuccessful) {
+                return@fromCallable pageListParse(response)
+            }
+
             if (response.code == 403) {
                 val body = runCatching { response.peekBody(1024 * 1024).string() }.getOrDefault("")
-                val hasTurnstile = isTurnstileChallenge(response, body)
-                response.close()
-                if (hasTurnstile || hasTurnstileChallenge(chapter)) {
+                val hasTurnstile = isTurnstileChallenge(response, body) || hasTurnstileChallenge(chapter)
+
+                if (webViewCookies.isNotBlank()) {
+                    val retriedRequest = request.newBuilder()
+                        .header("Cookie", webViewCookies)
+                        .build()
+                    client.newCall(retriedRequest).execute().use { retriedResponse ->
+                        if (retriedResponse.isSuccessful) {
+                            return@fromCallable pageListParse(retriedResponse)
+                        }
+                    }
+                }
+
+                val webViewData = fetchWebViewTokens(chapterUrl)
+                val webViewPages = webViewData.toPages()
+                if (webViewPages.isNotEmpty()) {
+                    return@fromCallable webViewPages
+                }
+
+                if (hasTurnstile) {
                     throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
                 }
-                throw Exception("HTTP error 403")
             }
-            if (!response.isSuccessful) {
-                response.close()
-                throw Exception("HTTP error ${response.code}")
-            }
+
+            throw Exception("HTTP error ${response.code}")
         }
-        .map(::pageListParse)
+    }
 
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
@@ -402,6 +422,12 @@ class LxHentai :
             ?: throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
     }
 
+    private fun WebViewTokens.toPages(): List<Page> {
+        val token = actionToken?.takeIf(IMAGE_TOKEN_REGEX::matches) ?: return emptyList()
+        if (imageUrls.isEmpty()) return emptyList()
+        return imageUrls.mapIndexed { index, imageUrl -> Page(index, token, imageUrl) }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     @Synchronized
     private fun fetchWebViewTokens(chapterUrl: String): WebViewTokens {
@@ -435,14 +461,23 @@ class LxHentai :
 
                     val actionToken = payload.substringAfter("ACTION::", "").substringBefore("::TURN::", "")
                         .takeIf { IMAGE_TOKEN_REGEX.matches(it) }
-                    val turnstileToken = payload.substringAfter("::TURN::", "")
+                    val turnstileToken = payload.substringAfter("::TURN::", "").substringBefore("::URLS::", "")
                         .takeIf { it.isNotBlank() }
+                    val imageUrls = payload.substringAfter("::URLS::", "")
+                        .split('|')
+                        .mapNotNull { encoded ->
+                            val value = encoded.trim()
+                            if (value.isBlank()) return@mapNotNull null
+                            runCatching { URLDecoder.decode(value, StandardCharsets.UTF_8.name()) }
+                                .getOrNull()
+                                ?.takeIf(String::isNotBlank)
+                        }
 
-                    if (actionToken != null || turnstileToken != null) {
-                        tokens = WebViewTokens(actionToken, turnstileToken)
+                    if (actionToken != null || turnstileToken != null || imageUrls.isNotEmpty()) {
+                        tokens = WebViewTokens(actionToken, turnstileToken, imageUrls)
                     }
 
-                    if (tokens.actionToken != null || attempt + 1 >= WEBVIEW_TOKEN_MAX_RETRIES) {
+                    if ((tokens.actionToken != null && tokens.imageUrls.isNotEmpty()) || attempt + 1 >= WEBVIEW_TOKEN_MAX_RETRIES) {
                         complete()
                     } else {
                         handler.postDelayed({ evaluateTokens(attempt + 1) }, WEBVIEW_TOKEN_RETRY_DELAY_MS)
@@ -589,7 +624,28 @@ class LxHentai :
                         }
                     } catch (e) {}
                 }
-                return 'ACTION::' + action + '::TURN::' + turn;
+                var urls = [];
+                if (Array.isArray(window.__imgSrcs)) {
+                    for (var k = 0; k < window.__imgSrcs.length; k++) {
+                        var src = window.__imgSrcs[k];
+                        if (typeof src === 'string' && src.length > 0) {
+                            urls.push(src);
+                        }
+                    }
+                }
+                if (urls.length === 0) {
+                    var domImgs = document.querySelectorAll('#image-container img, .chapter-content img, .reading-content img, .content-chapter img');
+                    for (var x = 0; x < domImgs.length; x++) {
+                        var img = domImgs[x];
+                        var src2 = (img.getAttribute('src') || img.getAttribute('data-src') || '').trim();
+                        if (src2.length > 0) urls.push(src2);
+                    }
+                }
+                var encodedUrls = [];
+                for (var y = 0; y < urls.length; y++) {
+                    try { encodedUrls.push(encodeURIComponent(urls[y])); } catch (e) {}
+                }
+                return 'ACTION::' + action + '::TURN::' + turn + '::URLS::' + encodedUrls.join('|');
             })();
         """.trimIndent()
 
@@ -603,5 +659,6 @@ class LxHentai :
     private data class WebViewTokens(
         val actionToken: String? = null,
         val turnstileToken: String? = null,
+        val imageUrls: List<String> = emptyList(),
     )
 }
