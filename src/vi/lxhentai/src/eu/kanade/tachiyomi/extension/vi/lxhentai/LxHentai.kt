@@ -311,9 +311,7 @@ class LxHentai :
             ?: "$baseUrl${rawUrl.takeIf { it.startsWith("/") } ?: "/$rawUrl"}"
     }
 
-    private fun encodePageMetadata(chapterUrl: String, actionToken: String): String {
-        return "$chapterUrl\n$actionToken"
-    }
+    private fun encodePageMetadata(chapterUrl: String, actionToken: String): String = "$chapterUrl\n$actionToken"
 
     private fun decodePageMetadata(rawMetadata: String): Pair<String, String> {
         val separatorIndex = rawMetadata.lastIndexOf('\n')
