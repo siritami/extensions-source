@@ -257,7 +257,7 @@ class LxHentai :
             ?: throw Exception("Không tìm thấy action token")
         val encryptedPayload = ENCRYPTED_IMAGES_REGEX.find(html)?.groupValues?.get(1)
             ?: throw Exception("Không tìm thấy dữ liệu ảnh")
-        val imageToken = resolveImageToken(actionToken)
+        val imageToken = actionToken
 
         val encryptedRows = ENCRYPTED_IMAGE_ROW_REGEX.findAll(encryptedPayload)
             .mapNotNull { row: MatchResult ->
@@ -285,7 +285,7 @@ class LxHentai :
 
     override fun imageRequest(page: Page): Request {
         val imageUrl = page.imageUrl ?: throw Exception("Không tìm thấy URL ảnh")
-        val imageToken = page.url.ifBlank { IMAGE_TOKEN }
+        val imageToken = page.url
         return GET(imageUrl, imageHeaders(imageToken))
     }
 
@@ -365,10 +365,6 @@ class LxHentai :
             ?: "$baseUrl${rawUrl.takeIf { it.startsWith("/") } ?: "/$rawUrl"}"
     }
 
-    private fun resolveImageToken(latestToken: String): String = latestToken
-        .takeIf { it.matches(IMAGE_TOKEN_REGEX) }
-        ?: IMAGE_TOKEN
-
     companion object {
         const val PREFIX_ID_SEARCH = "id:"
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
@@ -376,10 +372,7 @@ class LxHentai :
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF_SUMMARY = "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
         private const val CLOUDFLARE_VERIFY_MESSAGE = "Mở webview để xác minh cloudflare cho chương này"
-        private const val IMAGE_TOKEN = "0408bb30f559a8b0b0d1b486402b509d212c9f205a204ecaa66b71fe3702d8e2"
-
         private val BACKGROUND_URL_REGEX = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
-        private val IMAGE_TOKEN_REGEX = Regex("""^[a-f0-9]{64}$""")
         private val ACTION_TOKEN_REGEX = Regex("""<meta\s+name=["']action_token["']\s+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         private val ENCRYPTED_IMAGES_REGEX = Regex("""var\s+_u\s*=\s*(\[\[.*?]]);""", RegexOption.DOT_MATCHES_ALL)
         private val ENCRYPTED_IMAGE_ROW_REGEX = Regex("""\[(\d+(?:,\d+)*)]""")
