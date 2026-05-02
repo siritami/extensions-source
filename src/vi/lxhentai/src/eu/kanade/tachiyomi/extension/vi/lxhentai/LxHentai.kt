@@ -1,7 +1,13 @@
 package eu.kanade.tachiyomi.extension.vi.lxhentai
 
+import android.annotation.SuppressLint
+import android.app.Application
 import android.content.SharedPreferences
+import android.os.Handler
+import android.os.Looper
 import android.webkit.CookieManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
@@ -33,6 +39,10 @@ import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
 class LxHentai :
     HttpSource(),
@@ -376,7 +386,13 @@ class LxHentai :
             return latestToken
         }
 
-        val refreshed = fetchImageTokenFromSession(chapterUrl, latestToken)
+        val webViewTokens = fetchWebViewTokens(chapterUrl)
+        webViewTokens.actionToken?.takeIf { IMAGE_TOKEN_REGEX.matches(it) }?.let { actionToken ->
+            cachedImageToken = actionToken
+            return actionToken
+        }
+
+        val refreshed = fetchImageTokenFromSession(chapterUrl, latestToken, webViewTokens.turnstileToken)
         if (refreshed != null && IMAGE_TOKEN_REGEX.matches(refreshed)) {
             cachedImageToken = refreshed
             return refreshed
@@ -386,7 +402,75 @@ class LxHentai :
             ?: throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
     }
 
-    private fun fetchImageTokenFromSession(chapterUrl: String, csrfToken: String): String? {
+    @SuppressLint("SetJavaScriptEnabled")
+    @Synchronized
+    private fun fetchWebViewTokens(chapterUrl: String): WebViewTokens {
+        val handler = Handler(Looper.getMainLooper())
+        val latch = CountDownLatch(1)
+        val webViewRef = arrayOfNulls<WebView>(1)
+        var tokens = WebViewTokens()
+
+        handler.post {
+            val webView = WebView(Injekt.get<Application>())
+            webViewRef[0] = webView
+
+            with(webView.settings) {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                databaseEnabled = true
+                blockNetworkImage = true
+            }
+
+            fun complete() {
+                latch.countDown()
+            }
+
+            fun evaluateTokens(attempt: Int) {
+                webView.evaluateJavascript(WEBVIEW_TOKEN_EXTRACT_SCRIPT) { rawValue ->
+                    val payload = rawValue
+                        ?.takeUnless { it == "null" }
+                        ?.removeSurrounding("\"")
+                        ?.replace("\\\\", "\\")
+                        .orEmpty()
+
+                    val actionToken = payload.substringAfter("ACTION::", "").substringBefore("::TURN::", "")
+                        .takeIf { IMAGE_TOKEN_REGEX.matches(it) }
+                    val turnstileToken = payload.substringAfter("::TURN::", "")
+                        .takeIf { it.isNotBlank() }
+
+                    if (actionToken != null || turnstileToken != null) {
+                        tokens = WebViewTokens(actionToken, turnstileToken)
+                    }
+
+                    if (tokens.actionToken != null || attempt + 1 >= WEBVIEW_TOKEN_MAX_RETRIES) {
+                        complete()
+                    } else {
+                        handler.postDelayed({ evaluateTokens(attempt + 1) }, WEBVIEW_TOKEN_RETRY_DELAY_MS)
+                    }
+                }
+            }
+
+            webView.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    evaluateTokens(0)
+                }
+            }
+            webView.loadUrl(chapterUrl)
+        }
+
+        latch.await(WEBVIEW_TOKEN_WAIT_SECONDS, TimeUnit.SECONDS)
+        handler.post {
+            webViewRef[0]?.apply {
+                stopLoading()
+                destroy()
+            }
+            webViewRef[0] = null
+        }
+
+        return tokens
+    }
+
+    private fun fetchImageTokenFromSession(chapterUrl: String, csrfToken: String, turnstileToken: String?): String? {
         val baseHttpUrl = baseUrl.toHttpUrl()
         val jarCookies = client.cookieJar.loadForRequest(baseHttpUrl)
         val jarCookieHeader = jarCookies.joinToString("; ") { cookie -> "${cookie.name}=${cookie.value}" }
@@ -403,10 +487,13 @@ class LxHentai :
         val xsrfToken = extractCookieValue(mergedCookieHeader, "XSRF-TOKEN")
             ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
             ?: jarCookies.firstOrNull { it.name.equals("XSRF-TOKEN", ignoreCase = true) }
-                ?.value
-                ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
+            ?.value
+            ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
 
-        val payload = """{"cf-turnstile-response":""}"""
+        val escapedTurnstile = turnstileToken.orEmpty()
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        val payload = """{"cf-turnstile-response":"$escapedTurnstile"}"""
         val request = Request.Builder()
             .url("$baseUrl/get_token")
             .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
@@ -457,6 +544,9 @@ class LxHentai :
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF_SUMMARY = "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
         private const val CLOUDFLARE_VERIFY_MESSAGE = "Mở webview để xác minh cloudflare cho chương này"
+        private const val WEBVIEW_TOKEN_WAIT_SECONDS = 15L
+        private const val WEBVIEW_TOKEN_MAX_RETRIES = 40
+        private const val WEBVIEW_TOKEN_RETRY_DELAY_MS = 250L
         private val BACKGROUND_URL_REGEX = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
         private val IMAGE_TOKEN_REGEX = Regex("""^[a-f0-9]{64}$""")
         private val IS_BOT_FALSE_REGEX = Regex("""["']is_bot["']\s*:\s*false""", RegexOption.IGNORE_CASE)
@@ -464,6 +554,44 @@ class LxHentai :
         private val ACTION_TOKEN_REGEX = Regex("""<meta\s+name=["']action_token["']\s+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         private val ENCRYPTED_IMAGES_REGEX = Regex("""var\s+_u\s*=\s*(\[\[.*?]]);""", RegexOption.DOT_MATCHES_ALL)
         private val ENCRYPTED_IMAGE_ROW_REGEX = Regex("""\[(\d+(?:,\d+)*)]""")
+        private val WEBVIEW_TOKEN_EXTRACT_SCRIPT = """
+            (function() {
+                var action = '';
+                var candidates = [window.actionToken, window.__actionToken, window.imageToken, window.__imageToken];
+                for (var i = 0; i < candidates.length; i++) {
+                    var v = candidates[i];
+                    if (typeof v === 'string' && /^[a-f0-9]{64}$/.test(v)) {
+                        action = v;
+                        break;
+                    }
+                }
+                var turn = '';
+                var selectors = [
+                    'input[name="cf-turnstile-response"]',
+                    'textarea[name="cf-turnstile-response"]',
+                    '#cf-turnstile-response',
+                    '#report-cf-turnstile-response'
+                ];
+                for (var j = 0; j < selectors.length; j++) {
+                    var el = document.querySelector(selectors[j]);
+                    if (!el) continue;
+                    var val = (el.value || el.getAttribute('value') || '').trim();
+                    if (val.length > 0) {
+                        turn = val;
+                        break;
+                    }
+                }
+                if (!turn && typeof window.turnstile !== 'undefined') {
+                    try {
+                        var maybe = window.turnstile.getResponse();
+                        if (typeof maybe === 'string' && maybe.length > 0) {
+                            turn = maybe;
+                        }
+                    } catch (e) {}
+                }
+                return 'ACTION::' + action + '::TURN::' + turn;
+            })();
+        """.trimIndent()
 
         private val DATE_TIME_FORMAT by lazy {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.ROOT).apply {
@@ -471,4 +599,9 @@ class LxHentai :
             }
         }
     }
+
+    private data class WebViewTokens(
+        val actionToken: String? = null,
+        val turnstileToken: String? = null,
+    )
 }
