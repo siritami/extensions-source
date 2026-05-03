@@ -249,10 +249,7 @@ class LxHentai :
         val chapterUrl = response.request.url.toString()
         val document = response.asJsoup()
 
-        // Try fast path: parse the encrypted payload + action_token meta tag (works when
-        // /get_token doesn't require Cloudflare Turnstile for this client). This is used
-        // only to recover decoded image URLs -- the image `Token` header is always fetched
-        // from the WebView below because the site switched to a Turnstile-gated /get_token.
+        // Try parse the encrypted payload + action_token
         val localImageUrls: List<String> = runCatching {
             val html = document.outerHtml()
             val actionToken = ACTION_TOKEN_REGEX.find(html)?.groupValues?.get(1) ?: return@runCatching emptyList()
@@ -359,8 +356,7 @@ class LxHentai :
                 mediaPlaybackRequiresUserGesture = false
             }
 
-            // Share cookies with OkHttp so a Cloudflare clearance solved here (or in
-            // the in-app WebView) carries over to subsequent image requests.
+            // Share cookies with OkHttp
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true)
 
@@ -400,7 +396,7 @@ class LxHentai :
         val finalResult = result
         if (!gotResult || finalResult == null) {
             throw IOException(
-                "Không lấy được token ảnh tự động. Hãy mở chương trong WebView để giải Cloudflare/Turnstile một lần, rồi thử lại.",
+                "Mở chương trong WebView để giải Cloudflare.",
             )
         }
 
