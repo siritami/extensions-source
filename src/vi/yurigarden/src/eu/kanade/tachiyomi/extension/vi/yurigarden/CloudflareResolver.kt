@@ -29,6 +29,7 @@ object CloudflareResolver {
     private const val TIMEOUT_SECONDS = 45L
     private const val INITIAL_POLL_DELAY_MS = 2_000L
     private const val POLL_INTERVAL_MS = 500L
+
     // Keep polling after onPageFinished to let the reader page's JS fire the
     // API subrequests that actually trigger the cf_clearance cookie.
     private const val POST_LOAD_GRACE_MS = 8_000L
