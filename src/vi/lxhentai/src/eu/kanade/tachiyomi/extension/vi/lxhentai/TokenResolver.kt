@@ -18,17 +18,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-/**
- * Loads a chapter page in a hidden, fully-laid-out [WebView] so the site's own JS
- * can solve Cloudflare Turnstile, call `/get_token`, and expose:
- *
- *  - `window.actionToken` (server-issued token used as the `Token` header on images)
- *  - `window.__imgSrcs`   (XOR-decoded image URLs)
- *
- * Turnstile fingerprints the rendering pipeline (screen/canvas size), so the view
- * is forced to a realistic layout to let the invisible/managed widget auto-solve
- * in most cases. Results are cached briefly per chapter URL.
- */
 object TokenResolver {
 
     @Serializable

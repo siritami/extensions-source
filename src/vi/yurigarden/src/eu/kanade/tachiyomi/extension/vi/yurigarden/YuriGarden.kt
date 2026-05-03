@@ -246,7 +246,8 @@ class YuriGarden :
         .map(::pageListParse)
 
     private fun executePageListRequest(chapter: SChapter, allowRetry: Boolean): Response {
-        val response = client.newCall(pageListRequest(chapter)).execute()
+        val request = pageListRequest(chapter)
+        val response = client.newCall(request).execute()
         if (response.isSuccessful) return response
 
         if (response.code == 403) {
@@ -255,8 +256,10 @@ class YuriGarden :
             response.close()
 
             if (hasTurnstile && allowRetry) {
-                val resolveUrl = resolveReaderUrl(chapter) ?: getChapterUrl(chapter)
-                if (CloudflareResolver.resolve(resolveUrl)) {
+                // Cloudflare clearance is per-domain. The API subdomain (api.yurigarden.com)
+                // is what is gated, so solve the challenge by loading the blocked API URL
+                // itself in the WebView -- not the public reader page, which isn't gated.
+                if (CloudflareResolver.resolve(request.url.toString())) {
                     return executePageListRequest(chapter, allowRetry = false)
                 }
                 throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
