@@ -1,6 +1,12 @@
 package eu.kanade.tachiyomi.extension.vi.lxhentai
 
+import android.annotation.SuppressLint
+import android.app.Application
 import android.content.SharedPreferences
+import android.os.Handler
+import android.os.Looper
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
@@ -15,7 +21,9 @@ import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferences
+import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
+import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
@@ -23,9 +31,14 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import rx.Observable
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class LxHentai :
     HttpSource(),
@@ -230,34 +243,50 @@ class LxHentai :
     // ============================== Pages =================================
 
     override fun pageListParse(response: Response): List<Page> {
-        val document = response.asJsoup()
-        val html = document.outerHtml()
         val chapterUrl = response.request.url.toString()
-        val actionToken = ACTION_TOKEN_REGEX.find(html)?.groupValues?.get(1)
-            ?: throw Exception("Không tìm thấy action token")
-        val encryptedPayload = ENCRYPTED_IMAGES_REGEX.find(html)?.groupValues?.get(1)
-            ?: throw Exception("Không tìm thấy dữ liệu ảnh")
-        val pageMetadata = encodePageMetadata(chapterUrl, actionToken)
+        val document = response.asJsoup()
 
-        val encryptedRows = ENCRYPTED_IMAGE_ROW_REGEX.findAll(encryptedPayload)
-            .mapNotNull { row: MatchResult ->
-                row.groupValues.getOrNull(1)
-                    ?.split(',')
-                    ?.mapNotNull { it.toIntOrNull() }
-                    ?.takeIf { it.isNotEmpty() }
-            }
-            .toList()
+        // Try fast path: parse the encrypted payload + action_token meta tag (works when
+        // /get_token doesn't require Cloudflare Turnstile for this client). This is used
+        // only to recover decoded image URLs -- the image `Token` header is always fetched
+        // from the WebView below because the site switched to a Turnstile-gated /get_token.
+        val localImageUrls: List<String> = runCatching {
+            val html = document.outerHtml()
+            val actionToken = ACTION_TOKEN_REGEX.find(html)?.groupValues?.get(1) ?: return@runCatching emptyList()
+            val encryptedPayload = ENCRYPTED_IMAGES_REGEX.find(html)?.groupValues?.get(1) ?: return@runCatching emptyList()
+            val encryptedRows = ENCRYPTED_IMAGE_ROW_REGEX.findAll(encryptedPayload)
+                .mapNotNull { row: MatchResult ->
+                    row.groupValues.getOrNull(1)
+                        ?.split(',')
+                        ?.mapNotNull { it.toIntOrNull() }
+                        ?.takeIf { it.isNotEmpty() }
+                }
+                .toList()
+            document.select("#image-container[data-idx]")
+                .asSequence()
+                .mapNotNull { element: Element -> element.attr("data-idx").toIntOrNull() }
+                .distinct()
+                .sorted()
+                .mapNotNull { idx: Int -> encryptedRows.getOrNull(idx) }
+                .map { codes: List<Int> -> decodeImageUrl(codes, actionToken) }
+                .filter { it.isNotBlank() }
+                .toList()
+        }.getOrDefault(emptyList())
 
-        val imageUrls = document.select("#image-container[data-idx]")
-            .asSequence()
-            .mapNotNull { element: Element -> element.attr("data-idx").toIntOrNull() }
-            .distinct()
-            .sorted()
-            .mapNotNull { idx: Int -> encryptedRows.getOrNull(idx) }
-            .map { codes: List<Int> -> decodeImageUrl(codes, actionToken) }
-            .filter { it.isNotBlank() }
-            .toList()
+        // Token that images require as the `Token` header must come from /get_token, which
+        // is gated behind Cloudflare Turnstile. We run the chapter page in a headless WebView
+        // so the site's own JS solves Turnstile, calls /get_token and exposes the result via
+        // window.actionToken (and the decoded URLs via window.__imgSrcs).
+        val webViewData = fetchTokenAndImagesFromWebView(chapterUrl)
 
+        val imageUrls = webViewData.srcs.filter { it.isNotBlank() }
+            .ifEmpty { localImageUrls }
+
+        if (imageUrls.isEmpty()) {
+            throw Exception("Không tìm thấy dữ liệu ảnh")
+        }
+
+        val pageMetadata = encodePageMetadata(chapterUrl, webViewData.token)
         return imageUrls.mapIndexed { index: Int, imageUrl: String ->
             Page(index, pageMetadata, imageUrl)
         }
@@ -283,6 +312,82 @@ class LxHentai :
         .add("Origin", baseUrl)
         .add("Token", actionToken)
         .build()
+
+    // --- WebView-based token + image URL extraction ---
+
+    @Serializable
+    private class WebViewData(val token: String = "", val srcs: List<String> = emptyList())
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun fetchTokenAndImagesFromWebView(chapterUrl: String): WebViewData {
+        val cached = tokenCache[chapterUrl]
+        if (cached != null && System.currentTimeMillis() - cached.second < TOKEN_TTL_MS) {
+            return cached.first
+        }
+
+        val context = Injekt.get<Application>()
+        val handler = Handler(Looper.getMainLooper())
+        val latch = CountDownLatch(1)
+        var webView: WebView? = null
+        var result: WebViewData? = null
+        lateinit var poll: Runnable
+
+        val userAgent = headers["User-Agent"]
+
+        handler.post {
+            val wv = WebView(context)
+            webView = wv
+            with(wv.settings) {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                databaseEnabled = true
+                blockNetworkImage = true
+                if (!userAgent.isNullOrBlank()) {
+                    userAgentString = userAgent
+                }
+            }
+            wv.webViewClient = WebViewClient()
+
+            poll = Runnable {
+                if (latch.count == 0L) return@Runnable
+                wv.evaluateJavascript(TOKEN_EXTRACTION_JS) { raw ->
+                    if (latch.count == 0L) return@evaluateJavascript
+                    if (raw.isNullOrEmpty() || raw == "null" || raw == "\"\"") {
+                        handler.postDelayed(poll, POLL_INTERVAL_MS)
+                        return@evaluateJavascript
+                    }
+                    runCatching { raw.parseAs<WebViewData>() }
+                        .getOrNull()
+                        ?.takeIf { it.token.isNotBlank() && it.srcs.isNotEmpty() }
+                        ?.let {
+                            result = it
+                            latch.countDown()
+                        }
+                        ?: handler.postDelayed(poll, POLL_INTERVAL_MS)
+                }
+            }
+
+            wv.loadUrl(chapterUrl)
+            handler.postDelayed(poll, INITIAL_POLL_DELAY_MS)
+        }
+
+        val gotResult = latch.await(WEBVIEW_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+
+        handler.post {
+            handler.removeCallbacks(poll)
+            webView?.stopLoading()
+            webView?.destroy()
+        }
+
+        if (!gotResult || result == null) {
+            throw IOException(
+                "Không lấy được token ảnh từ trình duyệt. Hãy mở chương trong WebView để giải Cloudflare, rồi thử lại.",
+            )
+        }
+
+        tokenCache[chapterUrl] = result!! to System.currentTimeMillis()
+        return result!!
+    }
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
@@ -324,6 +429,8 @@ class LxHentai :
         return chapterUrl to actionToken
     }
 
+    private val tokenCache = java.util.concurrent.ConcurrentHashMap<String, Pair<WebViewData, Long>>()
+
     companion object {
         const val PREFIX_ID_SEARCH = "id:"
         private const val DEFAULT_BASE_URL_PREF = "defaultBaseUrl"
@@ -331,10 +438,31 @@ class LxHentai :
         private const val BASE_URL_PREF_TITLE = "Ghi đè URL cơ sở"
         private const val BASE_URL_PREF_SUMMARY = "Dành cho sử dụng tạm thời, cập nhật tiện ích sẽ xóa cài đặt."
 
+        private const val WEBVIEW_TIMEOUT_SECONDS = 45L
+        private const val INITIAL_POLL_DELAY_MS = 2_000L
+        private const val POLL_INTERVAL_MS = 500L
+        private const val TOKEN_TTL_MS = 60_000L
+
         private val BACKGROUND_URL_REGEX = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
         private val ACTION_TOKEN_REGEX = Regex("""<meta\s+name=["']action_token["']\s+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         private val ENCRYPTED_IMAGES_REGEX = Regex("""var\s+_u\s*=\s*(\[\[.*?]]);""", RegexOption.DOT_MATCHES_ALL)
         private val ENCRYPTED_IMAGE_ROW_REGEX = Regex("""\[(\d+(?:,\d+)*)]""")
+
+        // evaluateJavascript returns a JSON representation of the expression's value.
+        // Returning a plain object yields `{"token":"...","srcs":[...]}` which parseAs can
+        // decode directly; returning an empty string yields `""` so we can loop-poll.
+        private val TOKEN_EXTRACTION_JS = """
+            (function(){
+                try {
+                    var t = (typeof window.actionToken !== 'undefined' && window.actionToken) ? String(window.actionToken) : '';
+                    var s = (Array.isArray(window.__imgSrcs)) ? window.__imgSrcs.filter(function(x){return typeof x === 'string' && x.length > 0;}) : [];
+                    if (t && s.length > 0) {
+                        return {token: t, srcs: s};
+                    }
+                } catch(e) {}
+                return '';
+            })();
+        """.trimIndent()
 
         private val DATE_TIME_FORMAT by lazy {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.ROOT).apply {
