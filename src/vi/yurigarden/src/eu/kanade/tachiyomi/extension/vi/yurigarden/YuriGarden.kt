@@ -267,18 +267,9 @@ class YuriGarden :
             response.close()
 
             if (allowRetry) {
-                // Always try to solve via WebView on 403. We deliberately skip the
-                // secondary "is this really Turnstile?" probe: it would issue extra
-                // OkHttp calls through cloudflareClient (each of which may itself
-                // trigger CF dance/interceptors), wasting the time budget our own
-                // resolver needs and producing the symptom where the first chapter
-                // fails but the second works because cookies finally warmed up.
-                //
-                // Loading the reader page (parent domain, real browser session) lets
-                // Turnstile auto-solve and seeds cf_clearance for both yurigarden.com
-                // and api.yurigarden.com (CF scopes the cookie to the parent domain).
-                val solveUrl = getChapterUrl(chapter)
-                CloudflareResolver.resolve(solveUrl)
+                // Solve via the reader page so Turnstile gets a real browser session;
+                // cf_clearance is scoped to the parent domain and covers the API host.
+                CloudflareResolver.resolve(getChapterUrl(chapter))
                 return executePageListRequest(chapter, allowRetry = false)
             }
             throw Exception(CLOUDFLARE_VERIFY_MESSAGE)

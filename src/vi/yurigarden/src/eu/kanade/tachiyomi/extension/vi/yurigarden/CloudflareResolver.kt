@@ -30,8 +30,6 @@ object CloudflareResolver {
     private const val INITIAL_POLL_DELAY_MS = 2_000L
     private const val POLL_INTERVAL_MS = 500L
 
-    // Keep polling after onPageFinished to let the reader page's JS fire the
-    // API subrequests that actually trigger the cf_clearance cookie.
     private const val POST_LOAD_GRACE_MS = 8_000L
     private const val WEBVIEW_WIDTH = 1080
     private const val WEBVIEW_HEIGHT = 1920
@@ -69,9 +67,7 @@ object CloudflareResolver {
                 useWideViewPort = true
                 blockNetworkImage = false
                 mediaPlaybackRequiresUserGesture = false
-                // Cloudflare binds cf_clearance to the User-Agent that solved the
-                // challenge, so the cookie is only valid for OkHttp requests if both
-                // sides use the same UA.
+                // cf_clearance is bound to the UA that solved it; keep both sides aligned.
                 if (!userAgent.isNullOrBlank()) userAgentString = userAgent
             }
 
@@ -90,10 +86,7 @@ object CloudflareResolver {
                     latch.countDown()
                     return@Runnable
                 }
-                // Stop waiting once the grace period after page load has elapsed.
-                // This covers both "CF wasn't actually gating this URL" and
-                // "managed/invisible challenge solved without a visible cookie" --
-                // the caller will retry the OkHttp request once regardless.
+                // Give up once the post-load grace window has elapsed.
                 val finishedAt = pageFinishedAt.get()
                 if (finishedAt != 0L && System.currentTimeMillis() - finishedAt > POST_LOAD_GRACE_MS) {
                     latch.countDown()
@@ -114,8 +107,6 @@ object CloudflareResolver {
             webView?.destroy()
         }
 
-        // Report success based on the actual cookie state, not just "page loaded";
-        // this prevents an infinite retry loop if Cloudflare really blocked us.
         return hasClearance(cookieManager, url)
     }
 
