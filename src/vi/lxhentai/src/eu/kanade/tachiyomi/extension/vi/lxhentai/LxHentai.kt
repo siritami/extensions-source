@@ -277,7 +277,7 @@ class LxHentai :
         }.getOrDefault(emptyList())
 
         // Token that images require as the `Token` header must come from /get_token, which
-        // is gated behind Cloudflare Turnstile. We run the chapter page in a headless WebView
+        // is gated behind Cloudflare Turnstile. Run the chapter page in a headless WebView
         // so the site's own JS solves Turnstile, calls /get_token and exposes the result via
         // window.actionToken (and the decoded URLs via window.__imgSrcs).
         val webViewData = fetchTokenAndImagesFromWebView(chapterUrl)
@@ -340,9 +340,7 @@ class LxHentai :
             webView = wv
 
             // Cloudflare Turnstile fingerprints the rendering pipeline (screen size,
-            // canvas, layout). A WebView that's never measured/laid out reports zero
-            // dimensions and Turnstile falls back to the interactive challenge that the
-            // headless context cannot complete. Forcing a realistic layout size makes
+            // canvas, layout). Forcing a realistic layout size makes
             // the invisible/managed widget auto-solve in most cases.
             wv.layoutParams = ViewGroup.LayoutParams(WEBVIEW_WIDTH, WEBVIEW_HEIGHT)
             wv.measure(
@@ -471,9 +469,7 @@ class LxHentai :
         private val ENCRYPTED_IMAGES_REGEX = Regex("""var\s+_u\s*=\s*(\[\[.*?]]);""", RegexOption.DOT_MATCHES_ALL)
         private val ENCRYPTED_IMAGE_ROW_REGEX = Regex("""\[(\d+(?:,\d+)*)]""")
 
-        // evaluateJavascript returns a JSON representation of the expression's value.
-        // Returning a plain object yields `{"token":"...","srcs":[...]}` which parseAs can
-        // decode directly; returning an empty string yields `""` so we can loop-poll.
+        // evaluateJavascript returns token
         private val TOKEN_EXTRACTION_JS = """
             (function(){
                 try {
