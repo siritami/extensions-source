@@ -162,7 +162,8 @@ class MiMi : HttpSource() {
         return GET("$apiUrl/manga/$id/chapters", headers)
     }
 
-    override fun chapterListParse(response: Response): List<SChapter> = response.parseAs<List<ChapterDto>>().map { it.toSChapter() }
+    override fun chapterListParse(response: Response): List<SChapter> =
+        response.parseAs<List<ChapterDto>>().map { it.toSChapter() }.sortedByDescending { it.chapter_number }
 
     override fun getChapterUrl(chapter: SChapter): String = "$baseUrl${chapter.url}"
 
@@ -174,6 +175,13 @@ class MiMi : HttpSource() {
     }
 
     override fun pageListParse(response: Response): List<Page> = response.parseAs<ChapterPageDto>().toPageList()
+
+    override fun imageRequest(page: Page): Request {
+        val imageHeaders = headersBuilder()
+            .set("Referer", baseUrl)
+            .build()
+        return GET(page.imageUrl!!, imageHeaders)
+    }
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
