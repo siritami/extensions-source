@@ -5,6 +5,10 @@ import android.app.Application
 import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.preference.EditTextPreference
@@ -332,20 +336,37 @@ class LxHentai :
         var result: WebViewData? = null
         lateinit var poll: Runnable
 
-        val userAgent = headers["User-Agent"]
-
         handler.post {
             val wv = WebView(context)
             webView = wv
+
+            // Cloudflare Turnstile fingerprints the rendering pipeline (screen size,
+            // canvas, layout). A WebView that's never measured/laid out reports zero
+            // dimensions and Turnstile falls back to the interactive challenge that the
+            // headless context cannot complete. Forcing a realistic layout size makes
+            // the invisible/managed widget auto-solve in most cases.
+            wv.layoutParams = ViewGroup.LayoutParams(WEBVIEW_WIDTH, WEBVIEW_HEIGHT)
+            wv.measure(
+                View.MeasureSpec.makeMeasureSpec(WEBVIEW_WIDTH, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(WEBVIEW_HEIGHT, View.MeasureSpec.EXACTLY),
+            )
+            wv.layout(0, 0, WEBVIEW_WIDTH, WEBVIEW_HEIGHT)
+
             with(wv.settings) {
                 javaScriptEnabled = true
                 domStorageEnabled = true
                 databaseEnabled = true
-                blockNetworkImage = true
-                if (!userAgent.isNullOrBlank()) {
-                    userAgentString = userAgent
-                }
+                loadWithOverviewMode = true
+                useWideViewPort = true
+                blockNetworkImage = false
+                mediaPlaybackRequiresUserGesture = false
             }
+
+            // Share cookies with OkHttp so a Cloudflare clearance solved here (or in
+            // the in-app WebView) carries over to subsequent image requests.
+            CookieManager.getInstance().setAcceptCookie(true)
+            CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true)
+
             wv.webViewClient = WebViewClient()
 
             poll = Runnable {
@@ -380,8 +401,9 @@ class LxHentai :
         }
 
         if (!gotResult || result == null) {
+            Log.w("LxHentai", "Token fetch timed out for $chapterUrl after ${WEBVIEW_TIMEOUT_SECONDS}s")
             throw IOException(
-                "Không lấy được token ảnh từ trình duyệt. Hãy mở chương trong WebView để giải Cloudflare, rồi thử lại.",
+                "Không lấy được token ảnh tự động. Hãy mở chương trong WebView để giải Cloudflare/Turnstile một lần, rồi thử lại.",
             )
         }
 
@@ -442,6 +464,8 @@ class LxHentai :
         private const val INITIAL_POLL_DELAY_MS = 2_000L
         private const val POLL_INTERVAL_MS = 500L
         private const val TOKEN_TTL_MS = 60_000L
+        private const val WEBVIEW_WIDTH = 1080
+        private const val WEBVIEW_HEIGHT = 1920
 
         private val BACKGROUND_URL_REGEX = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
         private val ACTION_TOKEN_REGEX = Regex("""<meta\s+name=["']action_token["']\s+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
