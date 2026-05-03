@@ -259,10 +259,14 @@ class YuriGarden :
                 // Cloudflare clearance is per-domain. The API subdomain (api.yurigarden.com)
                 // is what is gated, so solve the challenge by loading the blocked API URL
                 // itself in the WebView -- not the public reader page, which isn't gated.
-                if (CloudflareResolver.resolve(request.url.toString())) {
-                    return executePageListRequest(chapter, allowRetry = false)
-                }
-                throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
+                // Pass the OkHttp User-Agent so cf_clearance is bound to the same UA both
+                // sides use (Cloudflare invalidates the cookie if UA changes).
+                val userAgent = headers["User-Agent"]
+                CloudflareResolver.resolve(request.url.toString(), userAgent)
+                // Always retry once: the resolver may have warmed cookies that don't
+                // include cf_clearance directly (parent-domain cookie, JS-set cookie,
+                // session token, etc.) but still let OkHttp through.
+                return executePageListRequest(chapter, allowRetry = false)
             }
             if (hasTurnstile) throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
             throw Exception("HTTP error 403")

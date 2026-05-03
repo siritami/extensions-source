@@ -13,6 +13,7 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Solves a Cloudflare Turnstile / challenge page by loading the target URL in a
@@ -34,13 +35,14 @@ object CloudflareResolver {
 
     @Synchronized
     @SuppressLint("SetJavaScriptEnabled")
-    fun resolve(url: String): Boolean {
+    fun resolve(url: String, userAgent: String? = null): Boolean {
         val cookieManager = CookieManager.getInstance()
         if (hasClearance(cookieManager, url)) return true
 
         val context = Injekt.get<Application>()
         val handler = Handler(Looper.getMainLooper())
         val latch = CountDownLatch(1)
+        val pageFinished = AtomicBoolean(false)
         var webView: WebView? = null
         lateinit var poll: Runnable
 
@@ -63,27 +65,44 @@ object CloudflareResolver {
                 useWideViewPort = true
                 blockNetworkImage = false
                 mediaPlaybackRequiresUserGesture = false
+                // Cloudflare binds cf_clearance to the User-Agent that solved the
+                // challenge, so the cookie is only valid for OkHttp requests if both
+                // sides use the same UA.
+                if (!userAgent.isNullOrBlank()) userAgentString = userAgent
             }
 
             cookieManager.setAcceptCookie(true)
             cookieManager.setAcceptThirdPartyCookies(wv, true)
 
-            wv.webViewClient = WebViewClient()
+            wv.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, finishedUrl: String?) {
+                    pageFinished.set(true)
+                }
+            }
 
             poll = Runnable {
                 if (latch.count == 0L) return@Runnable
                 if (hasClearance(cookieManager, url)) {
                     latch.countDown()
-                } else {
-                    handler.postDelayed(poll, POLL_INTERVAL_MS)
+                    return@Runnable
                 }
+                // If the page finished loading without producing a clearance cookie,
+                // either Cloudflare wasn't actually gating this URL for the WebView's
+                // session or the challenge auto-solved without setting the cookie
+                // (e.g. managed challenge, JS interstitial). Either way, retrying the
+                // OkHttp call now is more useful than waiting out the full timeout.
+                if (pageFinished.get()) {
+                    latch.countDown()
+                    return@Runnable
+                }
+                handler.postDelayed(poll, POLL_INTERVAL_MS)
             }
 
             wv.loadUrl(url)
             handler.postDelayed(poll, INITIAL_POLL_DELAY_MS)
         }
 
-        val solved = latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)
 
         handler.post {
             handler.removeCallbacks(poll)
@@ -91,7 +110,9 @@ object CloudflareResolver {
             webView?.destroy()
         }
 
-        return solved
+        // Report success based on the actual cookie state, not just "page loaded";
+        // this prevents an infinite retry loop if Cloudflare really blocked us.
+        return hasClearance(cookieManager, url)
     }
 
     private fun hasClearance(cookieManager: CookieManager, url: String): Boolean {
