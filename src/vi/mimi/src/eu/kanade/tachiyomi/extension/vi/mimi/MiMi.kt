@@ -162,8 +162,7 @@ class MiMi : HttpSource() {
         return GET("$apiUrl/manga/$id/chapters", headers)
     }
 
-    override fun chapterListParse(response: Response): List<SChapter> =
-        response.parseAs<List<ChapterDto>>().map { it.toSChapter() }.sortedByDescending { it.chapter_number }
+    override fun chapterListParse(response: Response): List<SChapter> = response.parseAs<List<ChapterDto>>().map { it.toSChapter() }.sortedByDescending { it.chapter_number }
 
     override fun getChapterUrl(chapter: SChapter): String = "$baseUrl${chapter.url}"
 
