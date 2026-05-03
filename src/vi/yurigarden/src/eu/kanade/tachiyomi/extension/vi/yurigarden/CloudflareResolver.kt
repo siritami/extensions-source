@@ -13,7 +13,7 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Solves a Cloudflare Turnstile / challenge page by loading the target URL in a
@@ -29,6 +29,9 @@ object CloudflareResolver {
     private const val TIMEOUT_SECONDS = 45L
     private const val INITIAL_POLL_DELAY_MS = 2_000L
     private const val POLL_INTERVAL_MS = 500L
+    // Keep polling after onPageFinished to let the reader page's JS fire the
+    // API subrequests that actually trigger the cf_clearance cookie.
+    private const val POST_LOAD_GRACE_MS = 8_000L
     private const val WEBVIEW_WIDTH = 1080
     private const val WEBVIEW_HEIGHT = 1920
     private const val CLEARANCE_COOKIE = "cf_clearance"
@@ -42,7 +45,7 @@ object CloudflareResolver {
         val context = Injekt.get<Application>()
         val handler = Handler(Looper.getMainLooper())
         val latch = CountDownLatch(1)
-        val pageFinished = AtomicBoolean(false)
+        val pageFinishedAt = AtomicLong(0L)
         var webView: WebView? = null
         lateinit var poll: Runnable
 
@@ -76,7 +79,7 @@ object CloudflareResolver {
 
             wv.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, finishedUrl: String?) {
-                    pageFinished.set(true)
+                    pageFinishedAt.compareAndSet(0L, System.currentTimeMillis())
                 }
             }
 
@@ -86,12 +89,12 @@ object CloudflareResolver {
                     latch.countDown()
                     return@Runnable
                 }
-                // If the page finished loading without producing a clearance cookie,
-                // either Cloudflare wasn't actually gating this URL for the WebView's
-                // session or the challenge auto-solved without setting the cookie
-                // (e.g. managed challenge, JS interstitial). Either way, retrying the
-                // OkHttp call now is more useful than waiting out the full timeout.
-                if (pageFinished.get()) {
+                // Stop waiting once the grace period after page load has elapsed.
+                // This covers both "CF wasn't actually gating this URL" and
+                // "managed/invisible challenge solved without a visible cookie" --
+                // the caller will retry the OkHttp request once regardless.
+                val finishedAt = pageFinishedAt.get()
+                if (finishedAt != 0L && System.currentTimeMillis() - finishedAt > POST_LOAD_GRACE_MS) {
                     latch.countDown()
                     return@Runnable
                 }

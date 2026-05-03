@@ -256,16 +256,21 @@ class YuriGarden :
             response.close()
 
             if (hasTurnstile && allowRetry) {
-                // Cloudflare clearance is per-domain. The API subdomain (api.yurigarden.com)
-                // is what is gated, so solve the challenge by loading the blocked API URL
-                // itself in the WebView -- not the public reader page, which isn't gated.
-                // Pass the OkHttp User-Agent so cf_clearance is bound to the same UA both
-                // sides use (Cloudflare invalidates the cookie if UA changes).
+                // Pass the OkHttp User-Agent so cf_clearance is bound to the same UA
+                // (Cloudflare invalidates the cookie if UA changes between solve and use).
                 val userAgent = headers["User-Agent"]
-                CloudflareResolver.resolve(request.url.toString(), userAgent)
-                // Always retry once: the resolver may have warmed cookies that don't
-                // include cf_clearance directly (parent-domain cookie, JS-set cookie,
-                // session token, etc.) but still let OkHttp through.
+                // Load the public reader page rather than the JSON API endpoint:
+                //  - CF typically scopes cf_clearance to the parent domain
+                //    (Domain=.yurigarden.com), which then also covers api.yurigarden.com.
+                //  - Loading the HTML reader page gives the WebView a realistic browser
+                //    session (referer, origin, first-party cookies, JS context), which
+                //    Turnstile's managed challenge is far more likely to auto-solve than
+                //    a bare JSON request.
+                val solveUrl = resolveReaderUrl(chapter) ?: getChapterUrl(chapter)
+                CloudflareResolver.resolve(solveUrl, userAgent)
+                // Always retry once: even if no cf_clearance cookie is visible, the
+                // WebView may have warmed other cookies/session state that let OkHttp
+                // through.
                 return executePageListRequest(chapter, allowRetry = false)
             }
             if (hasTurnstile) throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
