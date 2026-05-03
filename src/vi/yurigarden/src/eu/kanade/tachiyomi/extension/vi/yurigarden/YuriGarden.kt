@@ -20,7 +20,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.Jsoup
 import rx.Observable
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -265,27 +264,24 @@ class YuriGarden :
         if (response.isSuccessful) return response
 
         if (response.code == 403) {
-            val body = runCatching { response.peekBody(1024 * 1024).string() }.getOrDefault("")
-            val hasTurnstile = isTurnstileChallenge(response, body) || hasTurnstileChallenge(chapter)
             response.close()
 
-            if (hasTurnstile && allowRetry) {
-                // Load the public reader page rather than the JSON API endpoint so the
-                // WebView gets a realistic browser session (Referer, Origin, cookies,
-                // JS context). CF typically scopes cf_clearance to the parent domain
-                // (Domain=.yurigarden.com), which also covers api.yurigarden.com.
-                // Don't override the WebView UA -- the resolver will use its native
-                // Android-Chrome UA, which is what we now also send via OkHttp (see
-                // headersBuilder), so the cf_clearance cookie issued by Turnstile is
-                // valid for both sides.
-                val solveUrl = resolveReaderUrl(chapter) ?: getChapterUrl(chapter)
+            if (allowRetry) {
+                // Always try to solve via WebView on 403. We deliberately skip the
+                // secondary "is this really Turnstile?" probe: it would issue extra
+                // OkHttp calls through cloudflareClient (each of which may itself
+                // trigger CF dance/interceptors), wasting the time budget our own
+                // resolver needs and producing the symptom where the first chapter
+                // fails but the second works because cookies finally warmed up.
+                //
+                // Loading the reader page (parent domain, real browser session) lets
+                // Turnstile auto-solve and seeds cf_clearance for both yurigarden.com
+                // and api.yurigarden.com (CF scopes the cookie to the parent domain).
+                val solveUrl = getChapterUrl(chapter)
                 CloudflareResolver.resolve(solveUrl)
-                // Always retry once: the WebView may have warmed cookies that don't
-                // include cf_clearance directly but still let OkHttp through.
                 return executePageListRequest(chapter, allowRetry = false)
             }
-            if (hasTurnstile) throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
-            throw Exception("HTTP error 403")
+            throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
         }
 
         response.close()
@@ -331,51 +327,6 @@ class YuriGarden :
             body.parseAs<ChapterDetail>()
         }
     }
-
-    private fun hasTurnstileChallenge(chapter: SChapter): Boolean {
-        val urls = listOfNotNull(resolveReaderUrl(chapter), getChapterUrl(chapter)).distinct()
-
-        return urls.any { url ->
-            runCatching {
-                client.newCall(GET(url, headers)).execute().use { response ->
-                    val body = runCatching { response.body.string() }.getOrDefault("")
-                    isTurnstileChallenge(response, body)
-                }
-            }.getOrDefault(false)
-        }
-    }
-
-    private fun isTurnstileChallenge(response: Response, body: String): Boolean = response.header("cf-mitigated")?.equals("challenge", ignoreCase = true) == true ||
-        hasTurnstileElement(body) ||
-        body.contains("/cdn-cgi/challenge-platform", ignoreCase = true) ||
-        body.contains("Just a moment", ignoreCase = true)
-
-    private fun hasTurnstileElement(html: String): Boolean {
-        if (html.isBlank()) return false
-
-        val document = Jsoup.parse(html)
-        return document.selectFirst(
-            "div.cf-turnstile, " +
-                "input[name=cf-turnstile-response], " +
-                "iframe[src*=challenges.cloudflare.com], " +
-                "form#challenge-form, " +
-                "#cf-challenge-running, " +
-                "#challenge-stage",
-        ) != null ||
-            html.contains("cf-turnstile", ignoreCase = true) ||
-            html.contains("challenges.cloudflare.com/turnstile", ignoreCase = true)
-    }
-
-    private fun resolveReaderUrl(chapter: SChapter): String? = runCatching {
-        val chapterId = chapterId(chapter)
-        client.newCall(GET("$apiUrl/chapters/$chapterId", apiHeaders())).execute().use { response ->
-            if (!response.isSuccessful) return@use null
-
-            val body = response.body.string()
-            val comicId = COMIC_ID_REGEX.find(body)?.groupValues?.getOrNull(1) ?: return@use null
-            "$baseUrl/comic/$comicId/$chapterId"
-        }
-    }.getOrNull()
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
@@ -425,7 +376,6 @@ class YuriGarden :
         private const val LIMIT = 15
         private const val AES_PASSWORD = "FYgicJ8oFdIYfgLv"
         private const val CLOUDFLARE_VERIFY_MESSAGE = "Mở webview để xác minh cloudflare cho chương này"
-        private val COMIC_ID_REGEX = """"comic"\s*:\s*\{\s*"id"\s*:\s*(\d+)""".toRegex()
         private const val PREF_SHOW_R18 = "pref_show_r18"
         private const val PREF_SHOW_R18_DEFAULT = false
     }
