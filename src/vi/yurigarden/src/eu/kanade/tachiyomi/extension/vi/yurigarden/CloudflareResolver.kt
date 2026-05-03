@@ -31,14 +31,6 @@ object CloudflareResolver {
     private const val WEBVIEW_HEIGHT = 1920
     private const val CLEARANCE_COOKIE = "cf_clearance"
 
-    /**
-     * @param loadUrl    URL the WebView navigates to (the page CF should challenge).
-     * @param cookieUrl  URL the cf_clearance cookie must end up valid for. Defaults to
-     *                   [loadUrl]. Use a different URL when the host that needs clearance
-     *                   (e.g. an API subdomain) is hit *after* the main page's JS runs.
-     * @param userAgent  UA string forced on the WebView. The OkHttp client must use the
-     *                   same UA or the cookie will be invalid for it.
-     */
     @Synchronized
     @SuppressLint("SetJavaScriptEnabled")
     fun resolve(loadUrl: String, cookieUrl: String = loadUrl, userAgent: String? = null): Boolean {
@@ -92,10 +84,6 @@ object CloudflareResolver {
             handler.postDelayed(poll, POLL_INTERVAL_MS)
         }
 
-        // Block up to TIMEOUT_SECONDS for the cookie to appear. The reader page's
-        // own JS may need to fire subrequests (e.g. to an API host) before the
-        // host we actually need clearance for receives a challenge -- that whole
-        // chain can take 10-15 s, so we don't try to short-circuit on page load.
         latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)
 
         handler.post {
