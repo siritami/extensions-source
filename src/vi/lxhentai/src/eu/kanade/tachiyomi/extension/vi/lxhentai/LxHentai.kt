@@ -5,7 +5,6 @@ import android.app.Application
 import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -400,15 +399,15 @@ class LxHentai :
             webView?.destroy()
         }
 
-        if (!gotResult || result == null) {
-            Log.w("LxHentai", "Token fetch timed out for $chapterUrl after ${WEBVIEW_TIMEOUT_SECONDS}s")
+        val finalResult = result
+        if (!gotResult || finalResult == null) {
             throw IOException(
                 "Không lấy được token ảnh tự động. Hãy mở chương trong WebView để giải Cloudflare/Turnstile một lần, rồi thử lại.",
             )
         }
 
-        tokenCache[chapterUrl] = result!! to System.currentTimeMillis()
-        return result!!
+        tokenCache[chapterUrl] = finalResult to System.currentTimeMillis()
+        return finalResult
     }
 
     override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
