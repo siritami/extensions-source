@@ -1,5 +1,7 @@
 package eu.kanade.tachiyomi.extension.vi.yurigarden
 
+import android.app.Application
+import android.webkit.WebSettings
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.network.GET
@@ -20,6 +22,8 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 import rx.Observable
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import java.util.concurrent.TimeUnit
 
 class YuriGarden :
@@ -40,9 +44,19 @@ class YuriGarden :
 
     private val preferences by getPreferencesLazy()
 
+    // Use the WebView's native UA on every OkHttp request so that the cf_clearance
+    // cookie issued during the WebView Cloudflare solve stays valid (Cloudflare binds
+    // the cookie to the exact User-Agent that solved the challenge).
+    private val webViewUserAgent: String? by lazy {
+        runCatching { WebSettings.getDefaultUserAgent(Injekt.get<Application>()) }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+    }
+
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
         .add("Origin", baseUrl)
+        .apply { webViewUserAgent?.let { set("User-Agent", it) } }
 
     override val client = network.cloudflareClient.newBuilder()
         .addInterceptor(ImageDescrambler())
@@ -256,21 +270,18 @@ class YuriGarden :
             response.close()
 
             if (hasTurnstile && allowRetry) {
-                // Pass the OkHttp User-Agent so cf_clearance is bound to the same UA
-                // (Cloudflare invalidates the cookie if UA changes between solve and use).
-                val userAgent = headers["User-Agent"]
-                // Load the public reader page rather than the JSON API endpoint:
-                //  - CF typically scopes cf_clearance to the parent domain
-                //    (Domain=.yurigarden.com), which then also covers api.yurigarden.com.
-                //  - Loading the HTML reader page gives the WebView a realistic browser
-                //    session (referer, origin, first-party cookies, JS context), which
-                //    Turnstile's managed challenge is far more likely to auto-solve than
-                //    a bare JSON request.
+                // Load the public reader page rather than the JSON API endpoint so the
+                // WebView gets a realistic browser session (Referer, Origin, cookies,
+                // JS context). CF typically scopes cf_clearance to the parent domain
+                // (Domain=.yurigarden.com), which also covers api.yurigarden.com.
+                // Don't override the WebView UA -- the resolver will use its native
+                // Android-Chrome UA, which is what we now also send via OkHttp (see
+                // headersBuilder), so the cf_clearance cookie issued by Turnstile is
+                // valid for both sides.
                 val solveUrl = resolveReaderUrl(chapter) ?: getChapterUrl(chapter)
-                CloudflareResolver.resolve(solveUrl, userAgent)
-                // Always retry once: even if no cf_clearance cookie is visible, the
-                // WebView may have warmed other cookies/session state that let OkHttp
-                // through.
+                CloudflareResolver.resolve(solveUrl)
+                // Always retry once: the WebView may have warmed cookies that don't
+                // include cf_clearance directly but still let OkHttp through.
                 return executePageListRequest(chapter, allowRetry = false)
             }
             if (hasTurnstile) throw Exception(CLOUDFLARE_VERIFY_MESSAGE)
