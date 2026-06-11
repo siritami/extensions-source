@@ -35,7 +35,7 @@ class YuriNeko : HttpSource() {
     private val cdnUrl = "https://cdn.${baseUrl.toHttpUrl().host}"
     private val webApiUrl = "$baseUrl/api/v1"
 
-    override val client: OkHttpClient = network.client.newBuilder()
+    override val client = network.client.newBuilder()
         .addInterceptor(ImageDecryptor::interceptor)
         .rateLimit(3)
         .build()
