@@ -400,88 +400,113 @@ class Comix :
         val document = runBlocking {
             client.newCall(GET(getMangaUrl(manga), headers)).awaitSuccess().asJsoup()
         }
+
+        // The chapter API now returns encrypted responses that cannot be
+        // intercepted via JSON.parse. Instead, we scrape chapters directly
+        // from the DOM — the SPA renders chapter rows (.mchap-row) from
+        // the SSR HTML and paginates via a "Next" button.
         val payload = runInWebView(
             document = document,
             buildScript = { interfaceName ->
                 $$"""
                 (function () {
-                    const rewriteUrl = function (url) {
-                        if (typeof url === 'string' && url.indexOf('/chapters') !== -1 && /[?&]limit=\d+/.test(url)) {
-                            return url.replace(/([?&]limit=)\d+/, '$1100');
+                    if (window.$$interfaceName) return;
+                    window.$$interfaceName = true;
+
+                    function extractChapters() {
+                        var rows = document.querySelectorAll('.mchap-row');
+                        var items = [];
+                        for (var i = 0; i < rows.length; i++) {
+                            var row = rows[i];
+                            var primaryLink = row.querySelector('.mchap-row__primary');
+                            var href = primaryLink ? primaryLink.getAttribute('href') || '' : '';
+                            var chSpan = row.querySelector('.mchap-row__ch');
+                            var chText = chSpan ? chSpan.textContent.trim() : '';
+                            var chMatch = chText.match(/Ch\.([\d.]+)/);
+                            var chapterNum = chMatch ? parseFloat(chMatch[1]) : 0;
+                            var groupLink = row.querySelector('.mchap-row__group');
+                            var groupHref = groupLink ? groupLink.getAttribute('href') || '' : '';
+                            var groupMatch = groupHref.match(/\/groups\/(\d+)/);
+                            var groupId = groupMatch ? parseInt(groupMatch[1]) : 0;
+                            var groupSpan = groupLink ? groupLink.querySelector('span') : null;
+                            var groupName = groupSpan ? groupSpan.textContent.trim() : '';
+                            var likesEl = row.querySelector('.mchap-row__likes');
+                            var likesText = likesEl ? likesEl.textContent.trim() : '0';
+                            var votes = parseInt(likesText) || 0;
+                            var timeEl = row.querySelector('.mchap-row__time');
+                            var timeText = timeEl ? timeEl.textContent.trim() : '';
+                            var officialEl = row.querySelector('.mchap-row__official');
+                            items.push({
+                                id: parseInt(href.match(/\/(\d+)-/) ? href.match(/\/(\d+)-/)[1] : '0') || 0,
+                                url: href,
+                                number: chapterNum,
+                                name: '',
+                                votes: votes,
+                                createdAtFormatted: timeText,
+                                group: groupId ? { id: groupId, name: groupName } : null,
+                                isOfficial: !!officialEl
+                            });
                         }
-                        return url;
-                    };
-                    const originalOpen = XMLHttpRequest.prototype.open;
-                    XMLHttpRequest.prototype.open = function (method, url) {
-                        arguments[1] = rewriteUrl(url);
-                        return originalOpen.apply(this, arguments);
-                    };
+                        return items;
+                    }
 
-                    if (JSON.parse.__comixChapterCaptureInstalled) return;
-                    const originalParse = JSON.parse;
-                    const seen = new Set();
-                    const nextClicks = new Set();
-                    const items = [];
-                    let submitted = false;
-                    const submit = function () {
-                        if (submitted) return;
-                        submitted = true;
-                        window.$$interfaceName.passPayload(JSON.stringify(items));
-                    };
+                    // Wait for the SPA to render the first page of chapters
+                    // before starting extraction. The SPA makes an API call,
+                    // decrypts the response, and renders .mchap-row elements.
+                    var allItems = [];
+                    var page = 1;
+                    var maxPages = 100;
+                    var tries = 0;
+                    var maxTries = 50; // 50 * 500ms = 25s max wait
 
-                    const proxiedParse = new Proxy(originalParse, {
-                        apply(target, thisArg, args) {
-                            const parsed = Reflect.apply(target, thisArg, args);
-                            try {
-                                if (
-                                    !submitted &&
-                                    parsed && parsed.result &&
-                                    Array.isArray(parsed.result.items) &&
-                                    parsed.result.items.length > 0 &&
-                                    parsed.result.items[0] &&
-                                    parsed.result.items[0].id !== undefined &&
-                                    parsed.result.items[0].mangaId !== undefined
-                                ) {
-                                    const meta = parsed.result.meta || parsed.result.pagination;
-                                    const page = (meta && meta.page) || 1;
-                                    if (!seen.has(page)) {
-                                        seen.add(page);
-                                        for (const it of parsed.result.items) items.push(it);
-                                        if (meta && meta.hasNext && !nextClicks.has(page)) {
-                                            nextClicks.add(page);
-                                            window.$$interfaceName.resetTimer();
-                                            let tries = 0;
-                                            const iv = setInterval(function () {
-                                                const btn = document.querySelector('.mchap-foot button[aria-label*=Next]');
-                                                if (btn && !btn.disabled) {
-                                                    btn.click();
-                                                    clearInterval(iv);
-                                                } else if (++tries > 50) {
-                                                    clearInterval(iv);
-                                                    submit();
-                                                }
-                                            }, 100);
-                                        } else {
-                                            submit();
-                                        }
-                                    }
+                    function waitForFirstPage() {
+                        var items = extractChapters();
+                        if (items.length > 0) {
+                            allItems = items;
+                            tryNextPage();
+                        } else if (++tries > maxTries) {
+                            window.$$interfaceName.passPayload(JSON.stringify(allItems));
+                        } else {
+                            window.$$interfaceName.resetTimer();
+                            setTimeout(waitForFirstPage, 500);
+                        }
+                    }
+
+                    function tryNextPage() {
+                        if (page >= maxPages) {
+                            window.$$interfaceName.passPayload(JSON.stringify(allItems));
+                            return;
+                        }
+                        var nextBtn = document.querySelector('.mchap-foot button[aria-label*=Next]');
+                        if (nextBtn && !nextBtn.disabled) {
+                            window.$$interfaceName.resetTimer();
+                            nextBtn.click();
+                            page++;
+                            setTimeout(function () {
+                                var newItems = extractChapters();
+                                if (newItems.length === 0) {
+                                    window.$$interfaceName.passPayload(JSON.stringify(allItems));
+                                    return;
                                 }
-                            } catch (e) {}
-                            return parsed;
+                                allItems = allItems.concat(newItems);
+                                tryNextPage();
+                            }, 500);
+                        } else {
+                            window.$$interfaceName.passPayload(JSON.stringify(allItems));
                         }
-                    });
-                    proxiedParse.__comixChapterCaptureInstalled = true;
-                    JSON.parse = proxiedParse;
+                    }
+
+                    waitForFirstPage();
                 })();
                 """.trimIndent()
             },
         )
 
-        val allChapters = payload.parseAs<List<Chapter>>()
+        val chapters = payload.parseAs<List<Chapter>>()
 
         // Filter out groups specified in the blacklist first
         val filteredChapters = if (blacklist.isNotEmpty()) {
-            allChapters.filter { ch ->
+            chapters.filter { ch ->
                 val scanlatorName = when {
                     ch.group != null -> ch.group.name
                     ch.isOfficial -> "Official"
@@ -493,7 +518,7 @@ class Comix :
                 nameNormalized !in blacklist && idStr !in blacklist
             }
         } else {
-            allChapters
+            chapters
         }
 
         val finalChapters: List<Chapter> = if (deduplicate) {
