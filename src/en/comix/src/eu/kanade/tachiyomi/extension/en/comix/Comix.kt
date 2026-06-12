@@ -470,14 +470,6 @@ class Comix :
             client.newCall(GET(pageUrl, headers)).awaitSuccess().asJsoup()
         }
 
-        // Transfer Cloudflare cookies from OkHttp to WebView's CookieManager
-        val cookieManager = android.webkit.CookieManager.getInstance()
-        val cookieHeader = client.cookieJar.loadForRequest(pageUrl.toHttpUrl())
-            .joinToString("; ") { "${it.name}=${it.value}" }
-        if (cookieHeader.isNotEmpty()) {
-            cookieManager.setCookie("https://comix.to", cookieHeader)
-        }
-
         return runInWebView(
             document = document,
             buildScript = { interfaceName ->
