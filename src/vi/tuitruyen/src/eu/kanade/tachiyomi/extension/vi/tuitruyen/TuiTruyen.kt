@@ -425,8 +425,7 @@ class TuiTruyen : HttpSource() {
         return bytes.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
 
-    private fun ByteArray.base64UrlNoPadding(): String =
-        Base64.encodeToString(this, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+    private fun ByteArray.base64UrlNoPadding(): String = Base64.encodeToString(this, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
 
     private fun imgxInterceptor() = Interceptor { chain ->
         val request = chain.request()
