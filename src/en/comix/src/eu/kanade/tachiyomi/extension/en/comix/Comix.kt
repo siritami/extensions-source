@@ -352,33 +352,31 @@ class Comix :
         val document = runBlocking {
             client.newCall(GET(getMangaUrl(manga), headers)).awaitSuccess().asJsoup()
         }
-        val payload = runInWebView(
-            document = document,
-            buildScript = { interfaceName ->
-                $$"""
-                (function () {
-                    if (JSON.parse.__comixMangaDetailCaptureInstalled) return;
-                    const originalParse = JSON.parse;
-                    const proxiedParse = new Proxy(originalParse, {
-                        apply(target, thisArg, args) {
-                            const parsed = Reflect.apply(target, thisArg, args);
-                            try {
-                                if (parsed && parsed.result && parsed.result.hid !== undefined) {
-                                    window.$$interfaceName.passPayload(args[0]);
-                                }
-                            } catch (e) {}
-                            return parsed;
-                        }
-                    });
-                    proxiedParse.__comixMangaDetailCaptureInstalled = true;
-                    JSON.parse = proxiedParse;
-                })();
-                """.trimIndent()
-            },
-        )
 
-        val mangaResponse = payload.parseAs<SingleMangaResponse>()
-        mangaResponse.result.toSManga(
+        // Manga details are embedded in <script id="initial-data" type="application/json">
+        // as SSR data. The queries object contains a key like
+        // ["manga","detail","{hid}"] with the full Manga object.
+        // NOTE: There's also a smaller "syncData" script — use #initial-data to get the right one.
+        val scriptEl = document.selectFirst("script#initial-data")
+            ?: throw Exception("Could not find manga data in page")
+        // Use data() instead of html() — Jsoup's DataNode API returns the raw
+        // text content of <script> tags with HTML entities already decoded,
+        // so no manual unescaping is needed.
+        val scriptText = scriptEl.data()
+
+        val queriesData = kotlinx.serialization.json.Json.parseFromString<kotlinx.serialization.json.JsonObject>(scriptText)
+        val queries = queriesData["queries"] as? kotlinx.serialization.json.JsonObject
+            ?: throw Exception("Could not find queries in manga data")
+
+        // Find the manga detail entry
+        val detailEntry = queries.entries.firstOrNull { (key, _) ->
+            key.contains("\"detail\"")
+        } ?: throw Exception("Could not find manga detail in queries")
+
+        val detailJson = detailEntry.value.toString()
+        // The queries entry is a direct Manga object, NOT wrapped in SingleMangaResponse
+        val manga = kotlinx.serialization.json.Json.decodeFromString<Manga>(detailJson)
+        manga.toSManga(
             preferences.posterQuality(),
             preferences.alternativeNamesInDescription(),
             preferences.scorePosition(),
@@ -397,149 +395,81 @@ class Comix :
         val blacklist = preferences.scanlatorBlacklist()
         val mangaSlug = manga.url.removePrefix("/")
 
-        val document = runBlocking {
-            client.newCall(GET(getMangaUrl(manga), headers)).awaitSuccess().asJsoup()
+        val mangaUrl = getMangaUrl(manga)
+
+        // Chapters are fully SSR in the HTML. Each page of chapters is available
+        // at ?page=N. We parse .mchap-row elements from the HTML directly — no
+        // WebView or JavaScript execution needed.
+        val allChapters = mutableListOf<Chapter>()
+        var page = 1
+        var hasNextPage = true
+
+        while (hasNextPage) {
+            val url = mangaUrl.toHttpUrl().newBuilder()
+                .addQueryParameter("page", page.toString())
+                .build()
+
+            val document = runBlocking {
+                client.newCall(GET(url.toString(), headers)).awaitSuccess().asJsoup()
+            }
+
+            val rows = document.select(".mchap-row")
+            if (rows.isEmpty()) {
+                hasNextPage = false
+                break
+            }
+
+            for (row in rows) {
+                val primaryLink = row.selectFirst(".mchap-row__primary")
+                val href = primaryLink?.attr("href") ?: ""
+                val chText = row.selectFirst(".mchap-row__ch")?.text() ?: ""
+                val chapterNum = CHAPTER_NUM_REGEX.find(chText)
+                    ?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0
+
+                val groupLink = row.selectFirst(".mchap-row__group")
+                val groupHref = groupLink?.attr("href") ?: ""
+                val groupId = GROUP_ID_REGEX.find(groupHref)
+                    ?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                val groupName = groupLink?.selectFirst("span")?.text() ?: ""
+
+                val likesText = row.selectFirst(".mchap-row__likes")?.text() ?: "0"
+                val votes = likesText.toIntOrNull() ?: 0
+                val timeText = row.selectFirst(".mchap-row__time")?.text() ?: ""
+                val officialEl = row.selectFirst(".mchap-row__official")
+
+                val chapterId = CHAPTER_ID_REGEX.find(href)
+                    ?.groupValues?.get(1)?.toIntOrNull() ?: 0
+
+                allChapters.add(
+                    Chapter(
+                        id = chapterId,
+                        url = href,
+                        number = chapterNum,
+                        name = "",
+                        votes = votes,
+                        createdAtFormatted = timeText,
+                        group = if (groupId != 0) Chapter.ScanlationGroup(groupId, groupName) else null,
+                        isOfficial = officialEl != null,
+                    ),
+                )
+            }
+
+            // Check if there's a next page
+            val hint = document.selectFirst(".mchap-foot__hint")?.text() ?: ""
+            val match = CHAPTER_PAGINATION_REGEX.find(hint)
+            if (match != null) {
+                val shownEnd = match.groupValues[1].toIntOrNull() ?: 0
+                val total = match.groupValues[2].toIntOrNull() ?: 0
+                hasNextPage = shownEnd < total
+            } else {
+                hasNextPage = false
+            }
+            page++
         }
-
-        // The chapter API now returns encrypted responses that are decrypted
-        // client-side by the SPA, then passed through JSON.parse. We intercept
-        // JSON.parse to capture the decrypted chapter data, and also poll the
-        // DOM for .mchap-row elements as a fallback (the SPA renders chapters
-        // into the DOM after decryption).
-        val payload = runInWebView(
-            document = document,
-            buildScript = { interfaceName ->
-                $$"""
-                (function () {
-                    if (window.$$interfaceName) return;
-                    window.$$interfaceName = true;
-
-                    var submitted = false;
-                    var submittedBy = '';
-                    function submit(data, by) {
-                        if (submitted) return;
-                        submitted = true;
-                        submittedBy = by;
-                        window.$$interfaceName.passPayload(data);
-                    }
-
-                    // Strategy 1: Intercept JSON.parse for decrypted chapter data
-                    var seen = new Set();
-                    var allApiItems = [];
-                    var nextClicks = new Set();
-
-                    var origParse = JSON.parse;
-                    JSON.parse = function () {
-                        var parsed = origParse.apply(this, arguments);
-                        try {
-                            if (
-                                !submitted &&
-                                parsed && parsed.result &&
-                                Array.isArray(parsed.result.items) &&
-                                parsed.result.items.length > 0 &&
-                                parsed.result.items[0] &&
-                                parsed.result.items[0].id !== undefined &&
-                                parsed.result.items[0].mangaId !== undefined
-                            ) {
-                                var meta = parsed.result.meta || parsed.result.pagination;
-                                var pg = (meta && meta.page) || 1;
-                                if (!seen.has(pg)) {
-                                    seen.add(pg);
-                                    for (var i = 0; i < parsed.result.items.length; i++) {
-                                        allApiItems.push(parsed.result.items[i]);
-                                    }
-                                    if (meta && meta.hasNext && !nextClicks.has(pg)) {
-                                        nextClicks.add(pg);
-                                        window.$$interfaceName.resetTimer();
-                                        (function clickNext(p) {
-                                            var tries = 0;
-                                            var iv = setInterval(function () {
-                                                var btn = document.querySelector('.mchap-foot button[aria-label*=Next]');
-                                                if (btn && !btn.disabled) {
-                                                    btn.click();
-                                                    clearInterval(iv);
-                                                } else if (++tries > 30) {
-                                                    clearInterval(iv);
-                                                    submit(JSON.stringify(allApiItems), 'jsonparse-fallback');
-                                                }
-                                            }, 100);
-                                        })(pg);
-                                    } else if (!meta || !meta.hasNext) {
-                                        submit(JSON.stringify(allApiItems), 'jsonparse-no-more');
-                                    }
-                                }
-                            }
-                        } catch (e) {}
-                        return parsed;
-                    };
-
-                    // Strategy 2: Poll DOM as fallback (in case JSON.parse never fires)
-                    var tries = 0;
-                    var maxTries = 60;
-                    function pollDom() {
-                        if (submitted) return;
-                        var rows = document.querySelectorAll('.mchap-row');
-                        if (rows.length > 0 && !submitted) {
-                            // DOM has chapters but JSON.parse never fired —
-                            // the SPA decrypted but used a different parse path.
-                            // Scrape from DOM instead.
-                            var items = [];
-                            for (var i = 0; i < rows.length; i++) {
-                                var row = rows[i];
-                                var primaryLink = row.querySelector('.mchap-row__primary');
-                                var href = primaryLink ? primaryLink.getAttribute('href') || '' : '';
-                                var chSpan = row.querySelector('.mchap-row__ch');
-                                var chText = chSpan ? chSpan.textContent.trim() : '';
-                                var chMatch = chText.match(/Ch\.([\d.]+)/);
-                                var chapterNum = chMatch ? parseFloat(chMatch[1]) : 0;
-                                var groupLink = row.querySelector('.mchap-row__group');
-                                var groupHref = groupLink ? groupLink.getAttribute('href') || '' : '';
-                                var groupMatch = groupHref.match(/\/groups\/(\d+)/);
-                                var groupId = groupMatch ? parseInt(groupMatch[1]) : 0;
-                                var groupSpan = groupLink ? groupLink.querySelector('span') : null;
-                                var groupName = groupSpan ? groupSpan.textContent.trim() : '';
-                                var likesEl = row.querySelector('.mchap-row__likes');
-                                var likesText = likesEl ? likesEl.textContent.trim() : '0';
-                                var votes = parseInt(likesText) || 0;
-                                var timeEl = row.querySelector('.mchap-row__time');
-                                var timeText = timeEl ? timeEl.textContent.trim() : '';
-                                var officialEl = row.querySelector('.mchap-row__official');
-                                items.push({
-                                    id: parseInt(href.match(/\/(\d+)-/) ? href.match(/\/(\d+)-/)[1] : '0') || 0,
-                                    url: href,
-                                    number: chapterNum,
-                                    name: '',
-                                    votes: votes,
-                                    createdAtFormatted: timeText,
-                                    group: groupId ? { id: groupId, name: groupName } : null,
-                                    isOfficial: !!officialEl
-                                });
-                            }
-                            submit(JSON.stringify(items), 'dom-fallback');
-                            return;
-                        }
-                        if (++tries > maxTries) {
-                            if (!submitted && allApiItems.length > 0) {
-                                submit(JSON.stringify(allApiItems), 'jsonparse-timeout-partial');
-                            } else if (!submitted) {
-                                submit('[]', 'no-chapters-found');
-                            }
-                            return;
-                        }
-                        window.$$interfaceName.resetTimer();
-                        setTimeout(pollDom, 500);
-                    }
-                    pollDom();
-                })();
-                """.trimIndent()
-            },
-        )
-
-        val chapters = payload.parseAs<List<Chapter>>()
 
         // Filter out groups specified in the blacklist first
         val filteredChapters = if (blacklist.isNotEmpty()) {
-            chapters.filter { ch ->
+            allChapters.filter { ch ->
                 val scanlatorName = when {
                     ch.group != null -> ch.group.name
                     ch.isOfficial -> "Official"
@@ -551,7 +481,7 @@ class Comix :
                 nameNormalized !in blacklist && idStr !in blacklist
             }
         } else {
-            chapters
+            allChapters
         }
 
         val finalChapters: List<Chapter> = if (deduplicate) {
@@ -909,5 +839,9 @@ class Comix :
         private const val DEFAULT_CONTENT_RATING = "suggestive"
 
         private val SCRAMBLE_PATH_FALLBACK_REGEX = Regex("/s?i+/")
+        private val CHAPTER_NUM_REGEX = Regex("""Ch\.([\d.]+)""")
+        private val GROUP_ID_REGEX = Regex("""/groups/(\d+)""")
+        private val CHAPTER_ID_REGEX = Regex("""/(\d+)-""")
+        private val CHAPTER_PAGINATION_REGEX = Regex("""Showing\s+\d+\s+to\s+(\d+)\s+of\s+(\d+)""")
     }
 }
