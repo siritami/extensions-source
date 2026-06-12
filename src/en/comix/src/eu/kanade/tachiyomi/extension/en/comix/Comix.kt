@@ -364,7 +364,7 @@ class Comix :
         // so no manual unescaping is needed.
         val scriptText = scriptEl.data()
 
-        val queriesData = kotlinx.serialization.json.Json.parseFromString<kotlinx.serialization.json.JsonObject>(scriptText)
+        val queriesData = kotlinx.serialization.json.Json.parseToJsonElement(scriptText) as kotlinx.serialization.json.JsonObject
         val queries = queriesData["queries"] as? kotlinx.serialization.json.JsonObject
             ?: throw Exception("Could not find queries in manga data")
 
