@@ -401,10 +401,11 @@ class Comix :
             client.newCall(GET(getMangaUrl(manga), headers)).awaitSuccess().asJsoup()
         }
 
-        // The chapter API now returns encrypted responses that cannot be
-        // intercepted via JSON.parse. Instead, we scrape chapters directly
-        // from the DOM — the SPA renders chapter rows (.mchap-row) from
-        // the SSR HTML and paginates via a "Next" button.
+        // The chapter API now returns encrypted responses that are decrypted
+        // client-side by the SPA, then passed through JSON.parse. We intercept
+        // JSON.parse to capture the decrypted chapter data, and also poll the
+        // DOM for .mchap-row elements as a fallback (the SPA renders chapters
+        // into the DOM after decryption).
         val payload = runInWebView(
             document = document,
             buildScript = { interfaceName ->
@@ -413,90 +414,122 @@ class Comix :
                     if (window.$$interfaceName) return;
                     window.$$interfaceName = true;
 
-                    function extractChapters() {
-                        var rows = document.querySelectorAll('.mchap-row');
-                        var items = [];
-                        for (var i = 0; i < rows.length; i++) {
-                            var row = rows[i];
-                            var primaryLink = row.querySelector('.mchap-row__primary');
-                            var href = primaryLink ? primaryLink.getAttribute('href') || '' : '';
-                            var chSpan = row.querySelector('.mchap-row__ch');
-                            var chText = chSpan ? chSpan.textContent.trim() : '';
-                            var chMatch = chText.match(/Ch\.([\d.]+)/);
-                            var chapterNum = chMatch ? parseFloat(chMatch[1]) : 0;
-                            var groupLink = row.querySelector('.mchap-row__group');
-                            var groupHref = groupLink ? groupLink.getAttribute('href') || '' : '';
-                            var groupMatch = groupHref.match(/\/groups\/(\d+)/);
-                            var groupId = groupMatch ? parseInt(groupMatch[1]) : 0;
-                            var groupSpan = groupLink ? groupLink.querySelector('span') : null;
-                            var groupName = groupSpan ? groupSpan.textContent.trim() : '';
-                            var likesEl = row.querySelector('.mchap-row__likes');
-                            var likesText = likesEl ? likesEl.textContent.trim() : '0';
-                            var votes = parseInt(likesText) || 0;
-                            var timeEl = row.querySelector('.mchap-row__time');
-                            var timeText = timeEl ? timeEl.textContent.trim() : '';
-                            var officialEl = row.querySelector('.mchap-row__official');
-                            items.push({
-                                id: parseInt(href.match(/\/(\d+)-/) ? href.match(/\/(\d+)-/)[1] : '0') || 0,
-                                url: href,
-                                number: chapterNum,
-                                name: '',
-                                votes: votes,
-                                createdAtFormatted: timeText,
-                                group: groupId ? { id: groupId, name: groupName } : null,
-                                isOfficial: !!officialEl
-                            });
-                        }
-                        return items;
+                    var submitted = false;
+                    var submittedBy = '';
+                    function submit(data, by) {
+                        if (submitted) return;
+                        submitted = true;
+                        submittedBy = by;
+                        window.$$interfaceName.passPayload(data);
                     }
 
-                    // Wait for the SPA to render the first page of chapters
-                    // before starting extraction. The SPA makes an API call,
-                    // decrypts the response, and renders .mchap-row elements.
-                    var allItems = [];
-                    var page = 1;
-                    var maxPages = 100;
+                    // Strategy 1: Intercept JSON.parse for decrypted chapter data
+                    var seen = new Set();
+                    var allApiItems = [];
+                    var nextClicks = new Set();
+
+                    var origParse = JSON.parse;
+                    JSON.parse = function () {
+                        var parsed = origParse.apply(this, arguments);
+                        try {
+                            if (
+                                !submitted &&
+                                parsed && parsed.result &&
+                                Array.isArray(parsed.result.items) &&
+                                parsed.result.items.length > 0 &&
+                                parsed.result.items[0] &&
+                                parsed.result.items[0].id !== undefined &&
+                                parsed.result.items[0].mangaId !== undefined
+                            ) {
+                                var meta = parsed.result.meta || parsed.result.pagination;
+                                var pg = (meta && meta.page) || 1;
+                                if (!seen.has(pg)) {
+                                    seen.add(pg);
+                                    for (var i = 0; i < parsed.result.items.length; i++) {
+                                        allApiItems.push(parsed.result.items[i]);
+                                    }
+                                    if (meta && meta.hasNext && !nextClicks.has(pg)) {
+                                        nextClicks.add(pg);
+                                        window.$$interfaceName.resetTimer();
+                                        (function clickNext(p) {
+                                            var tries = 0;
+                                            var iv = setInterval(function () {
+                                                var btn = document.querySelector('.mchap-foot button[aria-label*=Next]');
+                                                if (btn && !btn.disabled) {
+                                                    btn.click();
+                                                    clearInterval(iv);
+                                                } else if (++tries > 30) {
+                                                    clearInterval(iv);
+                                                    submit(JSON.stringify(allApiItems), 'jsonparse-fallback');
+                                                }
+                                            }, 100);
+                                        })(pg);
+                                    } else if (!meta || !meta.hasNext) {
+                                        submit(JSON.stringify(allApiItems), 'jsonparse-no-more');
+                                    }
+                                }
+                            }
+                        } catch (e) {}
+                        return parsed;
+                    };
+
+                    // Strategy 2: Poll DOM as fallback (in case JSON.parse never fires)
                     var tries = 0;
-                    var maxTries = 50; // 50 * 500ms = 25s max wait
-
-                    function waitForFirstPage() {
-                        var items = extractChapters();
-                        if (items.length > 0) {
-                            allItems = items;
-                            tryNextPage();
-                        } else if (++tries > maxTries) {
-                            window.$$interfaceName.passPayload(JSON.stringify(allItems));
-                        } else {
-                            window.$$interfaceName.resetTimer();
-                            setTimeout(waitForFirstPage, 500);
-                        }
-                    }
-
-                    function tryNextPage() {
-                        if (page >= maxPages) {
-                            window.$$interfaceName.passPayload(JSON.stringify(allItems));
+                    var maxTries = 60;
+                    function pollDom() {
+                        if (submitted) return;
+                        var rows = document.querySelectorAll('.mchap-row');
+                        if (rows.length > 0 && !submitted) {
+                            // DOM has chapters but JSON.parse never fired —
+                            // the SPA decrypted but used a different parse path.
+                            // Scrape from DOM instead.
+                            var items = [];
+                            for (var i = 0; i < rows.length; i++) {
+                                var row = rows[i];
+                                var primaryLink = row.querySelector('.mchap-row__primary');
+                                var href = primaryLink ? primaryLink.getAttribute('href') || '' : '';
+                                var chSpan = row.querySelector('.mchap-row__ch');
+                                var chText = chSpan ? chSpan.textContent.trim() : '';
+                                var chMatch = chText.match(/Ch\.([\d.]+)/);
+                                var chapterNum = chMatch ? parseFloat(chMatch[1]) : 0;
+                                var groupLink = row.querySelector('.mchap-row__group');
+                                var groupHref = groupLink ? groupLink.getAttribute('href') || '' : '';
+                                var groupMatch = groupHref.match(/\/groups\/(\d+)/);
+                                var groupId = groupMatch ? parseInt(groupMatch[1]) : 0;
+                                var groupSpan = groupLink ? groupLink.querySelector('span') : null;
+                                var groupName = groupSpan ? groupSpan.textContent.trim() : '';
+                                var likesEl = row.querySelector('.mchap-row__likes');
+                                var likesText = likesEl ? likesEl.textContent.trim() : '0';
+                                var votes = parseInt(likesText) || 0;
+                                var timeEl = row.querySelector('.mchap-row__time');
+                                var timeText = timeEl ? timeEl.textContent.trim() : '';
+                                var officialEl = row.querySelector('.mchap-row__official');
+                                items.push({
+                                    id: parseInt(href.match(/\/(\d+)-/) ? href.match(/\/(\d+)-/)[1] : '0') || 0,
+                                    url: href,
+                                    number: chapterNum,
+                                    name: '',
+                                    votes: votes,
+                                    createdAtFormatted: timeText,
+                                    group: groupId ? { id: groupId, name: groupName } : null,
+                                    isOfficial: !!officialEl
+                                });
+                            }
+                            submit(JSON.stringify(items), 'dom-fallback');
                             return;
                         }
-                        var nextBtn = document.querySelector('.mchap-foot button[aria-label*=Next]');
-                        if (nextBtn && !nextBtn.disabled) {
-                            window.$$interfaceName.resetTimer();
-                            nextBtn.click();
-                            page++;
-                            setTimeout(function () {
-                                var newItems = extractChapters();
-                                if (newItems.length === 0) {
-                                    window.$$interfaceName.passPayload(JSON.stringify(allItems));
-                                    return;
-                                }
-                                allItems = allItems.concat(newItems);
-                                tryNextPage();
-                            }, 500);
-                        } else {
-                            window.$$interfaceName.passPayload(JSON.stringify(allItems));
+                        if (++tries > maxTries) {
+                            if (!submitted && allApiItems.length > 0) {
+                                submit(JSON.stringify(allApiItems), 'jsonparse-timeout-partial');
+                            } else if (!submitted) {
+                                submit('[]', 'no-chapters-found');
+                            }
+                            return;
                         }
+                        window.$$interfaceName.resetTimer();
+                        setTimeout(pollDom, 500);
                     }
-
-                    waitForFirstPage();
+                    pollDom();
                 })();
                 """.trimIndent()
             },
@@ -647,17 +680,11 @@ class Comix :
                     val httpUrl = request.url?.toString()?.toHttpUrlOrNull()
                         ?: return super.shouldInterceptRequest(view, request)
 
-                    return if (httpUrl.host.contains("comix.to") &&
-                        (
-                            httpUrl.encodedPath.contains(".js") ||
-                                httpUrl.encodedPath.startsWith("/api/") ||
-                                httpUrl.encodedPath.startsWith("/title/")
-                            )
-                    ) {
-                        super.shouldInterceptRequest(view, request)
-                    } else {
-                        emptyResponse
+                    if (!httpUrl.host.contains("comix.to")) {
+                        return emptyResponse
                     }
+
+                    return super.shouldInterceptRequest(view, request)
                 }
 
                 override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
