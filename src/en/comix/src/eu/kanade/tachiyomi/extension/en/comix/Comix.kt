@@ -399,74 +399,31 @@ class Comix :
         val mangaSlug = manga.url.removePrefix("/")
 
         val mangaUrl = getMangaUrl(manga)
-
-        // Chapters are fully SSR in the HTML. Each page of chapters is available
-        // at ?page=N. We parse .mchap-row elements from the HTML directly — no
-        // WebView or JavaScript execution needed.
         val allChapters = mutableListOf<Chapter>()
         var page = 1
         var hasNextPage = true
 
+        // Chapters are loaded via an encrypted client-side API. The React SPA
+        // decrypts them and renders .mchap-row elements. We use a WebView to
+        // execute the SPA, install a JSON.parse proxy to capture the decrypted
+        // chapter data, and extract chapters from the parsed response.
         while (hasNextPage) {
-            val url = mangaUrl.toHttpUrl().newBuilder()
+            val pageUrl = mangaUrl.toHttpUrl().newBuilder()
                 .addQueryParameter("page", page.toString())
                 .build()
+                .toString()
 
-            val document = runBlocking {
-                client.newCall(GET(url.toString(), headers)).awaitSuccess().asJsoup()
+            val payload = fetchChapterPayload(pageUrl)
+            val chapterResponse = payload.parseAs<ChapterListResponse>()
+            val items = chapterResponse.result.items
+
+            if (items.isEmpty()) break
+
+            for (ch in items) {
+                allChapters.add(ch)
             }
 
-            val rows = document.select(".mchap-row")
-            if (rows.isEmpty()) {
-                hasNextPage = false
-                break
-            }
-
-            for (row in rows) {
-                val primaryLink = row.selectFirst(".mchap-row__primary")
-                val href = primaryLink?.attr("href") ?: ""
-                val chText = row.selectFirst(".mchap-row__ch")?.text() ?: ""
-                val chapterNum = CHAPTER_NUM_REGEX.find(chText)
-                    ?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0
-
-                val groupLink = row.selectFirst(".mchap-row__group")
-                val groupHref = groupLink?.attr("href") ?: ""
-                val groupId = GROUP_ID_REGEX.find(groupHref)
-                    ?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                val groupName = groupLink?.selectFirst("span")?.text() ?: ""
-
-                val likesText = row.selectFirst(".mchap-row__likes")?.text() ?: "0"
-                val votes = likesText.toIntOrNull() ?: 0
-                val timeText = row.selectFirst(".mchap-row__time")?.text() ?: ""
-                val officialEl = row.selectFirst(".mchap-row__official")
-
-                val chapterId = CHAPTER_ID_REGEX.find(href)
-                    ?.groupValues?.get(1)?.toIntOrNull() ?: 0
-
-                allChapters.add(
-                    Chapter(
-                        id = chapterId,
-                        url = href,
-                        number = chapterNum,
-                        name = "",
-                        votes = votes,
-                        createdAtFormatted = timeText,
-                        group = if (groupId != 0) Chapter.ScanlationGroup(groupId, groupName) else null,
-                        isOfficial = officialEl != null,
-                    ),
-                )
-            }
-
-            // Check if there's a next page
-            val hint = document.selectFirst(".mchap-foot__hint")?.text() ?: ""
-            val match = CHAPTER_PAGINATION_REGEX.find(hint)
-            if (match != null) {
-                val shownEnd = match.groupValues[1].toIntOrNull() ?: 0
-                val total = match.groupValues[2].toIntOrNull() ?: 0
-                hasNextPage = shownEnd < total
-            } else {
-                hasNextPage = false
-            }
+            hasNextPage = chapterResponse.result.meta.hasNext
             page++
         }
 
@@ -501,6 +458,57 @@ class Comix :
     override fun chapterListRequest(manga: SManga): Request = throw UnsupportedOperationException()
 
     override fun chapterListParse(response: Response): List<SChapter> = throw UnsupportedOperationException()
+
+    /**
+     * Load a manga page in WebView so the SPA can decrypt and fetch chapters
+     * via its encrypted API. A JSON.parse proxy captures the decrypted chapter
+     * payload. Cloudflare cookies are transferred from OkHttp to the WebView
+     * so that API calls from the SPA pass the Cloudflare challenge.
+     */
+    private fun fetchChapterPayload(pageUrl: String): String {
+        val document = runBlocking {
+            client.newCall(GET(pageUrl, headers)).awaitSuccess().asJsoup()
+        }
+
+        // Transfer Cloudflare cookies from OkHttp to WebView's CookieManager
+        val cookieManager = android.webkit.CookieManager.getInstance()
+        val cookieHeader = client.cookieJar.loadForRequest(pageUrl.toHttpUrl())
+            .joinToString("; ") { "${it.name}=${it.value}" }
+        if (cookieHeader.isNotEmpty()) {
+            cookieManager.setCookie("https://comix.to", cookieHeader)
+        }
+
+        return runInWebView(
+            document = document,
+            buildScript = { interfaceName ->
+                """
+                    (function () {
+                        if (JSON.parse.__comixChapterCaptureInstalled) return;
+                        const originalParse = JSON.parse;
+                        const proxiedParse = new Proxy(originalParse, {
+                            apply(target, thisArg, args) {
+                                const parsed = Reflect.apply(target, thisArg, args);
+                                try {
+                                    if (
+                                        parsed && parsed.result &&
+                                        Array.isArray(parsed.result.items) &&
+                                        parsed.result.items.length > 0 &&
+                                        parsed.result.items[0].number !== undefined &&
+                                        parsed.result.items[0].id !== undefined
+                                    ) {
+                                        window.$interfaceName.passPayload(JSON.stringify(parsed));
+                                    }
+                                } catch (e) {}
+                                return parsed;
+                            }
+                        });
+                        proxiedParse.__comixChapterCaptureInstalled = true;
+                        JSON.parse = proxiedParse;
+                    })();
+                """.trimIndent()
+            },
+        )
+    }
 
     private fun deduplicateChapters(
         chapterMap: LinkedHashMap<Number, Chapter>,
