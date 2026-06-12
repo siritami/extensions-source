@@ -125,15 +125,14 @@ class Comix :
      * and return the parsed [MangasPage].  The SPA adds the `_=` token
      * automatically, so we bypass the anti-bot protection entirely.
      */
-    private fun fetchMangaListFromBrowse(request: Request): Observable<MangasPage> =
-        Observable.fromCallable {
-            val document = runBlocking {
-                client.newCall(request).awaitSuccess().asJsoup()
-            }
-            val payload = runInWebView(
-                document = document,
-                buildScript = { interfaceName ->
-                    """
+    private fun fetchMangaListFromBrowse(request: Request): Observable<MangasPage> = Observable.fromCallable {
+        val document = runBlocking {
+            client.newCall(request).awaitSuccess().asJsoup()
+        }
+        val payload = runInWebView(
+            document = document,
+            buildScript = { interfaceName ->
+                """
                     (function () {
                         if (JSON.parse.__comixBrowseCaptureInstalled) return;
                         const originalParse = JSON.parse;
@@ -157,16 +156,16 @@ class Comix :
                         proxiedParse.__comixBrowseCaptureInstalled = true;
                         JSON.parse = proxiedParse;
                     })();
-                    """.trimIndent()
-                },
-            )
+                """.trimIndent()
+            },
+        )
 
-            val searchResponse = payload.parseAs<SearchResponse>()
-            val mangaList = searchResponse.result.items.map {
-                it.toBasicSManga(preferences.posterQuality())
-            }
-            MangasPage(mangaList, searchResponse.result.hasNextPage())
+        val searchResponse = payload.parseAs<SearchResponse>()
+        val mangaList = searchResponse.result.items.map {
+            it.toBasicSManga(preferences.posterQuality())
         }
+        MangasPage(mangaList, searchResponse.result.hasNextPage())
+    }
 
     // ============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int): Request {
@@ -259,8 +258,7 @@ class Comix :
 
     override fun searchMangaParse(response: Response) = throw UnsupportedOperationException()
 
-    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> =
-        fetchMangaListFromBrowse(searchMangaRequest(page, query, filters))
+    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> = fetchMangaListFromBrowse(searchMangaRequest(page, query, filters))
 
     /**
      * Apply every content-related source-level preference (rating, types,
@@ -352,9 +350,7 @@ class Comix :
     override fun getFilterList() = Filters().getFilterList()
 
     // ============================== Details ==============================
-    override fun mangaDetailsRequest(manga: SManga): Request {
-        return GET(getMangaUrl(manga), headers)
-    }
+    override fun mangaDetailsRequest(manga: SManga): Request = GET(getMangaUrl(manga), headers)
 
     override fun mangaDetailsParse(response: Response) = throw UnsupportedOperationException()
 
