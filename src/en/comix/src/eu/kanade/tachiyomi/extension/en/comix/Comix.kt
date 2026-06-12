@@ -374,8 +374,11 @@ class Comix :
         } ?: throw Exception("Could not find manga detail in queries")
 
         val detailJson = detailEntry.value.toString()
-        // The queries entry is a direct Manga object, NOT wrapped in SingleMangaResponse
-        val manga = kotlinx.serialization.json.Json.decodeFromString<Manga>(detailJson)
+        // The queries entry is a direct Manga object, NOT wrapped in SingleMangaResponse.
+        // SSR JSON contains many extra fields (id, synopsisHtml, publishers, etc.)
+        // not mapped in our Manga DTO, so we must ignore unknown keys.
+        val lenientJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val manga = lenientJson.decodeFromString<Manga>(detailJson)
         manga.toSManga(
             preferences.posterQuality(),
             preferences.alternativeNamesInDescription(),
