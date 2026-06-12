@@ -119,12 +119,6 @@ class Comix :
         popularMangaRequest(page),
     )
 
-    /**
-     * Load a browse/search page in the WebView, let the SPA initialise,
-     * intercept the manga-list API response via a `JSON.parse` proxy,
-     * and return the parsed [MangasPage].  The SPA adds the `_=` token
-     * automatically, so we bypass the anti-bot protection entirely.
-     */
     private fun fetchMangaListFromBrowse(request: Request): Observable<MangasPage> = Observable.fromCallable {
         val document = runBlocking {
             client.newCall(request).awaitSuccess().asJsoup()
