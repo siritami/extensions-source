@@ -173,13 +173,13 @@ abstract class DamCoNuong : KeiSource() {
 
     private fun parseChapterDate(dateStr: String?): Long = parseRelativeDate(dateStr)
         .takeIf { it != 0L }
-        ?: DATE_FORMAT.tryParse(dateStr)
+        ?: dateFormat.tryParse(dateStr)
 
     private fun parseRelativeDate(dateStr: String?): Long {
         if (dateStr.isNullOrBlank()) return 0L
 
         val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"), Locale.ROOT)
-        val number = NUMBER_REGEX.find(dateStr)?.value?.toIntOrNull() ?: return 0L
+        val number = numberRegex.find(dateStr)?.value?.toIntOrNull() ?: return 0L
 
         when {
             dateStr.contains("giây") -> calendar.add(Calendar.SECOND, -number)
@@ -224,7 +224,7 @@ abstract class DamCoNuong : KeiSource() {
     override suspend fun fetchFilterData(): JsonElement = client.get("$baseUrl/tim-kiem").asJsoup()
         .select("button")
         .mapNotNull { element ->
-            val id = GENRE_ID_REGEX.matchEntire(element.attr("@click"))
+            val id = genreIdRegex.matchEntire(element.attr("@click"))
                 ?.groupValues
                 ?.get(1)
                 ?: return@mapNotNull null
@@ -242,10 +242,10 @@ abstract class DamCoNuong : KeiSource() {
     private const val POPULAR_SORT = "-views"
     private const val DEFAULT_STATUS = "2,1"
 
-    private val NUMBER_REGEX = Regex("\\d+")
-    private val GENRE_ID_REGEX = Regex("toggleGenre\\('([^']+)'\\)")
+    private val numberRegex = Regex("\\d+")
+    private val genreIdRegex = Regex("toggleGenre\\('([^']+)'\\)")
 
-    private val DATE_FORMAT by lazy {
+    private val dateFormat by lazy {
         SimpleDateFormat("dd/MM/yyyy", Locale.ROOT).apply {
             timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
         }
