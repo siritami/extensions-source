@@ -293,19 +293,17 @@ abstract class CManga : KeiSource() {
         return chapters
     }
 
-    private fun chapterListPageUrl(albumId: String, page: Int, slug: String?, version: String): HttpUrl {
-        return "$baseUrl/api/chapter_list".toHttpUrl().newBuilder()
-            .addQueryParameter("album", albumId)
-            .addQueryParameter("page", page.toString())
-            .addQueryParameter("limit", CHAPTER_PAGE_SIZE.toString())
-            .addQueryParameter("v", version)
-            .apply {
-                if (slug != null) {
-                    addQueryParameter("slug", slug)
-                }
+    private fun chapterListPageUrl(albumId: String, page: Int, slug: String?, version: String): HttpUrl = "$baseUrl/api/chapter_list".toHttpUrl().newBuilder()
+        .addQueryParameter("album", albumId)
+        .addQueryParameter("page", page.toString())
+        .addQueryParameter("limit", CHAPTER_PAGE_SIZE.toString())
+        .addQueryParameter("v", version)
+        .apply {
+            if (slug != null) {
+                addQueryParameter("slug", slug)
             }
-            .build()
-    }
+        }
+        .build()
 
     private fun toSChapterList(
         chapterItems: List<CMangaChapterItem>,

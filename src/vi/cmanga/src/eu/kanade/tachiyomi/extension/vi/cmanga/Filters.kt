@@ -48,10 +48,11 @@ class GenreFilter(genres: List<Genre>) : Filter.Group<Genre>("Thể loại", gen
     fun selectedValues(): List<String> = state.filter { it.state }.map { it.value }
 }
 
-class TeamFilter(teams: List<FilterOption>) : UriPartFilter(
-    "Nhóm dịch",
-    listOf(FilterOption("Tất cả", "0")) + teams,
-)
+class TeamFilter(teams: List<FilterOption>) :
+    UriPartFilter(
+        "Nhóm dịch",
+        listOf(FilterOption("Tất cả", "0")) + teams,
+    )
 
 class MinChapterFilter : UriPartFilter("Số chapter tối thiểu", MIN_CHAPTER_OPTIONS.toFilterOptions())
 
