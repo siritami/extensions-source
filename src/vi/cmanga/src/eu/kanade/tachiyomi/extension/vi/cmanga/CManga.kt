@@ -209,7 +209,7 @@ abstract class CManga : KeiSource() {
         val response = client.get("$baseUrl${manga.url}")
         val document = response.asJsoup()
         val albumId = extractAlbumId(manga.url)
-        val apiInfo = albumId?.let(::fetchAlbumInfo)
+        val apiInfo: CMangaAlbumInfo? = if (albumId != null) fetchAlbumInfo(albumId) else null
 
         return SManga.create().apply {
             setUrlWithoutDomain(manga.url)
