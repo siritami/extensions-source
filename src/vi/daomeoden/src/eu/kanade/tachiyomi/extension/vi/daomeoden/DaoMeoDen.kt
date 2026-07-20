@@ -238,22 +238,21 @@ abstract class DaoMeoDen : KeiSource() {
 
     // ============================== Chapters ==============================
 
-    private fun parseChapterList(document: Document): List<SChapter> =
-        document.select("div#TabChapterChapter div.chapter").mapNotNull { element ->
-            val chapterUrl = chapterUrlRegex.find(element.attr("onclick"))
-                ?.groupValues
-                ?.get(1)
-                ?: return@mapNotNull null
+    private fun parseChapterList(document: Document): List<SChapter> = document.select("div#TabChapterChapter div.chapter").mapNotNull { element ->
+        val chapterUrl = chapterUrlRegex.find(element.attr("onclick"))
+            ?.groupValues
+            ?.get(1)
+            ?: return@mapNotNull null
 
-            SChapter.create().apply {
-                setUrlWithoutDomain(chapterUrl)
-                name = element.selectFirst("div.chapter-info div.name-sub")
-                    ?.text()
-                    ?: element.selectFirst("div.chapter-info div.name")!!.text()
-                date_upload = parseChapterDate(element.selectFirst("div.chapter-info div.time > div")?.text())
-                chapterNumberRegex.find(name)?.value?.toFloatOrNull()?.let { chapter_number = it }
-            }
+        SChapter.create().apply {
+            setUrlWithoutDomain(chapterUrl)
+            name = element.selectFirst("div.chapter-info div.name-sub")
+                ?.text()
+                ?: element.selectFirst("div.chapter-info div.name")!!.text()
+            date_upload = parseChapterDate(element.selectFirst("div.chapter-info div.time > div")?.text())
+            chapterNumberRegex.find(name)?.value?.toFloatOrNull()?.let { chapter_number = it }
         }
+    }
 
     private fun parseChapterDate(date: String?): Long {
         if (date == null) return 0L
