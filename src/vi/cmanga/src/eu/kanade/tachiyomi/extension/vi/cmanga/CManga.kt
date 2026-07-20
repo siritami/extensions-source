@@ -477,8 +477,6 @@ abstract class CManga : KeiSource() {
 
     private fun JsonElement?.asLongOrNull(): Long? = asStringOrNull()?.toLongOrNull()
 
-    // ============================== Settings ==============================
-
     override fun getFilterList(data: JsonElement?): FilterList {
         val filterData = data
             ?.let { runCatching { it.parseAs<CMangaFilterData>() }.getOrNull() }
