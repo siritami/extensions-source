@@ -422,8 +422,8 @@ abstract class CManga : KeiSource() {
 
     private fun hasNextPage(total: Int, page: String?, limit: String?): Boolean {
         val currentPage = page?.toIntOrNull() ?: 1
-        val pageSize = limit?.toIntOrNull() ?: PAGE_SIZE
-        return currentPage * pageSize < total
+        val currentPageSize = limit?.toIntOrNull() ?: pageSize
+        return currentPage * currentPageSize < total
     }
 
     private fun extractAlbumId(url: String): String? = albumIdRegex.find(url)?.groupValues?.get(1)
