@@ -34,11 +34,11 @@ abstract class DamCoNuong : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage = parseMangaList(client.get(buildListUrl(page, POPULAR_SORT)))
+    override suspend fun getPopularManga(page: Int): MangasPage = parseMangaList(client.get(buildListUrl(page, popularSort)))
 
     // =============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage = parseMangaList(client.get(buildListUrl(page, LATEST_SORT)))
+    override suspend fun getLatestUpdates(page: Int): MangasPage = parseMangaList(client.get(buildListUrl(page, latestSort)))
 
     // =============================== Search ===============================
 
@@ -47,8 +47,8 @@ abstract class DamCoNuong : KeiSource() {
         query: String,
         filters: FilterList,
     ): MangasPage {
-        val sort = filters.firstInstanceOrNull<SortFilter>()?.toUriPart() ?: LATEST_SORT
-        val status = filters.firstInstanceOrNull<StatusFilter>()?.toUriPart() ?: DEFAULT_STATUS
+        val sort = filters.firstInstanceOrNull<SortFilter>()?.toUriPart() ?: latestSort
+        val status = filters.firstInstanceOrNull<StatusFilter>()?.toUriPart() ?: defaultStatus
         val searchType = filters.firstInstanceOrNull<SearchTypeFilter>()?.toUriPart() ?: "name"
         val selectedGenres = filters.firstInstanceOrNull<GenreFilter>()
             ?.state
@@ -74,7 +74,7 @@ abstract class DamCoNuong : KeiSource() {
 
     private fun buildListUrl(page: Int, sort: String) = "$baseUrl/tim-kiem".toHttpUrl().newBuilder()
         .addQueryParameter("sort", sort)
-        .addQueryParameter("filter[status]", DEFAULT_STATUS)
+        .addQueryParameter("filter[status]", defaultStatus)
         .addQueryParameter("page", page.toString())
         .build()
 
@@ -233,9 +233,9 @@ abstract class DamCoNuong : KeiSource() {
 
     override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
-    private const val LATEST_SORT = "-updated_at"
-    private const val POPULAR_SORT = "-views"
-    private const val DEFAULT_STATUS = "2,1"
+    private val latestSort = "-updated_at"
+    private val popularSort = "-views"
+    private val defaultStatus = "2,1"
 
     private val numberRegex = Regex("\\d+")
     private val genreIdRegex = Regex("toggleGenre\\('([^']+)'\\)")
