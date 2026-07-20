@@ -1,22 +1,25 @@
 package eu.kanade.tachiyomi.extension.vi.cmanga
 
-import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
 import keiyoushi.network.rateLimit
+import keiyoushi.source.KeiSource
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.tryParse
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Request
+import okhttp3.OkHttpClient
 import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
@@ -27,29 +30,15 @@ import java.util.Locale
 import java.util.TimeZone
 
 @Source
-abstract class CManga : HttpSource() {
+abstract class CManga : KeiSource() {
 
-    override val supportsLatest = true
-
-    override val client = network.client.newBuilder()
-        .rateLimit(5)
-        .build()
-
-    // Strip "wv" from User-Agent so Google login works in this source.
-    // Google deny login when User-Agent contains the WebView token.
-    override fun headersBuilder() = super.headersBuilder()
-        .add("Referer", "$baseUrl/")
-        .apply {
-            build()["user-agent"]?.let { userAgent ->
-                set("user-agent", removeWebViewToken(userAgent))
-            }
-        }
-
-    private fun removeWebViewToken(userAgent: String): String = userAgent.replace(WEBVIEW_TOKEN_REGEX, ")")
+    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
+        rateLimit(5)
+    }
 
     // ============================== Popular ===============================
 
-    override fun popularMangaRequest(page: Int): Request {
+    override suspend fun getPopularManga(page: Int): MangasPage {
         val url = "$baseUrl/api/home_album_list".toHttpUrl().newBuilder()
             .addQueryParameter("file", SOURCE_FILE)
             .addQueryParameter("type", "hot")
@@ -58,14 +47,12 @@ abstract class CManga : HttpSource() {
             .addQueryParameter("limit", PAGE_SIZE.toString())
             .addQueryParameter("page", page.toString())
             .build()
-        return GET(url, headers)
+        return parseMangaPage(client.get(url))
     }
-
-    override fun popularMangaParse(response: Response): MangasPage = parseMangaPage(response)
 
     // ============================== Latest ================================
 
-    override fun latestUpdatesRequest(page: Int): Request {
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
         val url = "$baseUrl/api/home_album_list".toHttpUrl().newBuilder()
             .addQueryParameter("file", SOURCE_FILE)
             .addQueryParameter("type", "update")
@@ -74,14 +61,40 @@ abstract class CManga : HttpSource() {
             .addQueryParameter("limit", PAGE_SIZE.toString())
             .addQueryParameter("page", page.toString())
             .build()
-        return GET(url, headers)
+        return parseMangaPage(client.get(url))
     }
-
-    override fun latestUpdatesParse(response: Response): MangasPage = parseMangaPage(response)
 
     // ============================== Search ================================
 
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
+    override val supportsFilterFetching: Boolean get() = true
+
+    override suspend fun fetchFilterData(): JsonElement {
+        val genres = client.get("$baseUrl/assets/json/album_tags_image.json")
+            .parseAs<CMangaGenreResponse>()
+            .list
+            .mapNotNull { (value, genre) ->
+                val name = genre.name.trim()
+                if (name.isEmpty() || value.isEmpty()) null else GenreOption(name, value)
+            }
+
+        val teams = client.get("$baseUrl/api/team_list")
+            .parseAs<CMangaTeamResponse>()
+            .data
+            .mapNotNull { team ->
+                val name = runCatching { team.info.parseAs<CMangaTeamInfo>().name.trim() }
+                    .getOrNull()
+                    .orEmpty()
+                if (name.isEmpty()) null else FilterOption(name, team.id.toString())
+            }
+
+        return CMangaFilterData(genres, teams).toJsonElement()
+    }
+
+    override suspend fun getSearchMangaList(
+        page: Int,
+        query: String,
+        filters: FilterList,
+    ): MangasPage {
         val genres = filters.firstInstanceOrNull<GenreFilter>()
             ?.selectedValues()
             .orEmpty()
@@ -113,10 +126,8 @@ abstract class CManga : HttpSource() {
             .addQueryParameter("num_chapter", minChapter)
             .build()
 
-        return GET(url, headers)
+        return parseMangaPage(client.get(url))
     }
-
-    override fun searchMangaParse(response: Response): MangasPage = parseMangaPage(response)
 
     private fun parseMangaPage(response: Response): MangasPage {
         val payload = response.parseAs<CMangaAlbumListResponse>()
@@ -144,12 +155,64 @@ abstract class CManga : HttpSource() {
 
     // ============================== Details ===============================
 
-    override fun mangaDetailsParse(response: Response): SManga {
+    override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
+        if (url.host != baseUrl.toHttpUrl().host || url.pathSegments.firstOrNull() != "album") return null
+
+        val canonicalPath = when {
+            extractAlbumId(url.encodedPath) != null -> url.encodedPath
+            url.pathSegments.any { it.startsWith("chapter-") } -> {
+                val document = client.get(url).asJsoup()
+                document.selectFirst("a[href^=/album/][href~=-[0-9]+$]")?.attr("href")
+            }
+            else -> findAlbumBySlug(url.pathSegments.getOrNull(1))?.url
+        } ?: return null
+
+        val manga = SManga.create().apply { setUrlWithoutDomain(canonicalPath) }
+        return fetchMangaUpdate(manga, emptyList(), true, false).manga
+    }
+
+    private suspend fun findAlbumBySlug(slug: String?): SManga? {
+        if (slug.isNullOrEmpty()) return null
+
+        val url = "$baseUrl/api/home_album_list".toHttpUrl().newBuilder()
+            .addQueryParameter("file", SOURCE_FILE)
+            .addQueryParameter("type", "search")
+            .addQueryParameter("sort", DEFAULT_SORT)
+            .addQueryParameter("tag", "")
+            .addQueryParameter("limit", PAGE_SIZE.toString())
+            .addQueryParameter("page", "1")
+            .addQueryParameter("status", "all")
+            .addQueryParameter("string", slug.replace('-', ' '))
+            .addQueryParameter("team", "0")
+            .addQueryParameter("num_chapter", "0")
+            .build()
+
+        return client.get(url).parseAs<CMangaAlbumListResponse>()
+            .data?.data
+            .orEmpty()
+            .mapNotNull(::toSManga)
+            .firstOrNull { extractAlbumSlug(it.url) == slug }
+    }
+
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate {
+        val updatedManga = if (fetchDetails) fetchMangaDetails(manga) else manga
+        val updatedChapters = if (fetchChapters) fetchChapterList(manga) else chapters
+        return SMangaUpdate(updatedManga, updatedChapters)
+    }
+
+    private suspend fun fetchMangaDetails(manga: SManga): SManga {
+        val response = client.get("$baseUrl${manga.url}")
         val document = response.asJsoup()
-        val albumId = extractAlbumId(response.request.url.encodedPath)
+        val albumId = extractAlbumId(manga.url)
         val apiInfo = albumId?.let(::fetchAlbumInfo)
 
         return SManga.create().apply {
+            setUrlWithoutDomain(manga.url)
             title = document.selectFirst("div.book_other h1 .name, div.book_other h1 p.name")!!.text()
             thumbnail_url = document.selectFirst("div.book_avatar img[itemprop=image], div.book_avatar img")?.absUrl("src")
                 ?: resolveCoverUrl(apiInfo?.avatar)
@@ -162,18 +225,15 @@ abstract class CManga : HttpSource() {
         }
     }
 
-    private fun fetchAlbumInfo(albumId: String): CMangaAlbumInfo? {
+    private suspend fun fetchAlbumInfo(albumId: String): CMangaAlbumInfo? {
         val url = "$baseUrl/api/get_data_by_id".toHttpUrl().newBuilder()
             .addQueryParameter("id", albumId)
             .addQueryParameter("table", "album")
             .addQueryParameter("data", "info,data")
             .build()
 
-        return client.newCall(GET(url, headers)).execute().use { response ->
-            if (!response.isSuccessful) return null
-            val payload = response.parseAs<CMangaAlbumByIdResponse>()
-            parseAlbumInfo(payload.data?.info)
-        }
+        val payload = client.get(url).parseAs<CMangaAlbumByIdResponse>()
+        return parseAlbumInfo(payload.data?.info)
     }
 
     private fun parseDescription(document: Document, apiDetail: String?): String? {
@@ -205,32 +265,23 @@ abstract class CManga : HttpSource() {
 
     // ============================== Chapters ==============================
 
-    override fun chapterListRequest(manga: SManga): Request {
+    private suspend fun fetchChapterList(manga: SManga): List<SChapter> {
         val albumId = extractAlbumId(manga.url) ?: throw Exception("Không tìm thấy mã truyện")
         val albumSlug = extractAlbumSlug(manga.url)
         val version = currentEpochSeconds()
-
-        return chapterListPageRequest(albumId, 1, albumSlug, version)
-    }
-
-    override fun chapterListParse(response: Response): List<SChapter> {
-        val albumId = response.request.url.queryParameter("album") ?: throw Exception("Không tìm thấy mã truyện")
-        val albumSlug = response.request.url.queryParameter("slug")
-        val version = response.request.url.queryParameter("v") ?: currentEpochSeconds()
-        var page = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
+        var page = 1
 
         val seenChapterIds = mutableSetOf<String>()
         val chapters = mutableListOf<SChapter>()
 
-        var pageItems = response.parseAs<CMangaChapterListResponse>().data.orEmpty()
+        var pageItems = client.get(chapterListPageUrl(albumId, page, albumSlug, version))
+            .parseAs<CMangaChapterListResponse>().data.orEmpty()
         chapters += toSChapterList(pageItems, albumSlug, seenChapterIds)
 
         while (pageItems.size >= CHAPTER_PAGE_SIZE) {
             page += 1
-            val request = chapterListPageRequest(albumId, page, albumSlug, version)
-            client.newCall(request).execute().use { nextResponse ->
-                pageItems = nextResponse.parseAs<CMangaChapterListResponse>().data.orEmpty()
-            }
+            pageItems = client.get(chapterListPageUrl(albumId, page, albumSlug, version))
+                .parseAs<CMangaChapterListResponse>().data.orEmpty()
 
             if (pageItems.isEmpty()) break
 
@@ -242,8 +293,8 @@ abstract class CManga : HttpSource() {
         return chapters
     }
 
-    private fun chapterListPageRequest(albumId: String, page: Int, slug: String?, version: String): Request {
-        val url = "$baseUrl/api/chapter_list".toHttpUrl().newBuilder()
+    private fun chapterListPageUrl(albumId: String, page: Int, slug: String?, version: String): HttpUrl {
+        return "$baseUrl/api/chapter_list".toHttpUrl().newBuilder()
             .addQueryParameter("album", albumId)
             .addQueryParameter("page", page.toString())
             .addQueryParameter("limit", CHAPTER_PAGE_SIZE.toString())
@@ -254,7 +305,6 @@ abstract class CManga : HttpSource() {
                 }
             }
             .build()
-        return GET(url, headers)
     }
 
     private fun toSChapterList(
@@ -329,8 +379,8 @@ abstract class CManga : HttpSource() {
 
     // ============================== Pages =================================
 
-    override fun pageListParse(response: Response): List<Page> {
-        val chapterId = extractChapterId(response.request.url.encodedPath)
+    override suspend fun getPageList(chapter: SChapter): List<Page> {
+        val chapterId = extractChapterId(chapter.url)
             ?: throw Exception("Không tìm thấy mã chương")
         val userSecurity = getUserSecurity()
 
@@ -342,27 +392,16 @@ abstract class CManga : HttpSource() {
             .addQueryParameter("user_token", userSecurity.token ?: "")
             .build()
 
-        return client.newCall(GET(url, headers)).execute().use { imageResponse ->
-            if (!imageResponse.isSuccessful) throw Exception("Không tìm thấy hình ảnh")
+        val payload = client.get(url).parseAs<CMangaChapterImageResponse>()
+        val imageData = payload.data ?: return emptyList()
+        if (imageData.status != 1) {
+            throw Exception(LOGIN_WEBVIEW_MESSAGE)
+        }
 
-            val payload = imageResponse.parseAs<CMangaChapterImageResponse>()
-            val imageData = payload.data ?: throw Exception("Không tìm thấy hình ảnh")
-            if (imageData.status != 1) {
-                throw Exception(LOGIN_WEBVIEW_MESSAGE)
-            }
-
-            val images = imageData.image.orEmpty()
-            if (images.isEmpty()) {
-                throw Exception("Không tìm thấy hình ảnh")
-            }
-
-            images.mapIndexed { index, imageUrl ->
-                Page(index, imageUrl = imageUrl)
-            }
+        return imageData.image.orEmpty().mapIndexed { index, imageUrl ->
+            Page(index, imageUrl = imageUrl)
         }
     }
-
-    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
     // ============================== Helpers ===============================
 
@@ -442,7 +481,11 @@ abstract class CManga : HttpSource() {
 
     // ============================== Settings ==============================
 
-    override fun getFilterList(): FilterList = getFilters()
+    override fun getFilterList(data: JsonElement?): FilterList {
+        val filterData = data
+            ?.let { runCatching { it.parseAs<CMangaFilterData>() }.getOrNull() }
+        return getFilters(filterData?.genres.orEmpty(), filterData?.teams.orEmpty())
+    }
 
     companion object {
         private const val SOURCE_FILE = "image"
@@ -451,7 +494,6 @@ abstract class CManga : HttpSource() {
         private const val CHAPTER_PAGE_SIZE = 50
         private const val LOGIN_WEBVIEW_MESSAGE = "Vui lòng đăng nhập vào tài khoản phù hợp qua Webview để đọc chương này"
 
-        private val WEBVIEW_TOKEN_REGEX = Regex(""";\s*wv\)""")
         private val ALBUM_ID_REGEX = Regex("""-([0-9]+)(?:/ref/[0-9]+)?/?$""")
         private val ALBUM_SLUG_REGEX = Regex("""/album/([^/]+?)-[0-9]+(?:/ref/[0-9]+)?/?$""")
         private val CHAPTER_ID_REGEX = Regex("""chapter-[^/]+-([0-9]+)""")
