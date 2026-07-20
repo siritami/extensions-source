@@ -233,7 +233,6 @@ abstract class DamCoNuong : KeiSource() {
 
     override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
-
     // =============================== Related ==============================
 
     override val supportsRelatedMangas get() = true
