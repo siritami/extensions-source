@@ -106,7 +106,9 @@ abstract class DaoMeoDen : KeiSource() {
         val document = response.asJsoup()
         val apiRequest = buildBookListApiRequest(document, requestUrl.toString())
             ?: return MangasPage(emptyList(), false)
-        val payload = client.post(apiRequest.url, apiRequest.headers, apiRequest.body)
+        val requestBody = apiRequest.body
+            ?: return MangasPage(emptyList(), false)
+        val payload = client.post(apiRequest.url, apiRequest.headers, requestBody)
             .parseAs<BookListApiResponse>()
 
         val listDocument = parsePayloadDocument(payload.status, payload.htmlBook)
