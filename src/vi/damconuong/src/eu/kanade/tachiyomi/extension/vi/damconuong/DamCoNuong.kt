@@ -34,13 +34,11 @@ abstract class DamCoNuong : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        parseMangaList(client.get(buildListUrl(page, POPULAR_SORT)))
+    override suspend fun getPopularManga(page: Int): MangasPage = parseMangaList(client.get(buildListUrl(page, POPULAR_SORT)))
 
     // =============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        parseMangaList(client.get(buildListUrl(page, LATEST_SORT)))
+    override suspend fun getLatestUpdates(page: Int): MangasPage = parseMangaList(client.get(buildListUrl(page, LATEST_SORT)))
 
     // =============================== Search ===============================
 
@@ -128,29 +126,28 @@ abstract class DamCoNuong : KeiSource() {
         )
     }
 
-    private fun parseMangaDetails(document: Document, manga: SManga): SManga =
-        SManga.create().apply {
-            setUrlWithoutDomain(manga.url)
-            title = document.selectFirst("h1.text-xl.ml-1, h1.text-xl")!!.text()
+    private fun parseMangaDetails(document: Document, manga: SManga): SManga = SManga.create().apply {
+        setUrlWithoutDomain(manga.url)
+        title = document.selectFirst("h1.text-xl.ml-1, h1.text-xl")!!.text()
 
-            val imageElement = document.selectFirst("div.cover-frame img")
-            thumbnail_url = imageElement?.absUrl("src")
-                ?.ifEmpty { imageElement.absUrl("data-src") }
-                ?.ifEmpty { null }
+        val imageElement = document.selectFirst("div.cover-frame img")
+        thumbnail_url = imageElement?.absUrl("src")
+            ?.ifEmpty { imageElement.absUrl("data-src") }
+            ?.ifEmpty { null }
 
-            author = document.selectFirst("span:containsOwn(Author:) + span a")?.text()
-            genre = document.select("#genres-list a")
-                .joinToString { it.text() }
-                .ifEmpty { null }
+        author = document.selectFirst("span:containsOwn(Author:) + span a")?.text()
+        genre = document.select("#genres-list a")
+            .joinToString { it.text() }
+            .ifEmpty { null }
 
-            status = parseStatus(
-                document.selectFirst("span:containsOwn(Tình trạng:)")?.parent()?.select("span")?.last()?.text(),
-            )
+        status = parseStatus(
+            document.selectFirst("span:containsOwn(Tình trạng:)")?.parent()?.select("span")?.last()?.text(),
+        )
 
-            val descriptionElement = document.selectFirst("div.prose.dark\\:prose-invert.max-w-none")
-            description = descriptionElement?.text()
-                ?.ifEmpty { null }
-        }
+        val descriptionElement = document.selectFirst("div.prose.dark\\:prose-invert.max-w-none")
+        description = descriptionElement?.text()
+            ?.ifEmpty { null }
+    }
 
     private fun parseStatus(statusText: String?): Int = when {
         statusText?.contains("Đang tiến hành", ignoreCase = true) == true -> SManga.ONGOING
@@ -160,16 +157,15 @@ abstract class DamCoNuong : KeiSource() {
 
     // ============================== Chapters ==============================
 
-    private fun parseChapterList(document: Document): List<SChapter> =
-        document.select("#chapterList > a.block").map { element ->
-            SChapter.create().apply {
-                setUrlWithoutDomain(element.absUrl("href"))
-                name = element.selectFirst("div.grow span")!!.text()
-                date_upload = parseChapterDate(
-                    element.selectFirst("span.ml-2.whitespace-nowrap")?.text(),
-                )
-            }
+    private fun parseChapterList(document: Document): List<SChapter> = document.select("#chapterList > a.block").map { element ->
+        SChapter.create().apply {
+            setUrlWithoutDomain(element.absUrl("href"))
+            name = element.selectFirst("div.grow span")!!.text()
+            date_upload = parseChapterDate(
+                element.selectFirst("span.ml-2.whitespace-nowrap")?.text(),
+            )
         }
+    }
 
     private fun parseChapterDate(dateStr: String?): Long = parseRelativeDate(dateStr)
         .takeIf { it != 0L }
@@ -235,8 +231,7 @@ abstract class DamCoNuong : KeiSource() {
         .distinctBy { it.id }
         .toJsonElement()
 
-    override fun getFilterList(data: JsonElement?): FilterList =
-        getFilters(data?.parseAs<List<GenreOption>>())
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
     private const val LATEST_SORT = "-updated_at"
     private const val POPULAR_SORT = "-views"
