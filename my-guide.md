@@ -46,6 +46,58 @@ private fun authInterceptor() = okhttp3.Interceptor { chain ->
 
 # General Extension Development Notes
 
+## Fetch Independent Data in Parallel
+
+When a suspend method needs multiple independent network responses, fetch them concurrently with structured concurrency instead of waiting for each request sequentially. This is especially useful in `fetchFilterData()` when filter groups come from separate endpoints.
+
+```kotlin
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+
+override suspend fun fetchFilterData(): JsonElement = coroutineScope {
+    val genres = async { client.get("$baseUrl/api/genres").parseAs<GenreResponse>() }
+    val teams = async { client.get("$baseUrl/api/teams").parseAs<TeamResponse>() }
+
+    FilterData(
+        genres = genres.await(),
+        teams = teams.await(),
+    ).toJsonElement()
+}
+```
+
+- Use `coroutineScope` so failures cancel sibling requests and propagate normally.
+- Start all independent `async` operations before calling `await()`.
+- Do not parallelize requests when one depends on the result of another.
+
+### Paginated APIs Without a Total Count
+
+If the API does not return a total page count, do not launch an arbitrary number of page requests. Fetch the first page, then request a small bounded batch of consecutive pages concurrently. Process responses in page order and stop at the first empty or short page.
+
+```kotlin
+var nextPage = 2
+var hasMorePages = firstPage.size >= pageSize
+
+while (hasMorePages) {
+    val pages = (nextPage until nextPage + batchSize)
+        .map { page -> async { fetchPage(page) } }
+        .awaitAll()
+
+    for (items in pages) {
+        results += items
+        if (items.size < pageSize) {
+            hasMorePages = false
+            break
+        }
+    }
+
+    nextPage += batchSize
+}
+```
+
+- Keep the batch small to limit speculative requests beyond the final page.
+- `awaitAll()` returns results in the same order as the deferred list, preserving pagination order.
+- If the API provides a reliable total count, calculate the exact page range and fetch those pages concurrently instead.
+
 ## Deeplink Configuration
 
 For any extension, ensure deeplink configuration in `build.gradle.kts` properly matches the site's URL structure:
@@ -209,6 +261,37 @@ val epochMillis = Instant.parseOrNull("2025-01-15T10:30:00.000Z")?.toEpochMillis
 - Works with all ISO 8601 offsets (`Z`, `+07:00`, etc.)
 - Replaces `SimpleDateFormat` + manual `TimeZone` setup
 
+## Site-local timestamps without an offset
+
+For a fixed numeric format such as `yyyy-MM-dd HH:mm:ss`, use the thread-safe
+`java.time` API. Parse it as `LocalDateTime`, apply the site's known zone, and
+then convert it to epoch milliseconds:
+
+```kotlin
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT)
+private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
+
+private fun parseDate(date: String?): Long {
+    if (date == null) return 0L
+    return runCatching {
+        LocalDateTime.parse(date, dateFormat)
+            .atZone(dateZone)
+            .toInstant()
+            .toEpochMilli()
+    }.getOrDefault(0L)
+}
+```
+
+- Keep `DateTimeFormatter` and `ZoneId` at class or file level.
+- `DateTimeFormatter` is immutable and thread-safe, unlike `SimpleDateFormat`.
+- Use `LocalDateTime` only when the input has no offset or zone information.
+- Apply the source site's zone explicitly; never rely on the device default zone.
+
 ---
 
 # Import Linting
@@ -240,6 +323,9 @@ Import them to avoid verbose `jsonObject`/`jsonArray`/`jsonPrimitive` chains.
 ```kotlin
 import keiyoushi.utils.get     // operator fun JsonElement?.get(key: String): JsonElement?
 import keiyoushi.utils.array   // val JsonElement.array: JsonArray
+import keiyoushi.utils.int     // val JsonElement.int: Int
+import keiyoushi.utils.long    // val JsonElement.long: Long
+import keiyoushi.utils.string  // val JsonElement.string: String
 ```
 
 ## Usage
@@ -255,3 +341,15 @@ val genres = data["data"]?.array
 The `get` operator on `JsonElement?` internally calls `this?.jsonObject?.get(key)`,
 and `array` wraps `this.jsonArray`. Both throw on type mismatch — use `?.` to get
 `null` on missing keys instead.
+
+The terminal accessors (`string`, `int`, `long`, and `boolean`) also throw for a
+null element or incompatible value. For optional or inconsistent API fields,
+preserve fallback behavior with a nullable receiver and `runCatching`:
+
+```kotlin
+val chapterId = data["id"]?.let { runCatching { it.string }.getOrNull() }
+val level = data["level"]?.let { runCatching { it.int }.getOrNull() } ?: 0
+val expiresAt = data["expires_at"]?.let { runCatching { it.long }.getOrNull() } ?: 0L
+```
+
+Prefer these shared helpers over source-local `JsonElement` conversion extensions.
