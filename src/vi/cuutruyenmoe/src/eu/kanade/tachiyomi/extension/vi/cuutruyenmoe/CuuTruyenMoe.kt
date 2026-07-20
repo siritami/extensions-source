@@ -203,6 +203,28 @@ abstract class CuuTruyenMoe :
         )
     }
 
+    // ============================== Related ===============================
+
+    override val supportsRelatedMangas get() = true
+
+    override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
+        val document = client.get("$baseUrl${manga.url}").asJsoup()
+        val relatedSection = document.select("h5")
+            .firstOrNull { it.text() == "Có thể bạn thích" }
+            ?.parent()
+            ?: return emptyList()
+
+        return relatedSection.select("div.flex.gap-2.w-full").mapNotNull { card ->
+            val link = card.selectFirst("a[href*=/truyen/]") ?: return@mapNotNull null
+
+            SManga.create().apply {
+                setUrlWithoutDomain(link.absUrl("href"))
+                title = link.text()
+                thumbnail_url = card.selectFirst("div.cover-sm")?.extractBackgroundImage()
+            }
+        }.distinctBy { it.url }
+    }
+
     // ============================== Chapters ==============================
 
     private fun parseChapterList(document: Document): List<SChapter> {
