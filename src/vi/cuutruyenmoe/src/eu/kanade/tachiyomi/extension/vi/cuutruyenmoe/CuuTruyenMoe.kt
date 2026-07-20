@@ -80,8 +80,7 @@ abstract class CuuTruyenMoe :
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        parseMangaPage(client.get("$baseUrl/tim-kiem?sort=-views&filter[status]=2,1&page=$page"))
+    override suspend fun getPopularManga(page: Int): MangasPage = parseMangaPage(client.get("$baseUrl/tim-kiem?sort=-views&filter[status]=2,1&page=$page"))
 
     private fun parseMangaPage(response: Response): MangasPage {
         val document = response.asJsoup()
@@ -103,8 +102,7 @@ abstract class CuuTruyenMoe :
 
     // =============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        parseMangaPage(client.get("$baseUrl/tim-kiem?sort=-updated_at&filter[status]=2,1&page=$page"))
+    override suspend fun getLatestUpdates(page: Int): MangasPage = parseMangaPage(client.get("$baseUrl/tim-kiem?sort=-updated_at&filter[status]=2,1&page=$page"))
 
     // =============================== Search ===============================
 
@@ -155,34 +153,31 @@ abstract class CuuTruyenMoe :
         .distinctBy { it.id }
         .toJsonElement()
 
-    override fun getFilterList(data: JsonElement?): FilterList =
-        getFilters(data?.parseAs<List<GenreOption>>())
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
     // =============================== Details ==============================
 
-    private fun parseMangaDetails(document: Document, manga: SManga): SManga {
-        return SManga.create().apply {
-            setUrlWithoutDomain(manga.url)
-            title = document.selectFirst("span.grow.text-lg")!!.text()
-            author = document.selectFirst("a[href*=/tac-gia/]")?.text()
-            genre = document.select("div.mt-2.flex.flex-wrap.gap-1 a[href*=/the-loai/]").joinToString { it.text() }
-            thumbnail_url = document.selectFirst("div.cover-frame div.cover, div.cover-frame")?.extractBackgroundImage()
-            description = document.selectFirst("div.mg-plot")?.select("p")
-                ?.drop(1)
-                ?.joinToString("\n") { it.text() }
-                ?.trim()
-                ?.takeIf { it.isNotBlank() }
+    private fun parseMangaDetails(document: Document, manga: SManga): SManga = SManga.create().apply {
+        setUrlWithoutDomain(manga.url)
+        title = document.selectFirst("span.grow.text-lg")!!.text()
+        author = document.selectFirst("a[href*=/tac-gia/]")?.text()
+        genre = document.select("div.mt-2.flex.flex-wrap.gap-1 a[href*=/the-loai/]").joinToString { it.text() }
+        thumbnail_url = document.selectFirst("div.cover-frame div.cover, div.cover-frame")?.extractBackgroundImage()
+        description = document.selectFirst("div.mg-plot")?.select("p")
+            ?.drop(1)
+            ?.joinToString("\n") { it.text() }
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
 
-            status = document.selectFirst("a[href*='filter[status]'] span, a[href*='filter%5Bstatus%5D'] span")
-                ?.text()
-                ?.let { statusText ->
-                    when {
-                        statusText.contains("Đã hoàn thành") -> SManga.COMPLETED
-                        statusText.contains("Đang tiến hành") -> SManga.ONGOING
-                        else -> SManga.UNKNOWN
-                    }
-                } ?: SManga.UNKNOWN
-        }
+        status = document.selectFirst("a[href*='filter[status]'] span, a[href*='filter%5Bstatus%5D'] span")
+            ?.text()
+            ?.let { statusText ->
+                when {
+                    statusText.contains("Đã hoàn thành") -> SManga.COMPLETED
+                    statusText.contains("Đang tiến hành") -> SManga.ONGOING
+                    else -> SManga.UNKNOWN
+                }
+            } ?: SManga.UNKNOWN
     }
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
