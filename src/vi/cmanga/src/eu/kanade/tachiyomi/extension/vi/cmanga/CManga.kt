@@ -159,11 +159,11 @@ abstract class CManga : KeiSource() {
         if (url.host != baseUrl.toHttpUrl().host || url.pathSegments.firstOrNull() != "album") return null
 
         val canonicalPath = when {
-            extractAlbumId(url.encodedPath) != null -> url.encodedPath
             url.pathSegments.any { it.startsWith("chapter-") } -> {
                 val document = client.get(url).asJsoup()
                 document.selectFirst("a[href^=/album/][href~=-[0-9]+$]")?.attr("href")
             }
+            extractAlbumId(url.encodedPath) != null -> url.encodedPath
             else -> findAlbumBySlug(url.pathSegments.getOrNull(1))?.url
         } ?: return null
 
