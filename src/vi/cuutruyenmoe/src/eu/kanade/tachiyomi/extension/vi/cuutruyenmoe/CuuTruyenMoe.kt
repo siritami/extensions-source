@@ -3,7 +3,6 @@ package eu.kanade.tachiyomi.extension.vi.cuutruyenmoe
 import android.content.SharedPreferences
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
-import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -11,14 +10,18 @@ import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
 import keiyoushi.network.rateLimit
+import keiyoushi.source.KeiSource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.toJsonRequestBody
 import keiyoushi.utils.tryParse
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -27,9 +30,12 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.Headers
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Request
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
 import okhttp3.Response
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.parser.Parser
 import java.io.IOException
@@ -39,15 +45,13 @@ import java.util.TimeZone
 
 @Source
 abstract class CuuTruyenMoe :
-    HttpSource(),
+    KeiSource(),
     ConfigurableSource {
-
-    override val supportsLatest = true
 
     private val preferences: SharedPreferences by getPreferencesLazy()
 
-    override val client = network.client.newBuilder()
-        .addInterceptor { chain ->
+    override fun OkHttpClient.Builder.configureClient() = apply {
+        addInterceptor { chain ->
             val request = chain.request()
             val response = chain.proceed(request)
 
@@ -62,26 +66,24 @@ abstract class CuuTruyenMoe :
             submitConfiguredPassword(chain, body)
             chain.proceed(request)
         }
-        .rateLimit(5)
-        .build()
-
-    override fun headersBuilder() = super.headersBuilder()
-        .add("Referer", "$baseUrl/")
+        rateLimit(5)
+    }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         EditTextPreference(screen.context).apply {
             key = "website_password"
             title = "Mật khẩu truy cập website"
-            summary = "Mặc định: $DEFAULT_PASSWORD"
-            setDefaultValue(DEFAULT_PASSWORD)
+            summary = "Mặc định: $defaultPassword"
+            setDefaultValue(defaultPassword)
         }.also(screen::addPreference)
     }
 
     // ============================== Popular ===============================
 
-    override fun popularMangaRequest(page: Int): Request = GET("$baseUrl/tim-kiem?sort=-views&filter[status]=2,1&page=$page", headers)
+    override suspend fun getPopularManga(page: Int): MangasPage =
+        parseMangaPage(client.get("$baseUrl/tim-kiem?sort=-views&filter[status]=2,1&page=$page"))
 
-    override fun popularMangaParse(response: Response): MangasPage {
+    private fun parseMangaPage(response: Response): MangasPage {
         val document = response.asJsoup()
 
         val mangaList = document.select("div.manga-vertical").map { element ->
@@ -101,13 +103,12 @@ abstract class CuuTruyenMoe :
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/tim-kiem?sort=-updated_at&filter[status]=2,1&page=$page", headers)
-
-    override fun latestUpdatesParse(response: Response): MangasPage = popularMangaParse(response)
+    override suspend fun getLatestUpdates(page: Int): MangasPage =
+        parseMangaPage(client.get("$baseUrl/tim-kiem?sort=-updated_at&filter[status]=2,1&page=$page"))
 
     // =============================== Search ===============================
 
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
         val url = "$baseUrl/tim-kiem".toHttpUrl().newBuilder().apply {
             filters.forEach { filter ->
                 when (filter) {
@@ -136,19 +137,32 @@ abstract class CuuTruyenMoe :
             addQueryParameter("page", page.toString())
         }.build()
 
-        return GET(url, headers)
+        return parseMangaPage(client.get(url))
     }
 
-    override fun searchMangaParse(response: Response): MangasPage = popularMangaParse(response)
+    override val supportsFilterFetching get() = true
 
-    override fun getFilterList(): FilterList = getFilters()
+    override suspend fun fetchFilterData(): JsonElement = client.get("$baseUrl/tim-kiem").asJsoup()
+        .select("label")
+        .mapNotNull { element ->
+            val id = genreIdRegex.matchEntire(element.attr("@click"))
+                ?.groupValues
+                ?.get(1)
+                ?: return@mapNotNull null
+            val name = element.text().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            GenreOption(name, id)
+        }
+        .distinctBy { it.id }
+        .toJsonElement()
+
+    override fun getFilterList(data: JsonElement?): FilterList =
+        getFilters(data?.parseAs<List<GenreOption>>())
 
     // =============================== Details ==============================
 
-    override fun mangaDetailsParse(response: Response): SManga {
-        val document = response.asJsoup()
-
+    private fun parseMangaDetails(document: Document, manga: SManga): SManga {
         return SManga.create().apply {
+            setUrlWithoutDomain(manga.url)
             title = document.selectFirst("span.grow.text-lg")!!.text()
             author = document.selectFirst("a[href*=/tac-gia/]")?.text()
             genre = document.select("div.mt-2.flex.flex-wrap.gap-1 a[href*=/the-loai/]").joinToString { it.text() }
@@ -171,11 +185,32 @@ abstract class CuuTruyenMoe :
         }
     }
 
+    override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
+        if (url.host != baseUrl.toHttpUrl().host || url.pathSegments.firstOrNull() != "truyen") return null
+
+        val slug = url.pathSegments.getOrNull(1) ?: return null
+        val manga = SManga.create().apply {
+            setUrlWithoutDomain("/truyen/$slug")
+        }
+        return fetchMangaUpdate(manga, emptyList(), true, false).manga
+    }
+
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate {
+        val document = client.get("$baseUrl${manga.url}").asJsoup()
+        return SMangaUpdate(
+            manga = parseMangaDetails(document, manga),
+            chapters = parseChapterList(document),
+        )
+    }
+
     // ============================== Chapters ==============================
 
-    override fun chapterListParse(response: Response): List<SChapter> {
-        val document = response.asJsoup()
-
+    private fun parseChapterList(document: Document): List<SChapter> {
         return document.select("ul.overflow-y-auto a[href*=/truyen/]").mapNotNull { chapterElement ->
             val chapterName = chapterElement.selectFirst("div.grow span.text-ellipsis, div.grow span.truncate")
                 ?.text()
@@ -199,16 +234,16 @@ abstract class CuuTruyenMoe :
 
     // ============================== Password ===============================
 
-    private fun submitConfiguredPassword(chain: okhttp3.Interceptor.Chain, html: String) {
-        val wireDataStr = WIRE_INITIAL_DATA_REGEX.find(html)?.groupValues?.get(1)
+    private fun submitConfiguredPassword(chain: Interceptor.Chain, html: String) {
+        val wireDataStr = wireInitialDataRegex.find(html)?.groupValues?.get(1)
             ?.let { Parser.unescapeEntities(it, true) }
             ?: throw IOException("Gate: wire:initial-data not found")
 
-        val csrfToken = LIVEWIRE_TOKEN_REGEX.find(html)?.groupValues?.get(1)
+        val csrfToken = livewireTokenRegex.find(html)?.groupValues?.get(1)
             ?: throw IOException("Gate: CSRF token not found")
 
-        val password = preferences.getString("website_password", DEFAULT_PASSWORD)!!
-            .ifBlank { DEFAULT_PASSWORD }
+        val password = preferences.getString("website_password", defaultPassword)!!
+            .ifBlank { defaultPassword }
 
         val wireData = wireDataStr.parseAs<JsonObject>()
         val fingerprint = wireData["fingerprint"]!!.jsonObject
@@ -255,8 +290,8 @@ abstract class CuuTruyenMoe :
 
     // =============================== Pages ================================
 
-    override fun pageListParse(response: Response): List<Page> {
-        val document = response.asJsoup()
+    override suspend fun getPageList(chapter: SChapter): List<Page> {
+        val document = client.get("$baseUrl${chapter.url}").asJsoup()
 
         val imageUrls = document.select("div.text-center > img.max-w-full").mapNotNull { image ->
             image.extractImageUrl()
@@ -276,19 +311,16 @@ abstract class CuuTruyenMoe :
         return null
     }
 
-    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
-
     // ============================= Utilities ==============================
 
     private fun Element.extractBackgroundImage(): String? {
         val style = attr("style")
-        return BACKGROUND_IMAGE_REGEX.find(style)?.groupValues?.get(1)
+        return backgroundImageRegex.find(style)?.groupValues?.get(1)
     }
 
-    companion object {
-        private val BACKGROUND_IMAGE_REGEX = Regex("""background-image:\s*url\(['"]?(.*?)['"]?\)""")
-        private val WIRE_INITIAL_DATA_REGEX = Regex("""wire:initial-data="([^"]+)"""")
-        private val LIVEWIRE_TOKEN_REGEX = Regex("""livewire_token\s*=\s*'([^']+)'""")
-        private const val DEFAULT_PASSWORD = "5"
-    }
+    private val backgroundImageRegex = Regex("""background-image:\s*url\(['"]?(.*?)['"]?\)""")
+    private val genreIdRegex = Regex("""toggleGenre\('(\d+)'\)""")
+    private val wireInitialDataRegex = Regex("""wire:initial-data="([^"]+)"""")
+    private val livewireTokenRegex = Regex("""livewire_token\s*=\s*'([^']+)'""")
+    private val defaultPassword = "5"
 }

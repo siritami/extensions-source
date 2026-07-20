@@ -40,11 +40,11 @@ abstract class CManga : KeiSource() {
 
     override suspend fun getPopularManga(page: Int): MangasPage {
         val url = "$baseUrl/api/home_album_list".toHttpUrl().newBuilder()
-            .addQueryParameter("file", SOURCE_FILE)
+            .addQueryParameter("file", sourceFile)
             .addQueryParameter("type", "hot")
-            .addQueryParameter("sort", DEFAULT_SORT)
+            .addQueryParameter("sort", defaultSort)
             .addQueryParameter("tag", "")
-            .addQueryParameter("limit", PAGE_SIZE.toString())
+            .addQueryParameter("limit", pageSize.toString())
             .addQueryParameter("page", page.toString())
             .build()
         return parseMangaPage(client.get(url))
@@ -54,11 +54,11 @@ abstract class CManga : KeiSource() {
 
     override suspend fun getLatestUpdates(page: Int): MangasPage {
         val url = "$baseUrl/api/home_album_list".toHttpUrl().newBuilder()
-            .addQueryParameter("file", SOURCE_FILE)
+            .addQueryParameter("file", sourceFile)
             .addQueryParameter("type", "update")
-            .addQueryParameter("sort", DEFAULT_SORT)
+            .addQueryParameter("sort", defaultSort)
             .addQueryParameter("tag", "")
-            .addQueryParameter("limit", PAGE_SIZE.toString())
+            .addQueryParameter("limit", pageSize.toString())
             .addQueryParameter("page", page.toString())
             .build()
         return parseMangaPage(client.get(url))
@@ -108,17 +108,17 @@ abstract class CManga : KeiSource() {
             ?: "0"
         val sort = filters.firstInstanceOrNull<SortFilter>()
             ?.toUriPart()
-            ?: DEFAULT_SORT
+            ?: defaultSort
         val status = filters.firstInstanceOrNull<StatusFilter>()
             ?.toUriPart()
             ?: "all"
 
         val url = "$baseUrl/api/home_album_list".toHttpUrl().newBuilder()
-            .addQueryParameter("file", SOURCE_FILE)
+            .addQueryParameter("file", sourceFile)
             .addQueryParameter("type", "search")
             .addQueryParameter("sort", sort)
             .addQueryParameter("tag", genres)
-            .addQueryParameter("limit", PAGE_SIZE.toString())
+            .addQueryParameter("limit", pageSize.toString())
             .addQueryParameter("page", page.toString())
             .addQueryParameter("status", status)
             .addQueryParameter("string", query)
@@ -175,11 +175,11 @@ abstract class CManga : KeiSource() {
         if (slug.isNullOrEmpty()) return null
 
         val url = "$baseUrl/api/home_album_list".toHttpUrl().newBuilder()
-            .addQueryParameter("file", SOURCE_FILE)
+            .addQueryParameter("file", sourceFile)
             .addQueryParameter("type", "search")
-            .addQueryParameter("sort", DEFAULT_SORT)
+            .addQueryParameter("sort", defaultSort)
             .addQueryParameter("tag", "")
-            .addQueryParameter("limit", PAGE_SIZE.toString())
+            .addQueryParameter("limit", pageSize.toString())
             .addQueryParameter("page", "1")
             .addQueryParameter("status", "all")
             .addQueryParameter("string", slug.replace('-', ' '))
@@ -241,14 +241,14 @@ abstract class CManga : KeiSource() {
         if (html == null) return null
 
         val normalized = html
-            .replace(BR_TAG_REGEX, "\n")
+            .replace(brTagRegex, "\n")
             .replace("&nbsp;", " ")
 
         val plainText = Jsoup.parse(normalized).wholeText()
-            .replace(XEM_THEM_REGEX, "")
-            .replace(AN_BOT_REGEX, "")
-            .replace(HORIZONTAL_SPACE_REGEX, " ")
-            .replace(MULTI_NEWLINE_REGEX, "\n")
+            .replace(xemThemRegex, "")
+            .replace(anBotRegex, "")
+            .replace(horizontalSpaceRegex, " ")
+            .replace(multiNewlineRegex, "\n")
             .trim()
 
         return plainText.ifEmpty { null }
@@ -278,7 +278,7 @@ abstract class CManga : KeiSource() {
             .parseAs<CMangaChapterListResponse>().data.orEmpty()
         chapters += toSChapterList(pageItems, albumSlug, seenChapterIds)
 
-        while (pageItems.size >= CHAPTER_PAGE_SIZE) {
+        while (pageItems.size >= chapterPageSize) {
             page += 1
             pageItems = client.get(chapterListPageUrl(albumId, page, albumSlug, version))
                 .parseAs<CMangaChapterListResponse>().data.orEmpty()
@@ -296,7 +296,7 @@ abstract class CManga : KeiSource() {
     private fun chapterListPageUrl(albumId: String, page: Int, slug: String?, version: String): HttpUrl = "$baseUrl/api/chapter_list".toHttpUrl().newBuilder()
         .addQueryParameter("album", albumId)
         .addQueryParameter("page", page.toString())
-        .addQueryParameter("limit", CHAPTER_PAGE_SIZE.toString())
+        .addQueryParameter("limit", chapterPageSize.toString())
         .addQueryParameter("v", version)
         .apply {
             if (slug != null) {
@@ -323,7 +323,7 @@ abstract class CManga : KeiSource() {
             SChapter.create().apply {
                 name = chapterName
                 setUrlWithoutDomain("/album/$slug/chapter-$chapterNumber-$chapterId")
-                date_upload = chapterInfo.lastUpdate?.let { DATE_FORMAT.tryParse(it) } ?: 0L
+                date_upload = chapterInfo.lastUpdate?.let { dateFormat.tryParse(it) } ?: 0L
             }
         }
     }
@@ -350,7 +350,7 @@ abstract class CManga : KeiSource() {
         val compactNumber = normalizedNumber.replace(" ", "")
         val compactTitle = normalizedTitle.replace(" ", "")
 
-        for (prefix in REDUNDANT_CHAPTER_PREFIXES) {
+        for (prefix in redundantChapterPrefixes) {
             if (!compactTitle.startsWith(prefix)) continue
 
             val rest = compactTitle.removePrefix(prefix)
@@ -393,7 +393,7 @@ abstract class CManga : KeiSource() {
         val payload = client.get(url).parseAs<CMangaChapterImageResponse>()
         val imageData = payload.data ?: return emptyList()
         if (imageData.status != 1) {
-            throw Exception(LOGIN_WEBVIEW_MESSAGE)
+            throw Exception(loginWebviewMessage)
         }
 
         return imageData.image.orEmpty().mapIndexed { index, imageUrl ->
@@ -426,11 +426,11 @@ abstract class CManga : KeiSource() {
         return currentPage * pageSize < total
     }
 
-    private fun extractAlbumId(url: String): String? = ALBUM_ID_REGEX.find(url)?.groupValues?.get(1)
+    private fun extractAlbumId(url: String): String? = albumIdRegex.find(url)?.groupValues?.get(1)
 
-    private fun extractAlbumSlug(url: String): String? = ALBUM_SLUG_REGEX.find(url)?.groupValues?.get(1)
+    private fun extractAlbumSlug(url: String): String? = albumSlugRegex.find(url)?.groupValues?.get(1)
 
-    private fun extractChapterId(urlPath: String): String? = CHAPTER_ID_REGEX.find(urlPath)?.groupValues?.get(1)
+    private fun extractChapterId(urlPath: String): String? = chapterIdRegex.find(urlPath)?.groupValues?.get(1)
 
     private fun String?.ifNullOrBlank(defaultValue: () -> String): String {
         if (this.isNullOrBlank()) return defaultValue()
@@ -444,7 +444,7 @@ abstract class CManga : KeiSource() {
 
     private fun getUserSecurity(): CMangaUserSecurityCredential {
         val cookieValue = client.cookieJar.loadForRequest(baseUrl.toHttpUrl())
-            .firstOrNull { it.name == USER_SECURITY_COOKIE }
+            .firstOrNull { it.name == userSecurityCookie }
             ?.value
             ?: return CMangaUserSecurityCredential()
 
@@ -485,30 +485,26 @@ abstract class CManga : KeiSource() {
         return getFilters(filterData?.genres.orEmpty(), filterData?.teams.orEmpty())
     }
 
-    companion object {
-        private const val SOURCE_FILE = "image"
-        private const val DEFAULT_SORT = "update"
-        private const val PAGE_SIZE = 20
-        private const val CHAPTER_PAGE_SIZE = 50
-        private const val LOGIN_WEBVIEW_MESSAGE = "Vui lòng đăng nhập vào tài khoản phù hợp qua Webview để đọc chương này"
+    private val albumIdRegex = Regex("""-([0-9]+)(?:/ref/[0-9]+)?/?$""")
+    private val albumSlugRegex = Regex("""/album/([^/]+?)-[0-9]+(?:/ref/[0-9]+)?/?$""")
+    private val chapterIdRegex = Regex("""chapter-[^/]+-([0-9]+)""")
+    private val brTagRegex = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
+    private val horizontalSpaceRegex = Regex("[\\t\\x0B\\f\\r ]+")
+    private val multiNewlineRegex = Regex("\\n{2,}")
+    private val xemThemRegex = Regex("""\.\.\.\s*Xem thêm""", RegexOption.IGNORE_CASE)
+    private val anBotRegex = Regex("""Ẩn bớt""", RegexOption.IGNORE_CASE)
 
-        private val ALBUM_ID_REGEX = Regex("""-([0-9]+)(?:/ref/[0-9]+)?/?$""")
-        private val ALBUM_SLUG_REGEX = Regex("""/album/([^/]+?)-[0-9]+(?:/ref/[0-9]+)?/?$""")
-        private val CHAPTER_ID_REGEX = Regex("""chapter-[^/]+-([0-9]+)""")
-        private val BR_TAG_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
-        private val HORIZONTAL_SPACE_REGEX = Regex("[\\t\\x0B\\f\\r ]+")
-        private val MULTI_NEWLINE_REGEX = Regex("\\n{2,}")
-        private val XEM_THEM_REGEX = Regex("""\.\.\.\s*Xem thêm""", RegexOption.IGNORE_CASE)
-        private val AN_BOT_REGEX = Regex("""Ẩn bớt""", RegexOption.IGNORE_CASE)
-
-        private val DATE_FORMAT by lazy {
-            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).apply {
-                timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
-            }
+    private val dateFormat by lazy {
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
         }
-
-        private const val USER_SECURITY_COOKIE = "user_security"
-
-        private val REDUNDANT_CHAPTER_PREFIXES = listOf("chapter", "chap", "chương", "chuong")
     }
+
+    private val redundantChapterPrefixes = listOf("chapter", "chap", "chương", "chuong")
+    private val sourceFile = "image"
+    private val defaultSort = "update"
+    private val pageSize = 20
+    private val chapterPageSize = 50
+    private val loginWebviewMessage = "Vui lòng đăng nhập vào tài khoản phù hợp qua Webview để đọc chương này"
+    private val userSecurityCookie = "user_security"
 }
