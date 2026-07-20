@@ -155,30 +155,6 @@ abstract class DamCoNuong : KeiSource() {
         else -> SManga.UNKNOWN
     }
 
-    // =============================== Related ==============================
-
-    override val supportsRelatedMangas get() = true
-
-    override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
-        val document = client.get(getMangaUrl(manga)).asJsoup()
-        val relatedSection = document.select("h3")
-            .firstOrNull { it.text().equals("Truyện liên quan", ignoreCase = true) }
-            ?.nextElementSibling()
-            ?: return emptyList()
-
-        return relatedSection.children().mapNotNull { card ->
-            val link = card.selectFirst("a[href*=/truyen/].line-clamp-2") ?: return@mapNotNull null
-
-            SManga.create().apply {
-                setUrlWithoutDomain(link.absUrl("href"))
-                title = link.text()
-                thumbnail_url = card.selectFirst("img")?.absUrl("src")
-                    ?.ifEmpty { card.selectFirst("img")?.absUrl("data-src") }
-                    ?.ifEmpty { null }
-            }
-        }.distinctBy { it.url }
-    }
-
     // ============================== Chapters ==============================
 
     private fun parseChapterList(document: Document): List<SChapter> = document.select("#chapterList > a.block").map { element ->
@@ -256,6 +232,31 @@ abstract class DamCoNuong : KeiSource() {
         .toJsonElement()
 
     override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
+
+
+    // =============================== Related ==============================
+
+    override val supportsRelatedMangas get() = true
+
+    override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
+        val document = client.get(getMangaUrl(manga)).asJsoup()
+        val relatedSection = document.select("h3")
+            .firstOrNull { it.text().equals("Truyện liên quan", ignoreCase = true) }
+            ?.nextElementSibling()
+            ?: return emptyList()
+
+        return relatedSection.children().mapNotNull { card ->
+            val link = card.selectFirst("a[href*=/truyen/].line-clamp-2") ?: return@mapNotNull null
+
+            SManga.create().apply {
+                setUrlWithoutDomain(link.absUrl("href"))
+                title = link.text()
+                thumbnail_url = card.selectFirst("img")?.absUrl("src")
+                    ?.ifEmpty { card.selectFirst("img")?.absUrl("data-src") }
+                    ?.ifEmpty { null }
+            }
+        }.distinctBy { it.url }
+    }
 
     private val latestSort = "-updated_at"
     private val popularSort = "-views"
