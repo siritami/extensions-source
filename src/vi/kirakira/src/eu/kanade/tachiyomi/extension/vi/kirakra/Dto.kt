@@ -30,6 +30,16 @@ class ComicDetailsDto(
 )
 
 @Serializable
+class GenreListDto(
+    val data: GenreListDataDto,
+)
+
+@Serializable
+class GenreListDataDto(
+    val genres: List<GenreDto> = emptyList(),
+)
+
+@Serializable
 class GenreDto(
     val id: String? = null,
     val name: String? = null,
