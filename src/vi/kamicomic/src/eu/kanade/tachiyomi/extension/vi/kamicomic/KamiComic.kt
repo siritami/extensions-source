@@ -121,8 +121,8 @@ abstract class KamiComic : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate = coroutineScope {
-            val details = if (fetchDetails) async { loadMangaDetails(manga) } else null
-            val chapterList = if (fetchChapters) async { loadChapterList(manga) } else null
+        val details = if (fetchDetails) async { loadMangaDetails(manga) } else null
+        val chapterList = if (fetchChapters) async { loadChapterList(manga) } else null
 
         SMangaUpdate(
             manga = details?.await() ?: manga,
