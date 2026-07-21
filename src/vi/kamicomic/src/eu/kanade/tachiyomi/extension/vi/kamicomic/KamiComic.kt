@@ -103,7 +103,7 @@ abstract class KamiComic : KeiSource() {
         return path.startsWith("/truyen/novel", ignoreCase = true)
     }
 
-    private fun String.removeThumbnailSizeSuffix(): String = replace(THUMB_SIZE_REGEX) { it.groupValues[1] }
+    private fun String.removeThumbnailSizeSuffix(): String = replace(thumbSizeRegex) { it.groupValues[1] }
 
     // =============================== Details ==============================
 
@@ -184,7 +184,7 @@ abstract class KamiComic : KeiSource() {
         // Handle multi-page chapter lists
         val paginationLinks = document.select("ul.uk-pagination li a[href*=/chuong/page/]")
         val maxPage = paginationLinks.mapNotNull { link ->
-            PAGE_NUMBER_REGEX.find(link.absUrl("href"))
+            pageNumberRegex.find(link.absUrl("href"))
                 ?.groupValues?.get(1)?.toIntOrNull()
         }.maxOrNull() ?: 1
 
@@ -195,6 +195,41 @@ abstract class KamiComic : KeiSource() {
         }
 
         return chapters
+    }
+
+    private fun parseChapters(document: Document): List<SChapter> = document.select(".chapter-list a.uk-link-toggle").map { element ->
+        val rawName = element.selectFirst("h3")?.text()?.trim()
+            ?: element.text().trim()
+        val chapterName = chapterNameRegex.find(rawName)?.value ?: rawName
+        val isLocked = element.selectFirst("[uk-icon=\"icon: lock\"], .uk-text-danger[uk-icon]") != null ||
+            element.parent()?.selectFirst("[uk-icon=\"icon: lock\"], .uk-text-danger[uk-icon]") != null
+
+        SChapter.create().apply {
+            setUrlWithoutDomain(element.absUrl("href"))
+            name = if (isLocked) "🔒 $chapterName" else chapterName
+            date_upload = element.selectFirst("time")?.text()
+                .parseRelativeDate()
+        }
+    }
+
+    private fun String?.parseRelativeDate(): Long {
+        this ?: return 0L
+
+        val calendar = Calendar.getInstance()
+        val number = numberRegex.find(this)?.value?.toIntOrNull() ?: return 0L
+
+        when {
+            contains("giây") -> calendar.add(Calendar.SECOND, -number)
+            contains("phút") -> calendar.add(Calendar.MINUTE, -number)
+            contains("giờ") -> calendar.add(Calendar.HOUR_OF_DAY, -number)
+            contains("ngày") -> calendar.add(Calendar.DAY_OF_MONTH, -number)
+            contains("tuần") -> calendar.add(Calendar.WEEK_OF_YEAR, -number)
+            contains("tháng") -> calendar.add(Calendar.MONTH, -number)
+            contains("năm") -> calendar.add(Calendar.YEAR, -number)
+            else -> return 0L
+        }
+
+        return calendar.timeInMillis
     }
 
     // ============================== Related ===============================
@@ -220,41 +255,6 @@ abstract class KamiComic : KeiSource() {
         }.distinctBy { it.url }
     }
 
-    private fun parseChapters(document: Document): List<SChapter> = document.select(".chapter-list a.uk-link-toggle").map { element ->
-        val rawName = element.selectFirst("h3")?.text()?.trim()
-            ?: element.text().trim()
-        val chapterName = CHAPTER_NAME_REGEX.find(rawName)?.value ?: rawName
-        val isLocked = element.selectFirst("[uk-icon=\"icon: lock\"], .uk-text-danger[uk-icon]") != null ||
-            element.parent()?.selectFirst("[uk-icon=\"icon: lock\"], .uk-text-danger[uk-icon]") != null
-
-        SChapter.create().apply {
-            setUrlWithoutDomain(element.absUrl("href"))
-            name = if (isLocked) "🔒 $chapterName" else chapterName
-            date_upload = element.selectFirst("time")?.text()
-                .parseRelativeDate()
-        }
-    }
-
-    private fun String?.parseRelativeDate(): Long {
-        this ?: return 0L
-
-        val calendar = Calendar.getInstance()
-        val number = NUMBER_REGEX.find(this)?.value?.toIntOrNull() ?: return 0L
-
-        when {
-            contains("giây") -> calendar.add(Calendar.SECOND, -number)
-            contains("phút") -> calendar.add(Calendar.MINUTE, -number)
-            contains("giờ") -> calendar.add(Calendar.HOUR_OF_DAY, -number)
-            contains("ngày") -> calendar.add(Calendar.DAY_OF_MONTH, -number)
-            contains("tuần") -> calendar.add(Calendar.WEEK_OF_YEAR, -number)
-            contains("tháng") -> calendar.add(Calendar.MONTH, -number)
-            contains("năm") -> calendar.add(Calendar.YEAR, -number)
-            else -> return 0L
-        }
-
-        return calendar.timeInMillis
-    }
-
     // =============================== Pages ================================
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
@@ -271,8 +271,8 @@ abstract class KamiComic : KeiSource() {
         }.filterNot { it.imageUrl!!.startsWith("data:") }
     }
 
-    private val NUMBER_REGEX = Regex("""\d+""")
-    private val PAGE_NUMBER_REGEX = Regex("""/page/(\d+)/""")
-    private val THUMB_SIZE_REGEX = Regex("""-150x150(\.\w+)$""")
-    private val CHAPTER_NAME_REGEX = Regex("""Chương \d+.*""")
+    private val numberRegex = Regex("""\d+""")
+    private val pageNumberRegex = Regex("""/page/(\d+)/""")
+    private val thumbSizeRegex = Regex("""-150x150(\.\w+)$""")
+    private val chapterNameRegex = Regex("""Chương \d+.*""")
 }

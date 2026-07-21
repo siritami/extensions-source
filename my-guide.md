@@ -322,12 +322,13 @@ Keep private reusable values inside the source class when they are only used by 
 class Example : KeiSource() {
     // Source implementation
 
-    private val PAGE_NUMBER_REGEX = Regex("""/page/(\d+)/""")
-    private val DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    private val pageNumberRegex = Regex("""/page/(\d+)/""")
+    private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 }
 ```
 
 - Use `private val` for objects such as `Regex`, `DateTimeFormatter`, and `ZoneId`; they cannot be declared with `const val`.
+- Name class properties in lower camel case, as required by ktlint's `property-naming` rule.
 - Place source-specific reusable values at the bottom of the source class, after its methods.
 - Use file-level declarations only when a value is shared by multiple classes or top-level functions in the same file.
 - Retain a `companion object` only when its members require class-scoped access or Java-style static interoperability.
