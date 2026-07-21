@@ -135,7 +135,7 @@ abstract class HentaiVNx : KeiSource() {
                     ?: element.selectFirst(".image a")!!
                 setUrlWithoutDomain(linkElement.absUrl("href"))
                 title = linkElement.attr("title").ifEmpty { linkElement.text() }
-                thumbnail_url = imageElement(element.selectFirst("img")!!)
+                thumbnail_url = element.selectFirst("img")?.let(::imageElement)
             }
         }
 
@@ -164,7 +164,7 @@ abstract class HentaiVNx : KeiSource() {
         author = document.selectFirst("li.author .col-xs-8")?.text()
         description = document.select(".detail-content").joinToString { it.wholeText().trim() }
         genre = document.select("li.kind .col-xs-8 a").joinToString { it.text() }
-        thumbnail_url = imageElement(document.selectFirst(".detail-info .col-image img")!!)
+        thumbnail_url = document.selectFirst(".detail-info .col-image img")?.let(::imageElement)
 
         val statusText = document.selectFirst("li.status .col-xs-8")?.text()?.lowercase()
         status = when {

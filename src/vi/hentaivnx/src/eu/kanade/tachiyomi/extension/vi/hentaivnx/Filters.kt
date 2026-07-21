@@ -6,7 +6,9 @@ import kotlinx.serialization.Serializable
 
 fun getFilters(genres: List<GenreOption>?): FilterList = FilterList(
     buildList {
-        genres?.let { add(GenreFilter(it.map { genre -> Genre(genre.name, genre.id) })) }
+        genres
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { add(GenreFilter(it.map { genre -> Genre(genre.name, genre.id) })) }
         add(SortByList())
         add(ChapterCountList())
         add(TextField())
