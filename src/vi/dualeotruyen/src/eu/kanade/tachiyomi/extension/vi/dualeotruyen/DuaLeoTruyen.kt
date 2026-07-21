@@ -32,13 +32,11 @@ abstract class DuaLeoTruyen : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        mangaListParse(client.get("$baseUrl/truyen-tranh-hot?page=$page").asJsoup())
+    override suspend fun getPopularManga(page: Int): MangasPage = mangaListParse(client.get("$baseUrl/truyen-tranh-hot?page=$page").asJsoup())
 
     // ============================== Latest ================================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        mangaListParse(client.get("$baseUrl/truyen-moi-cap-nhat?page=$page").asJsoup())
+    override suspend fun getLatestUpdates(page: Int): MangasPage = mangaListParse(client.get("$baseUrl/truyen-moi-cap-nhat?page=$page").asJsoup())
 
     // ============================== Search ================================
 
