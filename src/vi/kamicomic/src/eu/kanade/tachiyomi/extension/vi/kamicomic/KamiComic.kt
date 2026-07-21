@@ -15,6 +15,7 @@ import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
@@ -30,11 +31,13 @@ abstract class KamiComic : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage = parseMangaListPage(client.get("$baseUrl/bang-xep-hang-truyen/page/$page/").asJsoup())
+    override suspend fun getPopularManga(page: Int): MangasPage =
+        parseMangaListPage(client.get("$baseUrl/bang-xep-hang-truyen/page/$page/").asJsoup())
 
     // =============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage = parseMangaListPage(client.get("$baseUrl/moi-cap-nhat/page/$page/").asJsoup())
+    override suspend fun getLatestUpdates(page: Int): MangasPage =
+        parseMangaListPage(client.get("$baseUrl/moi-cap-nhat/page/$page/").asJsoup())
 
     // =============================== Search ===============================
 
@@ -46,11 +49,9 @@ abstract class KamiComic : KeiSource() {
             return parseMangaListPage(client.get(url).asJsoup())
         }
 
-        val selectedGenre = filters.firstInstanceOrNull<GenreFilter>()
-            ?.state
-            ?.firstOrNull { it.state }
+        val selectedGenre = filters.firstInstanceOrNull<GenreFilter>()?.selectedSlug()
         if (selectedGenre != null) {
-            return parseMangaListPage(client.get("$baseUrl/the-loai/${selectedGenre.slug}/page/$page/").asJsoup())
+            return parseMangaListPage(client.get("$baseUrl/the-loai/$selectedGenre/page/$page/").asJsoup())
         }
 
         return getLatestUpdates(page)
@@ -79,11 +80,11 @@ abstract class KamiComic : KeiSource() {
             val mangaUrl = link.absUrl("href")
             if (mangaUrl.isNovelUrl()) return@mapNotNull null
 
-            val panel = link.closest(".uk-panel") ?: link.parent()!!
+            val panel = link.closest(".uk-panel") ?: link.parent()
             SManga.create().apply {
                 setUrlWithoutDomain(mangaUrl)
                 title = link.text()
-                thumbnail_url = panel.selectFirst("img")?.absUrl("src")
+                thumbnail_url = panel?.selectFirst("img")?.absUrl("src")
                     ?.removeThumbnailSizeSuffix()
             }
         }
@@ -94,12 +95,10 @@ abstract class KamiComic : KeiSource() {
         return MangasPage(mangaList, hasNextPage)
     }
 
-    private fun String.isNovelUrl(): Boolean {
-        val path = removePrefix(baseUrl)
-            .substringBefore("?")
-            .substringBefore("#")
-        return path.startsWith("/truyen/novel", ignoreCase = true)
-    }
+    private fun String.isNovelUrl(): Boolean = toHttpUrl().pathSegments
+        .take(2)
+        .joinToString("/")
+        .startsWith("truyen/novel", ignoreCase = true)
 
     private fun String.removeThumbnailSizeSuffix(): String = replace(thumbSizeRegex) { it.groupValues[1] }
 
@@ -121,8 +120,8 @@ abstract class KamiComic : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate = coroutineScope {
-        val details = if (fetchDetails) async { loadMangaDetails(manga) } else null
-        val chapterList = if (fetchChapters) async { loadChapterList(manga) } else null
+            val details = if (fetchDetails) async { loadMangaDetails(manga) } else null
+            val chapterList = if (fetchChapters) async { loadChapterList(manga) } else null
 
         SMangaUpdate(
             manga = details?.await() ?: manga,
@@ -143,23 +142,23 @@ abstract class KamiComic : KeiSource() {
 
         return SManga.create().apply {
             setUrlWithoutDomain(manga.url)
-            title = Jsoup.parseBodyFragment(wpManga.title!!.rendered!!).text()
+            title = Jsoup.parseBodyFragment(wpManga.title.rendered).text()
 
             description = wpManga.content?.rendered?.let { html ->
-                Jsoup.parseBodyFragment(html).text().trim()
+                Jsoup.parseBodyFragment(html).text()
             }
 
-            val terms = wpManga.embedded?.terms
+            val terms = wpManga.embedded?.terms.orEmpty().flatten()
 
-            genre = terms?.getOrNull(0)
-                ?.filter { it.taxonomy == "genre" }
-                ?.mapNotNull { it.name }
+            genre = terms
+                .filter { it.taxonomy == "genre" }
+                .mapNotNull { it.name }
                 ?.joinToString()
                 ?.ifEmpty { null }
 
-            author = terms?.getOrNull(1)
-                ?.filter { it.taxonomy == "author_tax" }
-                ?.mapNotNull { it.name }
+            author = terms
+                .filter { it.taxonomy == "author_tax" }
+                .mapNotNull { it.name }
                 ?.joinToString()
                 ?.ifEmpty { null }
 
@@ -172,12 +171,10 @@ abstract class KamiComic : KeiSource() {
 
     // ============================== Chapters ==============================
 
-    private suspend fun loadChapterList(manga: SManga): List<SChapter> {
+    private suspend fun loadChapterList(manga: SManga): List<SChapter> = coroutineScope {
         val mangaUrl = "$baseUrl${manga.url}".removeSuffix("/")
         val document = client.get(mangaUrl).asJsoup()
-        val chapters = mutableListOf<SChapter>()
-
-        chapters.addAll(parseChapters(document))
+        val chapters = parseChapters(document)
 
         // Handle multi-page chapter lists
         val paginationLinks = document.select("ul.uk-pagination li a[href*=/chuong/page/]")
@@ -186,18 +183,22 @@ abstract class KamiComic : KeiSource() {
                 ?.groupValues?.get(1)?.toIntOrNull()
         }.maxOrNull() ?: 1
 
-        for (page in 2..maxPage) {
-            val pageUrl = "$mangaUrl/chuong/page/$page/"
-            val pageDoc = client.get(pageUrl).asJsoup()
-            chapters.addAll(parseChapters(pageDoc))
-        }
+        val remainingChapters = (2..maxPage)
+            .map { page ->
+                async {
+                    val pageUrl = "$mangaUrl/chuong/page/$page/"
+                    parseChapters(client.get(pageUrl).asJsoup())
+                }
+            }
+            .awaitAll()
+            .flatten()
 
-        return chapters
+        chapters + remainingChapters
     }
 
     private fun parseChapters(document: Document): List<SChapter> = document.select(".chapter-list a.uk-link-toggle").map { element ->
-        val rawName = element.selectFirst("h3")?.text()?.trim()
-            ?: element.text().trim()
+        val rawName = element.selectFirst("h3")?.text()
+            ?: element.text()
         val chapterName = chapterNameRegex.find(rawName)?.value ?: rawName
         val isLocked = element.selectFirst("[uk-icon=\"icon: lock\"], .uk-text-danger[uk-icon]") != null ||
             element.parent()?.selectFirst("[uk-icon=\"icon: lock\"], .uk-text-danger[uk-icon]") != null
@@ -262,11 +263,14 @@ abstract class KamiComic : KeiSource() {
             return emptyList()
         }
 
-        return document.select("#chapter-content img").mapIndexed { i, element ->
-            val imageUrl = element.attr("data-original-src")
-                .ifEmpty { element.attr("src") }
-            Page(i, imageUrl = imageUrl)
-        }.filterNot { it.imageUrl!!.startsWith("data:") }
+        return document.select("#chapter-content img").mapIndexedNotNull { index, element ->
+            val imageUrl = element.absUrl("data-original-src")
+                .ifEmpty { element.absUrl("src") }
+                .takeIf { it.isNotEmpty() && !it.startsWith("data:") }
+                ?: return@mapIndexedNotNull null
+
+            Page(index, imageUrl = imageUrl)
+        }
     }
 
     private val numberRegex = Regex("""\d+""")

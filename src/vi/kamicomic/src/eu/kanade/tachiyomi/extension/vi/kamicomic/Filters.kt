@@ -6,7 +6,9 @@ import kotlinx.serialization.Serializable
 
 fun getFilters(genres: List<GenreOption>?): FilterList = FilterList(
     buildList {
-        genres?.let { add(GenreFilter(it.map { genre -> Genre(genre.name, genre.slug) })) }
+        genres
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { add(GenreFilter(listOf(GenreOption("Tất cả", "")) + it)) }
     },
 )
 
@@ -16,6 +18,8 @@ class GenreOption(
     val slug: String,
 )
 
-class Genre(name: String, val slug: String) : Filter.CheckBox(name)
-
-class GenreFilter(genres: List<Genre>) : Filter.Group<Genre>("Thể loại", genres)
+class GenreFilter(
+    private val genres: List<GenreOption>,
+) : Filter.Select<String>("Thể loại", genres.map { it.name }.toTypedArray()) {
+    fun selectedSlug(): String? = genres[state].slug.ifEmpty { null }
+}
