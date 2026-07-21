@@ -30,13 +30,11 @@ abstract class KamiComic : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        parseMangaListPage(client.get("$baseUrl/bang-xep-hang-truyen/page/$page/").asJsoup())
+    override suspend fun getPopularManga(page: Int): MangasPage = parseMangaListPage(client.get("$baseUrl/bang-xep-hang-truyen/page/$page/").asJsoup())
 
     // =============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        parseMangaListPage(client.get("$baseUrl/moi-cap-nhat/page/$page/").asJsoup())
+    override suspend fun getLatestUpdates(page: Int): MangasPage = parseMangaListPage(client.get("$baseUrl/moi-cap-nhat/page/$page/").asJsoup())
 
     // =============================== Search ===============================
 
