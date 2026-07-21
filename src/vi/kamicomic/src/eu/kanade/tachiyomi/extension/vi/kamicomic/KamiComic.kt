@@ -1,83 +1,78 @@
 package eu.kanade.tachiyomi.extension.vi.kamicomic
 
-import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
 import keiyoushi.network.rateLimit
+import keiyoushi.source.KeiSource
+import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonElement
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.JsonElement
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Request
-import okhttp3.Response
+import okhttp3.OkHttpClient
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.util.Calendar
 
 @Source
-abstract class KamiComic : HttpSource() {
-    override val supportsLatest = true
-
-    override val client = network.client.newBuilder()
-        .rateLimit(3)
-        .build()
-
-    // Strip "wv" from User-Agent so Google login works in this source.
-    // Google deny login when User-Agent contains the WebView token.
-    override fun headersBuilder() = super.headersBuilder()
-        .add("Referer", "$baseUrl/")
-        .apply {
-            build()["user-agent"]?.let { userAgent ->
-                set("user-agent", removeWebViewToken(userAgent))
-            }
-        }
-
-    private fun removeWebViewToken(userAgent: String): String = userAgent.replace(WEBVIEW_TOKEN_REGEX, ")")
+abstract class KamiComic : KeiSource() {
+    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = rateLimit(3)
 
     // ============================== Popular ===============================
 
-    override fun popularMangaRequest(page: Int): Request = GET("$baseUrl/bang-xep-hang-truyen/page/$page/", headers)
-
-    override fun popularMangaParse(response: Response): MangasPage = parseMangaListPage(response.asJsoup())
+    override suspend fun getPopularManga(page: Int): MangasPage =
+        parseMangaListPage(client.get("$baseUrl/bang-xep-hang-truyen/page/$page/").asJsoup())
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/moi-cap-nhat/page/$page/", headers)
-
-    override fun latestUpdatesParse(response: Response): MangasPage = parseMangaListPage(response.asJsoup())
+    override suspend fun getLatestUpdates(page: Int): MangasPage =
+        parseMangaListPage(client.get("$baseUrl/moi-cap-nhat/page/$page/").asJsoup())
 
     // =============================== Search ===============================
 
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
         if (query.isNotBlank()) {
             val url = (if (page == 1) baseUrl else "$baseUrl/page/$page/").toHttpUrl().newBuilder()
                 .addQueryParameter("s", query)
                 .build()
-            return GET(url, headers)
+            return parseMangaListPage(client.get(url).asJsoup())
         }
 
-        filters.forEach { filter ->
-            when (filter) {
-                is GenreFilter -> {
-                    val selected = filter.state.firstOrNull { it.state }
-                    if (selected != null) {
-                        return GET("$baseUrl/the-loai/${selected.slug}/page/$page/", headers)
-                    }
-                }
-                else -> {}
-            }
+        val selectedGenre = filters.firstInstanceOrNull<GenreFilter>()
+            ?.state
+            ?.firstOrNull { it.state }
+        if (selectedGenre != null) {
+            return parseMangaListPage(client.get("$baseUrl/the-loai/${selectedGenre.slug}/page/$page/").asJsoup())
         }
 
-        return latestUpdatesRequest(page)
+        return getLatestUpdates(page)
     }
 
-    override fun searchMangaParse(response: Response): MangasPage = parseMangaListPage(response.asJsoup())
+    override val supportsFilterFetching get() = true
 
-    override fun getFilterList(): FilterList = getFilters()
+    override suspend fun fetchFilterData(): JsonElement = client.get("$baseUrl/the-loai/").asJsoup()
+        .select("main a[href*=/the-loai/]:has(h2)")
+        .mapNotNull { link ->
+            val genreUrl = link.absUrl("href").toHttpUrl()
+            val genreIndex = genreUrl.pathSegments.indexOf("the-loai")
+            val slug = genreUrl.pathSegments.getOrNull(genreIndex + 1) ?: return@mapNotNull null
+            val name = link.selectFirst("h2")?.text()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            GenreOption(name, slug)
+        }
+        .distinctBy { it.slug }
+        .toJsonElement()
+
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
     // ============================== Parsing ===============================
 
@@ -112,7 +107,32 @@ abstract class KamiComic : HttpSource() {
 
     // =============================== Details ==============================
 
-    override fun mangaDetailsRequest(manga: SManga): Request {
+    override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
+        if (url.host != baseUrl.toHttpUrl().host || url.pathSegments.firstOrNull() != "truyen") return null
+
+        val slug = url.pathSegments.getOrNull(1) ?: return null
+        val manga = SManga.create().apply {
+            setUrlWithoutDomain("/truyen/$slug/")
+        }
+        return fetchMangaUpdate(manga, emptyList(), true, false).manga
+    }
+
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate = coroutineScope {
+        val details = if (fetchDetails) async { fetchMangaDetails(manga) } else null
+        val chapterList = if (fetchChapters) async { fetchChapterList(manga) } else null
+
+        SMangaUpdate(
+            manga = details?.await() ?: manga,
+            chapters = chapterList?.await() ?: chapters,
+        )
+    }
+
+    private suspend fun fetchMangaDetails(manga: SManga): SManga {
         val slug = manga.url
             .removeSuffix("/")
             .substringAfterLast("/")
@@ -120,16 +140,11 @@ abstract class KamiComic : HttpSource() {
             .addQueryParameter("slug", slug)
             .addQueryParameter("_embed", "wp:featuredmedia,wp:term")
             .build()
-        return GET(url, headers)
-    }
-
-    override fun getMangaUrl(manga: SManga): String = "$baseUrl${manga.url}"
-
-    override fun mangaDetailsParse(response: Response): SManga {
-        val mangaList = response.parseAs<List<WpManga>>()
+        val mangaList = client.get(url).parseAs<List<WpManga>>()
         val wpManga = mangaList.first()
 
         return SManga.create().apply {
+            setUrlWithoutDomain(manga.url)
             title = Jsoup.parseBodyFragment(wpManga.title!!.rendered!!).text()
 
             description = wpManga.content?.rendered?.let { html ->
@@ -159,10 +174,9 @@ abstract class KamiComic : HttpSource() {
 
     // ============================== Chapters ==============================
 
-    override fun chapterListRequest(manga: SManga): Request = GET("$baseUrl${manga.url}", headers)
-
-    override fun chapterListParse(response: Response): List<SChapter> {
-        val document = response.asJsoup()
+    private suspend fun fetchChapterList(manga: SManga): List<SChapter> {
+        val mangaUrl = "$baseUrl${manga.url}".removeSuffix("/")
+        val document = client.get(mangaUrl).asJsoup()
         val chapters = mutableListOf<SChapter>()
 
         chapters.addAll(parseChapters(document))
@@ -174,15 +188,36 @@ abstract class KamiComic : HttpSource() {
                 ?.groupValues?.get(1)?.toIntOrNull()
         }.maxOrNull() ?: 1
 
-        val mangaUrl = response.request.url.toString().removeSuffix("/")
         for (page in 2..maxPage) {
             val pageUrl = "$mangaUrl/chuong/page/$page/"
-            val pageResponse = client.newCall(GET(pageUrl, headers)).execute()
-            val pageDoc = pageResponse.asJsoup()
+            val pageDoc = client.get(pageUrl).asJsoup()
             chapters.addAll(parseChapters(pageDoc))
         }
 
         return chapters
+    }
+
+    // ============================== Related ===============================
+
+    override val supportsRelatedMangas get() = true
+
+    override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
+        val document = client.get("$baseUrl${manga.url}").asJsoup()
+        val relatedSection = document.select("h2")
+            .firstOrNull { it.text() == "Truyện liên quan" }
+            ?.parent()
+            ?: return emptyList()
+
+        return relatedSection.select(".manga-item-slider a.uk-link-toggle[href*=/truyen/]").mapNotNull { link ->
+            val title = link.selectFirst("h3")?.text()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+
+            SManga.create().apply {
+                setUrlWithoutDomain(link.absUrl("href"))
+                this.title = title
+                thumbnail_url = link.selectFirst("img")?.absUrl("src")
+                    ?.removeThumbnailSizeSuffix()
+            }
+        }.distinctBy { it.url }
     }
 
     private fun parseChapters(document: Document): List<SChapter> = document.select(".chapter-list a.uk-link-toggle").map { element ->
@@ -222,11 +257,11 @@ abstract class KamiComic : HttpSource() {
 
     // =============================== Pages ================================
 
-    override fun pageListParse(response: Response): List<Page> {
-        val document = response.asJsoup()
+    override suspend fun getPageList(chapter: SChapter): List<Page> {
+        val document = client.get("$baseUrl${chapter.url}").asJsoup()
 
         if (document.selectFirst("#chapter-content .lock-card, #chapter-content #unlock-chapter, #chapter-content #xu-lock") != null) {
-            throw Exception(LOCKED_CHAPTER_MESSAGE)
+            return emptyList()
         }
 
         return document.select("#chapter-content img").mapIndexed { i, element ->
@@ -236,17 +271,8 @@ abstract class KamiComic : HttpSource() {
         }.filterNot { it.imageUrl!!.startsWith("data:") }
     }
 
-    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
-
-    companion object {
-        private const val LOCKED_CHAPTER_MESSAGE =
-            "Vui lòng đăng nhập vào tài khoản phù hợp bằng webview để xem chương này"
-
-        private val WEBVIEW_TOKEN_REGEX = Regex(""";\s*wv\)""")
-
-        private val NUMBER_REGEX = Regex("""\d+""")
-        private val PAGE_NUMBER_REGEX = Regex("""/page/(\d+)/""")
-        private val THUMB_SIZE_REGEX = Regex("""-150x150(\.\w+)$""")
-        private val CHAPTER_NAME_REGEX = Regex("""Chương \d+.*""")
-    }
+    private val NUMBER_REGEX = Regex("""\d+""")
+    private val PAGE_NUMBER_REGEX = Regex("""/page/(\d+)/""")
+    private val THUMB_SIZE_REGEX = Regex("""-150x150(\.\w+)$""")
+    private val CHAPTER_NAME_REGEX = Regex("""Chương \d+.*""")
 }
