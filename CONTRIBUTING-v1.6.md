@@ -924,6 +924,30 @@ override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
 These are real issues encountered during a lib 1.4 → 1.6 migration. If you see similar
 errors, use the fix below.
 
+### Companion objects and `const val` are not required
+
+For lib 1.6 extensions, source-specific values do not need to be declared in a
+`companion object`. Move them to the source class, change `const val` to `val`, and rename
+the property so it starts with a lowercase letter and uses lower camel case. Declare these
+properties inside the abstract source class and group them at the bottom of the class,
+after its methods and helpers but before the closing brace.
+
+```kotlin
+// ✗ Wrong
+abstract class MySource : KeiSource() {
+    companion object {
+        private const val API_URL = "https://api.example.com"
+    }
+}
+
+// ✓ Correct
+abstract class MySource : KeiSource() {
+    // Methods and helpers...
+
+    private val apiUrl = "https://api.example.com"
+}
+```
+
 ### `configureHeaders` overrides nothing / Unresolved reference `Headers`
 
 **Error:**
