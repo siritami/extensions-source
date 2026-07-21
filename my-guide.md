@@ -89,10 +89,6 @@ fun getFilters(genres: List<Genre>, teams: List<Team>): FilterList {
 }
 ```
 
-Inside `getSearchMangaList`, use the `filters` argument directly. Do not replace
-an empty list with `getFilterList(null)`: lib 1.6 supplies the app-managed filter
-list, and passing `null` manually can discard cached dynamically fetched options.
-
 ### Paginated APIs Without a Total Count
 
 If the API does not return a total page count, do not launch an arbitrary number of page requests. Fetch the first page, then request a small bounded batch of consecutive pages concurrently. Process responses in page order and stop at the first empty or short page.
@@ -235,6 +231,8 @@ override suspend fun getSearchMangaList(
 `KeiSource` guarantees that `fetchDetails` and `fetchChapters` are not both `false`. Do not add an early return for that impossible state.
 
 Only perform the network request for a requested field. When details and chapters use independent requests, start both with `async` inside `coroutineScope` so they run in parallel, then preserve the existing value for any field that was not requested:
+
+If the details document is always fetched and already contains the manga details, parse and return those details unconditionally instead of checking `fetchDetails`.
 
 ```kotlin
 override suspend fun fetchMangaUpdate(
