@@ -121,8 +121,8 @@ abstract class KamiComic : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate = coroutineScope {
-        val details = if (fetchDetails) async { fetchMangaDetails(manga) } else null
-        val chapterList = if (fetchChapters) async { fetchChapterList(manga) } else null
+            val details = if (fetchDetails) async { loadMangaDetails(manga) } else null
+            val chapterList = if (fetchChapters) async { loadChapterList(manga) } else null
 
         SMangaUpdate(
             manga = details?.await() ?: manga,
@@ -130,7 +130,7 @@ abstract class KamiComic : KeiSource() {
         )
     }
 
-    private suspend fun fetchMangaDetails(manga: SManga): SManga {
+    private suspend fun loadMangaDetails(manga: SManga): SManga {
         val slug = manga.url
             .removeSuffix("/")
             .substringAfterLast("/")
@@ -172,7 +172,7 @@ abstract class KamiComic : KeiSource() {
 
     // ============================== Chapters ==============================
 
-    private suspend fun fetchChapterList(manga: SManga): List<SChapter> {
+    private suspend fun loadChapterList(manga: SManga): List<SChapter> {
         val mangaUrl = "$baseUrl${manga.url}".removeSuffix("/")
         val document = client.get(mangaUrl).asJsoup()
         val chapters = mutableListOf<SChapter>()
