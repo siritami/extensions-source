@@ -50,6 +50,38 @@ private fun authInterceptor() = Interceptor { chain ->
 
 # General Extension Development Notes
 
+## Source Code Organization
+
+For source files with several responsibilities, group each override with its
+related parsers and helpers under consistent section markers. Keep sections in
+the normal source flow: Auth (when needed), Popular, Latest, Search, Details,
+Pages, Filters, then Related (when supported).
+
+```kotlin
+// ================================ Auth =================================
+// Optional: include only when the website uses login or authentication.
+
+// ============================== Popular ===============================
+
+// ============================== Latest ===============================
+
+// ============================== Search ===============================
+
+// ============================== Details ===============================
+
+// ============================== Pages ===============================
+
+// ============================== Filters ===============================
+
+// =============================== Related ==============================
+// Optional: include only when the source implements related manga support.
+```
+
+Place narrowly scoped helpers in the section that uses them. Keep shared
+configuration near the top of the class and constants near the bottom. Do not
+add empty optional sections, and do not reorder code when doing so would change
+initialization or runtime behavior.
+
 ## Derived Request Headers
 
 Declare custom request headers with an explicit `Headers` getter when they should be built from the source's current `headersBuilder()` on each access:

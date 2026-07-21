@@ -44,6 +44,8 @@ abstract class KiraKira :
         rateLimit(3)
     }
 
+    // ============================== Popular ===============================
+
     override suspend fun getPopularManga(page: Int): MangasPage {
         val url = "$apiUrl/top".toHttpUrl().newBuilder()
             .addQueryParameter("status", "all")
@@ -53,6 +55,8 @@ abstract class KiraKira :
         return client.get(url, apiHeaders).parseAs<ComicListDto>().toMangasPage()
     }
 
+    // ============================== Latest ===============================
+
     override suspend fun getLatestUpdates(page: Int): MangasPage {
         val url = "$apiUrl/recent-update-comics".toHttpUrl().newBuilder()
             .addQueryParameter("page", page.toString())
@@ -60,6 +64,8 @@ abstract class KiraKira :
 
         return client.get(url, apiHeaders).parseAs<ComicListDto>().toMangasPage()
     }
+
+    // ============================== Search ===============================
 
     override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
         if (query.isNotBlank()) {
@@ -83,6 +89,22 @@ abstract class KiraKira :
 
         return getLatestUpdates(page)
     }
+
+    private fun ComicListDto.toMangasPage(): MangasPage {
+        val mangas = comics.mapNotNull { comic ->
+            val slug = comic.id ?: return@mapNotNull null
+
+            SManga.create().apply {
+                title = comic.title
+                setUrlWithoutDomain("/comics/$slug")
+                thumbnail_url = comic.thumbnail?.ifBlank { null } ?: comic.banner_image_url?.ifBlank { null }
+            }
+        }
+
+        return MangasPage(mangas, current_page < total_pages)
+    }
+
+    // ============================== Details ===============================
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         if (url.host != baseUrl.toHttpUrl().host) return null
@@ -183,6 +205,8 @@ abstract class KiraKira :
         Instant.parse(dateText).toEpochMilli()
     }.getOrDefault(0L)
 
+    // ============================== Pages ===============================
+
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val chapterUrl = "$baseUrl${chapter.url}".toHttpUrl()
         if (chapterUrl.queryParameter("is_locked") == "1") {
@@ -268,6 +292,8 @@ abstract class KiraKira :
         return comicSlug to chapterId
     }
 
+    // ============================== Filters ===============================
+
     override val supportsFilterFetching get() = true
 
     override suspend fun fetchFilterData(): JsonElement = client.get("$apiUrl/genres", apiHeaders).parseAs()
@@ -293,20 +319,6 @@ abstract class KiraKira :
             summary = "Có thể gây chậm hoặc crash cân nhắc khi sử dụng."
             setDefaultValue(false)
         }.let(screen::addPreference)
-    }
-
-    private fun ComicListDto.toMangasPage(): MangasPage {
-        val mangas = comics.mapNotNull { comic ->
-            val slug = comic.id ?: return@mapNotNull null
-
-            SManga.create().apply {
-                title = comic.title
-                setUrlWithoutDomain("/comics/$slug")
-                thumbnail_url = comic.thumbnail?.ifBlank { null } ?: comic.banner_image_url?.ifBlank { null }
-            }
-        }
-
-        return MangasPage(mangas, current_page < total_pages)
     }
 
     private val maxPageProbe = 200
