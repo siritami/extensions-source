@@ -32,9 +32,8 @@ abstract class GocTruyenTranhVui : KeiSource() {
 
     // ============================== Client ================================
 
-    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder =
-        addInterceptor(authInterceptor())
-            .rateLimit(3)
+    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = addInterceptor(authInterceptor())
+        .rateLimit(3)
 
     private val xhrHeaders by lazy {
         headersBuilder()
