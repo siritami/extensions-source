@@ -75,7 +75,8 @@ override suspend fun fetchFilterData(): JsonElement = coroutineScope {
 
 When dynamically fetched filter options are null or empty, omit that filter
 group from `FilterList` instead of adding an empty selector or fallback option.
-Add static filters normally:
+Do not pass `genres.orEmpty()` to `GenreFilter`, because that still displays an
+empty genre selector. Add static filters normally:
 
 ```kotlin
 fun getFilters(genres: List<Genre>, teams: List<Team>): FilterList {
@@ -87,6 +88,10 @@ fun getFilters(genres: List<Genre>, teams: List<Team>): FilterList {
     return FilterList(filters)
 }
 ```
+
+Inside `getSearchMangaList`, use the `filters` argument directly. Do not replace
+an empty list with `getFilterList(null)`: lib 1.6 supplies the app-managed filter
+list, and passing `null` manually can discard cached dynamically fetched options.
 
 ### Paginated APIs Without a Total Count
 
