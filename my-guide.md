@@ -72,7 +72,21 @@ override suspend fun fetchFilterData(): JsonElement = coroutineScope {
 - Use `coroutineScope` so failures cancel sibling requests and propagate normally.
 - Start all independent `async` operations before calling `await()`.
 - Do not parallelize requests when one depends on the result of another.
-- When dynamically fetched filter options are empty, omit that filter group from `FilterList` instead of adding an empty group.
+
+When dynamically fetched filter options are null or empty, omit that filter
+group from `FilterList` instead of adding an empty selector or fallback option.
+Add static filters normally:
+
+```kotlin
+fun getFilters(genres: List<Genre>, teams: List<Team>): FilterList {
+    val filters = mutableListOf<Filter<*>>()
+    if (genres.isNotEmpty()) filters += GenreFilter(genres)
+    if (teams.isNotEmpty()) filters += TeamFilter(teams)
+    filters += SortFilter()
+    filters += StatusFilter()
+    return FilterList(filters)
+}
+```
 
 ### Paginated APIs Without a Total Count
 
@@ -393,3 +407,19 @@ val expiresAt = data["expires_at"]?.let { runCatching { it.long }.getOrNull() } 
 ```
 
 Prefer these shared helpers over source-local `JsonElement` conversion extensions.
+
+When parsing filter data produced by the extension's own `fetchFilterData()`, do
+not wrap `parseAs` in `runCatching`. Handle only the nullable input explicitly and
+let malformed non-null filter data propagate:
+
+```kotlin
+override fun getFilterList(data: JsonElement?): FilterList {
+    val filterData = data?.parseAs<FilterData>()
+    return getFilters(filterData)
+}
+```
+
+In lib 1.6, use the `filters` argument passed to `getSearchMangaList` directly.
+Do not replace an empty list with `getFilters()`: the application obtains the
+source's filter list through `getFilterList`, including dynamically fetched
+filter data, and passes the current filter state to the search method.
