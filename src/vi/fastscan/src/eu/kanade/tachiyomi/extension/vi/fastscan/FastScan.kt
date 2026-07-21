@@ -32,13 +32,11 @@ abstract class FastScan : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        getSearchMangaList(page, "", FilterList(SortFilter().apply { state = 4 }))
+    override suspend fun getPopularManga(page: Int): MangasPage = getSearchMangaList(page, "", FilterList(SortFilter().apply { state = 4 }))
 
     // ============================== Latest ================================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        getSearchMangaList(page, "", FilterList(SortFilter().apply { state = 0 }))
+    override suspend fun getLatestUpdates(page: Int): MangasPage = getSearchMangaList(page, "", FilterList(SortFilter().apply { state = 0 }))
 
     // ============================== Search ================================
 
@@ -143,10 +141,9 @@ abstract class FastScan : KeiSource() {
 
     // ============================== Chapters ==============================
 
-    private fun parseChapterList(document: Document): List<SChapter> =
-        document.select(".list_chapter .works-chapter-item").map { element ->
-            chapterFromElement(element)
-        }
+    private fun parseChapterList(document: Document): List<SChapter> = document.select(".list_chapter .works-chapter-item").map { element ->
+        chapterFromElement(element)
+    }
 
     private fun chapterFromElement(element: Element): SChapter = SChapter.create().apply {
         val chapterLink = element.selectFirst(".name-chap a[href]")!!
@@ -184,8 +181,7 @@ abstract class FastScan : KeiSource() {
         .distinctBy { it.name }
         .toJsonElement()
 
-    override fun getFilterList(data: JsonElement?): FilterList =
-        getFilters(data?.parseAs<List<GenreOption>>())
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
     // =============================== Related ==============================
 
