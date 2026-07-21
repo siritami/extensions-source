@@ -38,8 +38,7 @@ abstract class HentaiVNx : KeiSource() {
 
     // ============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        mangaListParse(client.get("$baseUrl/?page=$page").asJsoup())
+    override suspend fun getLatestUpdates(page: Int): MangasPage = mangaListParse(client.get("$baseUrl/?page=$page").asJsoup())
 
     // ============================== Search ===============================
 
@@ -178,15 +177,14 @@ abstract class HentaiVNx : KeiSource() {
 
     // ============================== Chapters ===============================
 
-    private fun chapterListParse(document: Document): List<SChapter> =
-        document.select("#nt_listchapter.list-chapter ul li.row").map { element ->
-            SChapter.create().apply {
-                val link = element.selectFirst("div.chapter a")!!
-                setUrlWithoutDomain(link.absUrl("href"))
-                name = link.text()
-                date_upload = element.selectFirst("div.col-xs-4")?.text().toDate()
-            }
+    private fun chapterListParse(document: Document): List<SChapter> = document.select("#nt_listchapter.list-chapter ul li.row").map { element ->
+        SChapter.create().apply {
+            val link = element.selectFirst("div.chapter a")!!
+            setUrlWithoutDomain(link.absUrl("href"))
+            name = link.text()
+            date_upload = element.selectFirst("div.col-xs-4")?.text().toDate()
         }
+    }
 
     private fun String?.toDate(): Long {
         this ?: return 0L
