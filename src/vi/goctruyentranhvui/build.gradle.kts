@@ -6,9 +6,9 @@ plugins {
 
 keiyoushi {
     name = "Goc Truyen Tranh Vui"
-    versionCode = 15
+    versionCode = 16
     contentWarning = ContentWarning.SAFE
-    libVersion = "1.4"
+    libVersion = "1.6"
 
     source {
         lang = "vi"
@@ -18,7 +18,6 @@ keiyoushi {
     }
 
     deeplink {
-        host("goctruyentranhvui30.com")
         path("/truyen/..*")
     }
 }

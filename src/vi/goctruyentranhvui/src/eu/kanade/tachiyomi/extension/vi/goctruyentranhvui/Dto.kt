@@ -10,6 +10,14 @@ class ResultDto<T>(
 )
 
 @Serializable
+class CategoryDto(
+    private val id: String,
+    private val name: String,
+) {
+    fun toOption() = Option(name, id)
+}
+
+@Serializable
 class ChapterDto(
     private val comicId: String,
     private val numberChapter: String,
@@ -18,7 +26,7 @@ class ChapterDto(
     fun toSChapter(slug: String): SChapter = SChapter.create().apply {
         name = numberChapter
         date_upload = updateTime
-        url = "/truyen/$slug/chuong-$numberChapter#$comicId"
+        setUrlWithoutDomain("/truyen/$slug/chuong-$numberChapter#$comicId")
     }
 }
 
@@ -47,7 +55,7 @@ class MangaDto(
     fun toSManga(baseUrl: String): SManga = SManga.create().apply {
         title = name
         thumbnail_url = baseUrl + photo
-        url = "$id:$nameEn"
+        setUrlWithoutDomain("$id:$nameEn")
         author = this@MangaDto.author
         description = this@MangaDto.description
         genre = category?.joinToString()
