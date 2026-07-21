@@ -133,8 +133,7 @@ abstract class KiraKira :
         else -> SManga.UNKNOWN
     }
 
-    private fun extractComicSlug(url: String): String? =
-        comicSlugRegex.find(url)?.groupValues?.getOrNull(1) ?: url.substringBefore('/').takeIf { it.isNotBlank() }
+    private fun extractComicSlug(url: String): String? = comicSlugRegex.find(url)?.groupValues?.getOrNull(1) ?: url.substringBefore('/').takeIf { it.isNotBlank() }
 
     private fun parseChapters(payload: ComicDetailsDto, slug: String): List<SChapter> {
         val autoUnlock = isAutoUnlockEnabled
@@ -175,11 +174,9 @@ abstract class KiraKira :
         }
     }
 
-    private fun formatUnlockDate(dateText: String): String? {
-        return runCatching {
-            unlockLabelDateFormat.format(Instant.parse(dateText).atZone(dateZone))
-        }.getOrNull()
-    }
+    private fun formatUnlockDate(dateText: String): String? = runCatching {
+        unlockLabelDateFormat.format(Instant.parse(dateText).atZone(dateZone))
+    }.getOrNull()
 
     private fun parseDate(dateText: String): Long = runCatching {
         Instant.parse(dateText).toEpochMilli()
