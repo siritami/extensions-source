@@ -26,7 +26,7 @@ class ChapterDto(
     fun toSChapter(slug: String): SChapter = SChapter.create().apply {
         name = numberChapter
         date_upload = updateTime
-        setUrlWithoutDomain("/truyen/$slug/chuong-$numberChapter#$comicId")
+        url = "/truyen/$slug/chuong-$numberChapter#$comicId"
     }
 }
 
@@ -55,7 +55,7 @@ class MangaDto(
     fun toSManga(baseUrl: String): SManga = SManga.create().apply {
         title = name
         thumbnail_url = baseUrl + photo
-        setUrlWithoutDomain("$id:$nameEn")
+        url = "$id:$nameEn"
         author = this@MangaDto.author
         description = this@MangaDto.description
         genre = category?.joinToString()
