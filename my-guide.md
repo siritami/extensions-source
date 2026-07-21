@@ -9,6 +9,8 @@
 ## Code
 
 ```kotlin
+import okhttp3.Interceptor
+
 // 1. Cache the token in a suspend method
 private var cachedAuthToken: String? = null
 
@@ -27,7 +29,7 @@ override suspend fun getPopularManga(page: Int): MangasPage {
 }
 
 // 3. Interceptor reads the cached token — no WebView, no runBlocking
-private fun authInterceptor() = okhttp3.Interceptor { chain ->
+private fun authInterceptor() = Interceptor { chain ->
     val original = chain.request()
     val request = original.newBuilder().apply {
         cachedAuthToken?.let { header("Authorization", "Bearer $it") }
@@ -35,6 +37,8 @@ private fun authInterceptor() = okhttp3.Interceptor { chain ->
     chain.proceed(request)
 }
 ```
+
+- Import `okhttp3.Interceptor` and use `Interceptor` in declarations. Avoid fully qualified type names such as `okhttp3.Interceptor` in implementation code.
 
 ## Requirements
 
@@ -68,6 +72,7 @@ override suspend fun fetchFilterData(): JsonElement = coroutineScope {
 - Use `coroutineScope` so failures cancel sibling requests and propagate normally.
 - Start all independent `async` operations before calling `await()`.
 - Do not parallelize requests when one depends on the result of another.
+- When dynamically fetched filter options are empty, omit that filter group from `FilterList` instead of adding an empty group.
 
 ### Paginated APIs Without a Total Count
 
@@ -208,7 +213,9 @@ override suspend fun getSearchMangaList(
 
 ## Fetch Manga Update - Always Return Both
 
-When implementing `fetchMangaUpdate`, always return both manga details and chapters unconditionally:
+`KeiSource` guarantees that `fetchDetails` and `fetchChapters` are not both `false`. Do not add an early return for that impossible state.
+
+Only perform the network request for a requested field. When details and chapters use independent requests, start both with `async` inside `coroutineScope` so they run in parallel, then preserve the existing value for any field that was not requested:
 
 ```kotlin
 override suspend fun fetchMangaUpdate(
@@ -216,13 +223,24 @@ override suspend fun fetchMangaUpdate(
     chapters: List<SChapter>,
     fetchDetails: Boolean,
     fetchChapters: Boolean,
-): SMangaUpdate {
-    val response = client.get("$baseUrl${manga.url}")
-    val document = response.asJsoup()
+): SMangaUpdate = coroutineScope {
+    val mangaDeferred = if (fetchDetails) {
+        async {
+            val document = client.get("$baseUrl${manga.url}").asJsoup()
+            parseDetails(document, manga)
+        }
+    } else {
+        null
+    }
+    val chaptersDeferred = if (fetchChapters) {
+        async { fetchChapters(manga) }
+    } else {
+        null
+    }
 
-    return SMangaUpdate(
-        manga = parseDetails(document, manga),
-        chapters = parseChapters(document),
+    SMangaUpdate(
+        manga = mangaDeferred?.await() ?: manga,
+        chapters = chaptersDeferred?.await() ?: chapters,
     )
 }
 ```
