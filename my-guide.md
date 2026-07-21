@@ -168,10 +168,28 @@ override suspend fun getSearchMangaList(
 ```
 
 **Benefits:**
-- More reliable for direct URLs
-- Better compatibility with deeplinks
 - Simpler implementation
 - Works across different sites
+
+### URL Search with KeiSource
+
+`KeiSource` detects full URL queries before `getSearchMangaList` is called and
+routes them to `getMangaByUrl(HttpUrl)` automatically. Keep
+`getSearchMangaList` focused on normal text and filter searches, and implement
+detail or chapter URL resolution in `getMangaByUrl`.
+
+Do not add custom pseudo-query prefixes such as `id:` merely to turn a slug or
+ID into a URL. They are undocumented user-facing syntax and duplicate URL
+routing already provided by `KeiSource`. Keep one only when the source has a
+real, pre-existing ID-search requirement that cannot be represented by a
+normal site URL.
+
+```kotlin
+override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
+    if (url.host != baseUrl.toHttpUrl().host) return null
+    // Resolve recognized detail or chapter paths.
+}
+```
 
 ### 2. Filter-Based Search
 
@@ -306,6 +324,47 @@ val epochMillis = Instant.parseOrNull("2025-01-15T10:30:00.000Z")?.toEpochMillis
 - `toEpochMilliseconds()` returns epoch millis in UTC — suitable for `SChapter.date_upload`
 - Works with all ISO 8601 offsets (`Z`, `+07:00`, etc.)
 - Replaces `SimpleDateFormat` + manual `TimeZone` setup
+
+## Relative timestamps with `Clock.System.now()`
+
+For relative chapter dates such as `5 phút trước`, `2 giờ trước`, or
+`3 ngày trước`, subtract a `kotlin.time.Duration` from
+`Clock.System.now()` and convert the resulting instant to epoch milliseconds.
+Avoid `Calendar` for this duration-based arithmetic.
+
+```kotlin
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
+
+private fun parseRelativeDate(value: String): Long {
+    val amount = relativeDateRegex.find(value)
+        ?.groupValues
+        ?.get(1)
+        ?.toIntOrNull()
+        ?: return 0L
+
+    val duration = when {
+        "phút" in value -> amount.minutes
+        "giờ" in value -> amount.hours
+        "ngày" in value -> amount.days
+        else -> return 0L
+    }
+
+    return (Clock.System.now() - duration).toEpochMilliseconds()
+}
+
+private val relativeDateRegex = Regex("""(\d+)""")
+```
+
+- Return `0L` when the value is missing or unsupported.
+- Cache reusable `Regex` instances at class or file level.
+- Weeks can be represented as `amount * 7` days.
+- `Duration` has no calendar month or year unit. If the site only provides
+  approximate relative labels, document and use a consistent approximation
+  such as 30 days per month and 365 days per year. Use calendar-aware date
+  APIs instead when exact month or year boundaries matter.
 
 ## Site-local timestamps without an offset
 
