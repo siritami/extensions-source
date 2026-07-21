@@ -50,6 +50,17 @@ private fun authInterceptor() = Interceptor { chain ->
 
 # General Extension Development Notes
 
+## Derived Request Headers
+
+Declare custom request headers with an explicit `Headers` getter when they should be built from the source's current `headersBuilder()` on each access:
+
+```kotlin
+private val xhrHeaders: Headers
+    get() = headersBuilder()
+        .set("X-Requested-With", "XMLHttpRequest")
+        .build()
+```
+
 ## Fetch Independent Data in Parallel
 
 When a suspend method needs multiple independent network responses, fetch them concurrently with structured concurrency instead of waiting for each request sequentially. This is especially useful in `fetchFilterData()` when filter groups come from separate endpoints.
