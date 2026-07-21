@@ -228,8 +228,7 @@ abstract class GocTruyenTranhVui : KeiSource() {
 
     override val supportsFilterFetching get() = true
 
-    override suspend fun fetchFilterData(): JsonElement =
-        client.get("$baseUrl/api/category", xhrHeaders).parseAs()
+    override suspend fun fetchFilterData(): JsonElement = client.get("$baseUrl/api/category", xhrHeaders).parseAs()
 
     override fun getFilterList(data: JsonElement?): FilterList {
         val genres = data
