@@ -64,6 +64,31 @@ abstract class LoppyToon : KeiSource() {
         return MangasPage(mangaList, hasNextPage)
     }
 
+    private fun mangaFromElement(element: Element): SManga? {
+        val linkElement = element.selectFirst("a") ?: return null
+        val mangaUrl = linkElement.absUrl("href")
+        if (mangaUrl.isNovelUrl()) return null
+
+        return SManga.create().apply {
+            setUrlWithoutDomain(mangaUrl)
+            title = element.selectFirst("h3.comic-title")?.text()
+                ?.takeIf(String::isNotEmpty) ?: return null
+            thumbnail_url = element.selectFirst(".comic-cover img")?.absUrl("src")
+                ?.normalizeThumbnailUrl()
+        }
+    }
+
+    private fun String.isNovelUrl(): Boolean {
+        val url = toHttpUrlOrNull() ?: baseUrl.toHttpUrl().resolve(this) ?: return false
+        return url.pathSegments.firstOrNull() == "truyen" &&
+            url.pathSegments.getOrNull(1)?.startsWith("novel", ignoreCase = true) == true
+    }
+
+    private fun String.normalizeThumbnailUrl(): String {
+        val secondHttpsIndex = indexOf("https://", startIndex = "https://".length)
+        return if (secondHttpsIndex != -1) substring(secondHttpsIndex) else this
+    }
+
     // =============================== Search ===============================
 
     override suspend fun getSearchMangaList(
@@ -187,6 +212,24 @@ abstract class LoppyToon : KeiSource() {
         }
     }
 
+    private fun String?.toDate(): Long {
+        val value = this ?: return 0L
+        val amount = relativeDateRegex.find(value)?.groupValues?.get(1)?.toIntOrNull() ?: return 0L
+        val duration = when {
+            "giây" in value -> amount.seconds
+            "phút" in value -> amount.minutes
+            "giờ" in value -> amount.hours
+            "ngày" in value -> amount.days
+            "tuần" in value -> (amount * 7).days
+            "tháng" in value -> (amount * 30).days
+            "năm" in value -> (amount * 365).days
+            else -> return 0L
+        }
+        return (Clock.System.now() - duration).toEpochMilliseconds()
+    }
+
+    private val relativeDateRegex = Regex("""(\d+)""")
+
     // ================================ Pages ===============================
 
     override suspend fun getPageList(chapter: SChapter): List<Page> = client.get(getChapterUrl(chapter)).asJsoup()
@@ -238,47 +281,4 @@ abstract class LoppyToon : KeiSource() {
         return container.select(".comic-grid .comic-item").mapNotNull(::mangaFromElement)
             .distinctBy { it.url }
     }
-
-    private fun mangaFromElement(element: Element): SManga? {
-        val linkElement = element.selectFirst("a") ?: return null
-        val mangaUrl = linkElement.absUrl("href")
-        if (mangaUrl.isNovelUrl()) return null
-
-        return SManga.create().apply {
-            setUrlWithoutDomain(mangaUrl)
-            title = element.selectFirst("h3.comic-title")?.text()
-                ?.takeIf(String::isNotEmpty) ?: return null
-            thumbnail_url = element.selectFirst(".comic-cover img")?.absUrl("src")
-                ?.normalizeThumbnailUrl()
-        }
-    }
-
-    private fun String.isNovelUrl(): Boolean {
-        val url = toHttpUrlOrNull() ?: baseUrl.toHttpUrl().resolve(this) ?: return false
-        return url.pathSegments.firstOrNull() == "truyen" &&
-            url.pathSegments.getOrNull(1)?.startsWith("novel", ignoreCase = true) == true
-    }
-
-    private fun String.normalizeThumbnailUrl(): String {
-        val secondHttpsIndex = indexOf("https://", startIndex = "https://".length)
-        return if (secondHttpsIndex != -1) substring(secondHttpsIndex) else this
-    }
-
-    private fun String?.toDate(): Long {
-        val value = this ?: return 0L
-        val amount = relativeDateRegex.find(value)?.groupValues?.get(1)?.toIntOrNull() ?: return 0L
-        val duration = when {
-            "giây" in value -> amount.seconds
-            "phút" in value -> amount.minutes
-            "giờ" in value -> amount.hours
-            "ngày" in value -> amount.days
-            "tuần" in value -> (amount * 7).days
-            "tháng" in value -> (amount * 30).days
-            "năm" in value -> (amount * 365).days
-            else -> return 0L
-        }
-        return (Clock.System.now() - duration).toEpochMilliseconds()
-    }
-
-    private val relativeDateRegex = Regex("""(\d+)""")
 }
