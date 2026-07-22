@@ -34,13 +34,11 @@ abstract class LxHentai : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        parseMangaPage(client.get(browseMangaUrl(page, "-views")))
+    override suspend fun getPopularManga(page: Int): MangasPage = parseMangaPage(client.get(browseMangaUrl(page, "-views")))
 
     // ============================== Latest ================================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        parseMangaPage(client.get(browseMangaUrl(page, "-updated_at")))
+    override suspend fun getLatestUpdates(page: Int): MangasPage = parseMangaPage(client.get(browseMangaUrl(page, "-updated_at")))
 
     // ============================== Search ================================
 
@@ -82,12 +80,11 @@ abstract class LxHentai : KeiSource() {
         return fetchMangaUpdate(manga, emptyList(), true, false).manga
     }
 
-    private fun browseMangaUrl(page: Int, sortBy: String): HttpUrl =
-        "$baseUrl/tim-kiem".toHttpUrl().newBuilder()
-            .addQueryParameter("sort", sortBy)
-            .addQueryParameter("page", page.toString())
-            .addQueryParameter("filter[status]", "ongoing,completed,paused")
-            .build()
+    private fun browseMangaUrl(page: Int, sortBy: String): HttpUrl = "$baseUrl/tim-kiem".toHttpUrl().newBuilder()
+        .addQueryParameter("sort", sortBy)
+        .addQueryParameter("page", page.toString())
+        .addQueryParameter("filter[status]", "ongoing,completed,paused")
+        .build()
 
     private fun parseMangaPage(response: Response): MangasPage {
         val document = response.asJsoup()
@@ -133,36 +130,36 @@ abstract class LxHentai : KeiSource() {
     }
 
     private fun parseMangaDetails(document: Document, manga: SManga): SManga = SManga.create().apply {
-            setUrlWithoutDomain(manga.url)
-            title = document.selectFirst("div.flex.flex-row.truncate.mb-4 span.grow.text-lg.ml-1.text-ellipsis.font-semibold")!!.text()
-            thumbnail_url = document.selectFirst("div.md\\:col-span-2 div.cover-frame > div.cover")
-                ?.let { element: Element -> getThumbnailUrl(element) }
-            author = document.infoRow("Tác giả:")
-                ?.select("a[href*=/tac-gia/]")
-                ?.joinToString { it: Element -> it.text() }
-                ?.ifEmpty { null }
+        setUrlWithoutDomain(manga.url)
+        title = document.selectFirst("div.flex.flex-row.truncate.mb-4 span.grow.text-lg.ml-1.text-ellipsis.font-semibold")!!.text()
+        thumbnail_url = document.selectFirst("div.md\\:col-span-2 div.cover-frame > div.cover")
+            ?.let { element: Element -> getThumbnailUrl(element) }
+        author = document.infoRow("Tác giả:")
+            ?.select("a[href*=/tac-gia/]")
+            ?.joinToString { it: Element -> it.text() }
+            ?.ifEmpty { null }
 
-            genre = document.infoRow("Thể loại:")
-                ?.select("a[href*=/the-loai/]")
-                ?.joinToString { it: Element -> it.text() }
-                ?.ifEmpty { null }
+        genre = document.infoRow("Thể loại:")
+            ?.select("a[href*=/the-loai/]")
+            ?.joinToString { it: Element -> it.text() }
+            ?.ifEmpty { null }
 
-            val altNames = document.infoRow("Tên khác:")
-                ?.select("a, span:not(.font-semibold)")
-                ?.joinToString { it.text() }
-                ?.takeIf { it.isNotEmpty() }
+        val altNames = document.infoRow("Tên khác:")
+            ?.select("a, span:not(.font-semibold)")
+            ?.joinToString { it.text() }
+            ?.takeIf { it.isNotEmpty() }
 
-            val summary = document.select("p:contains(Tóm tắt) ~ p").joinToString("\n") { it.wholeText() }.trim()
+        val summary = document.select("p:contains(Tóm tắt) ~ p").joinToString("\n") { it.wholeText() }.trim()
 
-            description = buildString {
-                if (altNames != null) {
-                    append("Tên khác: ", altNames, "\n\n")
-                }
-                append(summary)
-            }.trim()
+        description = buildString {
+            if (altNames != null) {
+                append("Tên khác: ", altNames, "\n\n")
+            }
+            append(summary)
+        }.trim()
 
-            status = parseStatus(document.infoRow("Tình trạng:")?.text())
-        }
+        status = parseStatus(document.infoRow("Tình trạng:")?.text())
+    }
 
     private fun Document.infoRow(label: String): Element? = select("div")
         .firstOrNull { row: Element -> row.selectFirst("> span.font-semibold")?.text() == label }
@@ -195,8 +192,7 @@ abstract class LxHentai : KeiSource() {
         }
     }
 
-    private fun parseChapterDate(timeElement: Element?): Long =
-        Instant.parseOrNull(timeElement?.attr("datetime").orEmpty())?.toEpochMilliseconds() ?: 0L
+    private fun parseChapterDate(timeElement: Element?): Long = Instant.parseOrNull(timeElement?.attr("datetime").orEmpty())?.toEpochMilliseconds() ?: 0L
 
     // ============================== Pages =================================
 
