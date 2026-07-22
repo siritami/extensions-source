@@ -9,8 +9,7 @@ internal class GenreOption(
     val path: String,
 )
 
-internal class GenreFilter(genres: List<GenreOption>) :
-    Filter.Select<String>("Thể loại", arrayOf("Tất cả", *genres.map { it.name }.toTypedArray())) {
+internal class GenreFilter(genres: List<GenreOption>) : Filter.Select<String>("Thể loại", arrayOf("Tất cả", *genres.map { it.name }.toTypedArray())) {
     private val paths = listOf<String?>(null) + genres.map { it.path }
 
     fun selectedPath(): String? = paths.getOrNull(state)
