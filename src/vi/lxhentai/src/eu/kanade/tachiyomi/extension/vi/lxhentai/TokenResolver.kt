@@ -65,7 +65,7 @@ object TokenResolver {
                     latestToken = tokenResult
 
                     // 3. Decode image URLs from the obfuscated inline script
-                    val urlsJson = evaluateJs(INTERDecodeScript) as? String
+                    val urlsJson = evaluateJs(INTER_DECODE_SCRIPT) as? String
                     val urls = parseUrlList(urlsJson)
 
                     if (urls.isNotEmpty()) {
