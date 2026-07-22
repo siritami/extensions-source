@@ -52,7 +52,7 @@ abstract class MeoSSS : KeiSource() {
         val url = "$baseUrl/moi-cap-nhat/" + if (page > 1) "page/$page/" else ""
         val document = client.get(url).asJsoup()
         val mangas = document.select(".manga-item-grid").map { it.mangaFromGridElement() }
-        val hasNextPage = document.selectFirst(".uk-pagination a[aria-label='Trang sau'][href]") != null
+        val hasNextPage = document.selectFirst(nextPageSelector) != null
         return MangasPage(mangas, hasNextPage)
     }
 
@@ -66,7 +66,8 @@ abstract class MeoSSS : KeiSource() {
 
     override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
         val url = if (query.isNotBlank()) {
-            "$baseUrl/".toHttpUrl().newBuilder()
+            val path = "/" + if (page > 1) "page/$page/" else ""
+            "$baseUrl$path".toHttpUrl().newBuilder()
                 .addQueryParameter("s", query)
         } else {
             val path = "/bo-loc-nang-cao/" + if (page > 1) "page/$page/" else ""
@@ -97,7 +98,7 @@ abstract class MeoSSS : KeiSource() {
 
         if (isFilterPage) {
             val mangas = document.select(".manga-item-details").map { it.mangaFromPopularElement() }
-            val hasNextPage = document.selectFirst(".uk-pagination a[aria-label='Trang sau'][href]") != null
+            val hasNextPage = document.selectFirst(nextPageSelector) != null
             return MangasPage(mangas, hasNextPage)
         }
 
@@ -112,7 +113,7 @@ abstract class MeoSSS : KeiSource() {
                 thumbnail_url = article.selectFirst("img")?.imgUrl()
             }
         }
-        val hasNextPage = document.selectFirst(".uk-pagination a[aria-label='Trang sau'][href]") != null
+        val hasNextPage = document.selectFirst(nextPageSelector) != null
         return MangasPage(mangas, hasNextPage)
     }
 
@@ -256,6 +257,7 @@ abstract class MeoSSS : KeiSource() {
     }
 
     private fun Element.imgUrl(): String? = attr("src").ifEmpty { null }
+    private val nextPageSelector = ".uk-pagination a[aria-label='Trang sau'][href]"
     private val mangaUrlRegex = Regex("/truyen/[a-z0-9]+(?:-[a-z0-9]+)*/$")
     private val statusValues = arrayOf("", "ongoing", "season_end", "completed", "source_hiatus", "caught_up", "dropped")
     private val ageValues = arrayOf("", "all", "13+", "16+", "18+")

@@ -221,10 +221,13 @@ abstract class MeoSua : KeiSource() {
         }.getOrDefault(0L)
     }
 
-    private fun parseStatus(statusText: String): Int = when {
-        statusText.contains("Trọn bộ", ignoreCase = true) -> SManga.COMPLETED
-        statusText.contains("Đang tiến hành", ignoreCase = true) -> SManga.ONGOING
-        else -> SManga.UNKNOWN
+    private fun parseStatus(statusText: String): Int {
+        val normalizedStatus = statusText.lowercase()
+        return when {
+            "trọn bộ" in normalizedStatus -> SManga.COMPLETED
+            "đang tiến hành" in normalizedStatus -> SManga.ONGOING
+            else -> SManga.UNKNOWN
+        }
     }
 
     // ============================== Pages =================================
@@ -233,7 +236,7 @@ abstract class MeoSua : KeiSource() {
         val document = client.get(getChapterUrl(chapter)).asJsoup()
 
         if (document.selectFirst("#view-chapter .lock-card, #view-chapter #unlock-chapter, #view-chapter #xu-lock") != null) {
-            throw Exception(lockedChapterMessage)
+            return emptyList()
         }
 
         val imageUrls = document.select("#view-chapter .chapter-content img")
@@ -241,9 +244,7 @@ abstract class MeoSua : KeiSource() {
             .mapNotNull(::imageUrlFromElement)
             .filterNot { placeholderImageRegex.containsMatchIn(it) }
 
-        if (imageUrls.isEmpty()) {
-            throw Exception("Không tìm thấy hình ảnh")
-        }
+        if (imageUrls.isEmpty()) return emptyList()
 
         return imageUrls.mapIndexed { index, imageUrl ->
             Page(index, imageUrl = imageUrl)
@@ -299,9 +300,6 @@ abstract class MeoSua : KeiSource() {
             }
         }.distinctBy { it.url }
     }
-
-    private val lockedChapterMessage =
-        "Vui lòng đăng nhập vào tài khoản phù hợp bằng webview để xem chương này"
 
     private val chapterNameRegex = Regex("chap\\s*\\d+(?:\\.\\d+)?", RegexOption.IGNORE_CASE)
     private val chapterWordRegex = Regex("chap", RegexOption.IGNORE_CASE)

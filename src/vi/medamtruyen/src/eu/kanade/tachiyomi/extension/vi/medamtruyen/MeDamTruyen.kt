@@ -170,9 +170,12 @@ abstract class MeDamTruyen : KeiSource() {
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         if (url.host != baseUrl.toHttpUrl().host) return null
 
-        val detailUrl = if (url.pathSegments.firstOrNull() == "truyen") {
+        val pathSegments = url.pathSegments.filter { it.isNotEmpty() }
+        val isChapterUrl = pathSegments.size == 1 &&
+            "-chap-" in pathSegments.single().lowercase(Locale.ROOT)
+        val detailUrl = if (pathSegments.firstOrNull() == "truyen") {
             url
-        } else if (chapterPathRegex.matches(url.encodedPath)) {
+        } else if (isChapterUrl) {
             client.get(url).asJsoup()
                 .selectFirst("a[href*=/truyen/]:matchesOwn(^DS\\. Chương$), a[href*=/truyen/]")
                 ?.absUrl("href")
@@ -226,16 +229,18 @@ abstract class MeDamTruyen : KeiSource() {
 
     private fun extractInfoValue(infoRows: List<Element>, label: String): String? = infoRows.firstOrNull { row ->
         row.selectFirst("strong")?.text()?.contains(label, ignoreCase = true) == true
-    }?.ownText()?.takeIf { it.isNotBlank() }
+    }?.ownText()?.takeIf { it.isNotEmpty() }
 
-    private fun parseStatus(statusText: String?): Int = when {
-        statusText == null -> SManga.UNKNOWN
-        statusText.contains("Đang tiến hành", ignoreCase = true) -> SManga.ONGOING
-        statusText.contains("Trọn bộ", ignoreCase = true) -> SManga.COMPLETED
-        else -> SManga.UNKNOWN
+    private fun parseStatus(statusText: String?): Int {
+        val status = statusText?.lowercase(Locale.ROOT) ?: return SManga.UNKNOWN
+        return when {
+            "đang tiến hành" in status -> SManga.ONGOING
+            "trọn bộ" in status -> SManga.COMPLETED
+            else -> SManga.UNKNOWN
+        }
     }
 
-    private fun parseDescription(document: org.jsoup.nodes.Document): String? {
+    private fun parseDescription(document: Document): String? {
         val firstParagraph = document.selectFirst("div.hide-long-text p")
             ?.text()
             ?.substringBefore("— Xem Thêm —")
@@ -301,12 +306,10 @@ abstract class MeDamTruyen : KeiSource() {
         }
 
         val imageUrls = ImageDecryptor.extractImageUrls(html, chapterUrl)
-        if (imageUrls.isEmpty()) {
-            throw Exception(noImagesMessage)
-        }
+        if (imageUrls.isEmpty()) return emptyList()
 
         return imageUrls.mapIndexed { index, imageUrl ->
-            Page(index, chapterUrl, imageUrl)
+            Page(index, url = chapterUrl, imageUrl = imageUrl)
         }
     }
 
@@ -362,17 +365,11 @@ abstract class MeDamTruyen : KeiSource() {
         }.distinctBy { it.url }
     }
 
-    override fun getMangaUrl(manga: SManga): String = "$baseUrl${manga.url}"
-
-    override fun getChapterUrl(chapter: SChapter): String = "$baseUrl${chapter.url}"
-
     private val thumbLowSize = "-150x150"
     private val thumbHighSize = "-720x970"
     private val passwordWebviewMessage = "Vui lòng nhập mật khẩu của chương này qua webview"
-    private val noImagesMessage = "Không tìm thấy hình ảnh"
 
     private val truyenPathRegex = Regex("""/truyen/""", RegexOption.IGNORE_CASE)
-    private val chapterPathRegex = Regex("""/[^/]+-chap-[^/]+/?""", RegexOption.IGNORE_CASE)
     private val chapterNameRegex = Regex(
         """chap\s*\d+(?:[.,]\d+)?(?:\s*:\s*.+)?""",
         RegexOption.IGNORE_CASE,
