@@ -18,12 +18,16 @@ import keiyoushi.source.KeiSource
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferences
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
-import java.time.Instant
+import kotlin.time.Instant
+import java.time.Instant as JavaInstant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -33,6 +37,7 @@ abstract class KiraKira :
     KeiSource(),
     ConfigurableSource {
     private val apiUrl = "https://api.${baseUrl.toHttpUrl().host}"
+    private val imageUrl = "https://images.${baseUrl.toHttpUrl().host}"
 
     private val apiHeaders: Headers
         get() = headersBuilder()
@@ -46,24 +51,11 @@ abstract class KiraKira :
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage {
-        val url = "$apiUrl/top".toHttpUrl().newBuilder()
-            .addQueryParameter("status", "all")
-            .addQueryParameter("page", page.toString())
-            .build()
-
-        return client.get(url, apiHeaders).parseAs<ComicListDto>().toMangasPage()
-    }
+    override suspend fun getPopularManga(page: Int): MangasPage = getGenreMangaList(page, sort = "views")
 
     // ============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage {
-        val url = "$apiUrl/recent-update-comics".toHttpUrl().newBuilder()
-            .addQueryParameter("page", page.toString())
-            .build()
-
-        return client.get(url, apiHeaders).parseAs<ComicListDto>().toMangasPage()
-    }
+    override suspend fun getLatestUpdates(page: Int): MangasPage = getGenreMangaList(page)
 
     // ============================== Search ===============================
 
@@ -77,31 +69,28 @@ abstract class KiraKira :
             return client.get(url, apiHeaders).parseAs<ComicListDto>().toMangasPage()
         }
 
-        val genreId = filters.firstInstanceOrNull<GenreFilter>()?.selected?.id
-        if (genreId != null) {
-            val url = "$apiUrl/genres/$genreId".toHttpUrl().newBuilder()
-                .addQueryParameter("type", genreId)
-                .addQueryParameter("page", page.toString())
-                .build()
-
-            return client.get(url, apiHeaders).parseAs<ComicListDto>().toMangasPage()
-        }
-
-        return getLatestUpdates(page)
+        return getGenreMangaList(
+            page = page,
+            genreId = filters.firstInstanceOrNull<GenreFilter>()?.selected?.id ?: "all",
+            sort = filters.firstInstanceOrNull<SortFilter>()?.selected,
+            status = filters.firstInstanceOrNull<StatusFilter>()?.selected,
+        )
     }
 
-    private fun ComicListDto.toMangasPage(): MangasPage {
-        val mangas = comics.mapNotNull { comic ->
-            val slug = comic.id ?: return@mapNotNull null
+    private suspend fun getGenreMangaList(
+        page: Int,
+        genreId: String = "all",
+        sort: String? = null,
+        status: String? = null,
+    ): MangasPage {
+        val url = "$apiUrl/genres/$genreId".toHttpUrl().newBuilder().apply {
+            addQueryParameter("type", genreId)
+            addQueryParameter("page", page.toString())
+            sort?.let { addQueryParameter("sort", it) }
+            status?.let { addQueryParameter("status", it) }
+        }.build()
 
-            SManga.create().apply {
-                title = comic.title
-                setUrlWithoutDomain("/comics/$slug")
-                thumbnail_url = comic.thumbnail?.ifBlank { null } ?: comic.banner_image_url?.ifBlank { null }
-            }
-        }
-
-        return MangasPage(mangas, current_page < total_pages)
+        return client.get(url, apiHeaders).parseAs<ComicListDto>().toMangasPage()
     }
 
     // ============================== Details ===============================
@@ -135,8 +124,8 @@ abstract class KiraKira :
         val updatedManga = SManga.create().apply {
             setUrlWithoutDomain("/comics/$slug")
             title = payload.title
-            thumbnail_url = payload.thumbnail?.ifBlank { null } ?: payload.banner_image_url?.ifBlank { null }
-            author = "Unknown"
+            thumbnail_url = payload.thumbnail?.ifBlank { null } ?: payload.bannerImageUrl?.ifBlank { null }
+            author = payload.authors
             status = parseStatus(payload.status)
             genre = payload.genres.mapNotNull { it.name }.joinToString().ifEmpty { null }
             description = payload.description
@@ -197,13 +186,11 @@ abstract class KiraKira :
         }
     }
 
-    private fun formatUnlockDate(dateText: String): String? = runCatching {
-        unlockLabelDateFormat.format(Instant.parse(dateText).atZone(dateZone))
-    }.getOrNull()
+    private fun formatUnlockDate(dateText: String): String? = Instant.parseOrNull(dateText)?.let {
+        unlockLabelDateFormat.format(JavaInstant.ofEpochMilli(it.toEpochMilliseconds()).atZone(dateZone))
+    }
 
-    private fun parseDate(dateText: String): Long = runCatching {
-        Instant.parse(dateText).toEpochMilli()
-    }.getOrDefault(0L)
+    private fun parseDate(dateText: String): Long = Instant.parseOrNull(dateText)?.toEpochMilliseconds() ?: 0L
 
     // ============================== Pages ===============================
 
@@ -250,26 +237,35 @@ abstract class KiraKira :
         }
     }
 
-    /**
-     * Build page list by constructing predictable image URLs.
-     * Images are hosted at: {baseUrl}/manga/{imageSlug}/chapter-{id}/page-{i}.jpg
-     * Probes pages with HEAD requests until the response Content-Type is not an image.
-     */
-    private suspend fun buildPageListFromPattern(comicSlug: String, chapterId: String): List<Page> {
+    // Probe image URLs concurrently and stop at the first missing page.
+    private suspend fun buildPageListFromPattern(comicSlug: String, chapterId: String): List<Page> = coroutineScope {
         val imageSlug = fetchImageSlug(comicSlug) ?: comicSlug
         val pages = mutableListOf<Page>()
         var index = 1
 
         while (index <= maxPageProbe) {
-            val imageUrl = "$baseUrl/manga/$imageSlug/chapter-$chapterId/page-$index.jpg"
-            val isImage = client.head(imageUrl, headers, ensureSuccess = false).use {
-                it.isSuccessful && it.header("Content-Type")?.startsWith("image/") == true
+            val candidates = (index until minOf(index + pageProbeBatchSize, maxPageProbe + 1))
+                .map { pageNumber ->
+                    async {
+                        val pageUrl = "$imageUrl/manga/$imageSlug/chapter-$chapterId/page-$pageNumber.jpg"
+                        val isImage = client.head(pageUrl, headers, ensureSuccess = false).use {
+                            it.isSuccessful && it.header("Content-Type")?.startsWith("image/") == true
+                        }
+                        Triple(pageNumber, pageUrl, isImage)
+                    }
+                }
+                .awaitAll()
+
+            for ((pageNumber, pageUrl, isImage) in candidates) {
+                if (!isImage) {
+                    if (pages.isEmpty()) throw Exception("Không tìm thấy hình ảnh")
+                    return@coroutineScope pages
+                }
+
+                pages.add(Page(pageNumber - 1, imageUrl = pageUrl))
             }
 
-            if (!isImage) break
-
-            pages.add(Page(index - 1, imageUrl = imageUrl))
-            index++
+            index += candidates.size
         }
 
         if (pages.isEmpty()) {
@@ -307,6 +303,8 @@ abstract class KiraKira :
         return getFilters(genres)
     }
 
+    // ============================= Preferences =============================
+
     private val preferences: SharedPreferences = getPreferences()
 
     private val isAutoUnlockEnabled: Boolean
@@ -322,6 +320,7 @@ abstract class KiraKira :
     }
 
     private val maxPageProbe = 200
+    private val pageProbeBatchSize = 10
     private val lockedChapterMessage = "Vui lòng đăng nhập bằng tài khoản phù hợp qua webview để xem chương này"
     private val keyAutoUnlockChapters = "autoUnlockChapters"
     private val comicSlugRegex = Regex("/comics/([^/?#]+)")

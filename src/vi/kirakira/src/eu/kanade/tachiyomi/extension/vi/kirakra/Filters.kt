@@ -13,15 +13,45 @@ class GenreFilter(private val genres: List<GenreOption>) :
 }
 
 fun getFilters(genres: List<GenreOption>): FilterList {
-    if (genres.isEmpty()) return FilterList()
-
-    return FilterList(
-        Filter.Header("Lọc theo thể loại"),
-        GenreFilter(listOf(GenreOption("Tất cả")) + genres),
-    )
+    val filters = mutableListOf<Filter<*>>()
+    if (genres.isNotEmpty()) {
+        filters += Filter.Header("Lọc theo thể loại")
+        filters += GenreFilter(listOf(GenreOption("Tất cả", "all")) + genres)
+    }
+    filters += SortFilter()
+    filters += StatusFilter()
+    return FilterList(filters)
 }
 
 class GenreOption(
     val name: String,
     val id: String? = null,
 )
+
+class SortFilter :
+    UriPartFilter(
+        "Sắp xếp",
+        arrayOf(
+            "Mới cập nhật" to null,
+            "Lượt xem" to "views",
+            "Mới thêm" to "new",
+        ),
+    )
+
+class StatusFilter :
+    UriPartFilter(
+        "Trạng thái",
+        arrayOf(
+            "Tất cả" to null,
+            "Đang ra" to "updating",
+            "Hoàn thành" to "completed",
+        ),
+    )
+
+open class UriPartFilter(
+    displayName: String,
+    private val options: Array<Pair<String, String?>>,
+) : Filter.Select<String>(displayName, options.map { it.first }.toTypedArray()) {
+    val selected: String?
+        get() = options[state].second
+}
