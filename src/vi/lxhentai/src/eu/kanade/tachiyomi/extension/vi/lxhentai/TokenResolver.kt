@@ -16,7 +16,6 @@ object TokenResolver {
             try {
                 return resolveOnce(chapterUrl)
             } catch (_: WebViewTimeoutException) {
-                // Retry transient reader load failures.
             }
         }
         return Result()
@@ -38,7 +37,6 @@ object TokenResolver {
             poll(1.seconds) {
                 if (resolved) return@poll
 
-                // Dismiss Cloudflare Turnstile dialog
                 evaluateJs(
                     """(function(){
                         var b=document.querySelector('.swal2-confirm');
@@ -46,7 +44,6 @@ object TokenResolver {
                     })()""",
                 )
 
-                // Single combined call: check token + decode URLs + return JSON
                 evaluateJs(CHECK_AND_DECODE_SCRIPT) { value ->
                     synchronized(payloadLock) {
                         val result = parseResult(value) ?: return@evaluateJs
@@ -65,17 +62,14 @@ object TokenResolver {
         }
     }
 
-    /** Parses the JS callback value, handling Android WebView quote-wrapping. */
     private fun parseResult(value: String): Result? {
         val cleaned = value.trim().removeSurrounding("\"").removeSurrounding("'")
         if (cleaned.isEmpty() || cleaned == "null" || cleaned == "[]") return null
 
-        // Try to parse as JSON: {"token":"...","urls":["..."]}
         return try {
             val json = cleaned
                 .removePrefix("Object {").removeSuffix("}")
                 .replace("Object {", "{")
-            // Simple JSON-like parsing for {token, urls}
             val tokenMatch = Regex(""""token"\s*:\s*"([^"]*)"""").find(json)
             val urlsMatch = Regex(""""urls"\s*:\s*\[([^\]]*)\]""").find(json)
 
@@ -87,8 +81,6 @@ object TokenResolver {
                 .toList()
 
             if (token.isNotEmpty() && urls.isNotEmpty()) Result(token, urls) else null
-
-            if (token.isNotEmpty() && urls.isNotEmpty()) Result(token, urls) else null
         } catch (_: Exception) {
             null
         }
@@ -96,10 +88,6 @@ object TokenResolver {
 
     private val webViewTokenRegex = Regex("""\;\s*wv\)""")
 
-    /**
-     * Combined JS: dismisses Turnstile, checks actionToken, decodes image URLs,
-     * and returns a single JSON result.
-     */
     private const val CHECK_AND_DECODE_SCRIPT = """(function(){
         try {
             // Dismiss Turnstile dialog
