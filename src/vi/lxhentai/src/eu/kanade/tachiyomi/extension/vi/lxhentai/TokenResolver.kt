@@ -9,7 +9,7 @@ object TokenResolver {
 
     class Result(val token: String = "", val srcs: List<String> = emptyList())
 
-    private const val MAX_ATTEMPTS = 3
+    private const val MAX_ATTEMPTS = 2
 
     suspend fun resolve(chapterUrl: String): Result {
         repeat(MAX_ATTEMPTS) {
@@ -77,7 +77,7 @@ object TokenResolver {
                 .replace("Object {", "{")
             // Simple JSON-like parsing for {token, urls}
             val tokenMatch = Regex(""""token"\s*:\s*"([^"]*)"""").find(json)
-            val urlsMatch = Regex(""""urls"\s*:\s*\[([^\]]*)\]`).find(json)
+            val urlsMatch = Regex(""""urls"\s*:\s*\[([^\]]*)\]""").find(json)
 
             val token = tokenMatch?.groupValues?.get(1) ?: return null
             val urlsRaw = urlsMatch?.groupValues?.get(1) ?: return null
@@ -85,6 +85,8 @@ object TokenResolver {
             val urls = Regex(""""([^"]*http[^"]*)"""").findAll(urlsRaw)
                 .map { it.groupValues[1] }
                 .toList()
+
+            if (token.isNotEmpty() && urls.isNotEmpty()) Result(token, urls) else null
 
             if (token.isNotEmpty() && urls.isNotEmpty()) Result(token, urls) else null
         } catch (_: Exception) {
