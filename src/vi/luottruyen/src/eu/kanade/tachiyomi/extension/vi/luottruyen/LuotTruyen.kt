@@ -224,8 +224,7 @@ abstract class LuotTruyen : KeiSource() {
 
     override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
-    private fun String.hasNumericIdSuffix(): Boolean =
-        substringAfterLast('-', missingDelimiterValue = "").let { it.isNotEmpty() && it.all(Char::isDigit) }
+    private fun String.hasNumericIdSuffix(): Boolean = substringAfterLast('-', missingDelimiterValue = "").let { it.isNotEmpty() && it.all(Char::isDigit) }
 
     private val relativeDateNumberRegex = Regex("""\d+""")
 }
