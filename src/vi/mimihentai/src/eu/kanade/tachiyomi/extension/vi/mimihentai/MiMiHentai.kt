@@ -14,17 +14,17 @@ import keiyoushi.source.KeiSource
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.serialization.json.JsonElement
-import kotlin.time.Clock
-import kotlin.time.Duration.Companion.days
-import kotlin.time.Duration.Companion.hours
-import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.io.IOException
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class MiMiHentai : KeiSource() {
@@ -43,16 +43,13 @@ abstract class MiMiHentai : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        getMangaList("$baseUrl/danh-sach?sort=-views&page=$page", page)
+    override suspend fun getPopularManga(page: Int): MangasPage = getMangaList("$baseUrl/danh-sach?sort=-views&page=$page", page)
 
     // =============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        getMangaList("$baseUrl/danh-sach?page=$page", page)
+    override suspend fun getLatestUpdates(page: Int): MangasPage = getMangaList("$baseUrl/danh-sach?page=$page", page)
 
-    private suspend fun getMangaList(url: String, page: Int): MangasPage =
-        mangaListParse(client.get(url).asJsoup(), page)
+    private suspend fun getMangaList(url: String, page: Int): MangasPage = mangaListParse(client.get(url).asJsoup(), page)
 
     private fun mangaListParse(document: Document, page: Int): MangasPage {
         val mangaList = document.select("a.group").mapNotNull { element ->
@@ -145,19 +142,18 @@ abstract class MiMiHentai : KeiSource() {
 
     // ============================== Chapters ==============================
 
-    private fun chapterListParse(document: Document): List<SChapter> =
-        document.select("div.chapter-list a").map { element ->
-            SChapter.create().apply {
-                setUrlWithoutDomain(element.absUrl("href"))
-                name = element.selectFirst("h1")?.text()
-                    ?: element.attr("title").takeIf(String::isNotEmpty)
-                    ?: element.text()
+    private fun chapterListParse(document: Document): List<SChapter> = document.select("div.chapter-list a").map { element ->
+        SChapter.create().apply {
+            setUrlWithoutDomain(element.absUrl("href"))
+            name = element.selectFirst("h1")?.text()
+                ?: element.attr("title").takeIf(String::isNotEmpty)
+                ?: element.text()
 
-                val dateText = element.parent()?.selectFirst("span.timeago")?.text()
-                    ?: element.parent()?.parent()?.selectFirst("span.timeago")?.text()
-                date_upload = parseRelativeDate(dateText)
-            }
+            val dateText = element.parent()?.selectFirst("span.timeago")?.text()
+                ?: element.parent()?.parent()?.selectFirst("span.timeago")?.text()
+            date_upload = parseRelativeDate(dateText)
         }
+    }
 
     private fun parseRelativeDate(value: String?): Long {
         if (value == null) return 0L
@@ -177,10 +173,9 @@ abstract class MiMiHentai : KeiSource() {
 
     // =============================== Pages ================================
 
-    override suspend fun getPageList(chapter: SChapter): List<Page> =
-        client.get(getChapterUrl(chapter)).asJsoup()
-            .select("img.lazy")
-            .mapIndexed { index, element -> Page(index, imageUrl = imageUrl(element)) }
+    override suspend fun getPageList(chapter: SChapter): List<Page> = client.get(getChapterUrl(chapter)).asJsoup()
+        .select("img.lazy")
+        .mapIndexed { index, element -> Page(index, imageUrl = imageUrl(element)) }
 
     // ============================== Filters ===============================
 
@@ -199,8 +194,7 @@ abstract class MiMiHentai : KeiSource() {
         .distinctBy { it.id }
         .toJsonElement()
 
-    override fun getFilterList(data: JsonElement?): FilterList =
-        getFilters(data?.parseAs<List<GenreOption>>())
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
     // =============================== Related ==============================
 
