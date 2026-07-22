@@ -271,13 +271,11 @@ abstract class KiraKira :
         pages
     }
 
-    private suspend fun findPageImageUrl(imageSlug: String, chapterId: String, pageNumber: Int): String? {
-        return imageExtensions.firstNotNullOfOrNull { extension ->
-            val pageUrl = "$imageUrl/manga/$imageSlug/chapter-$chapterId/page-$pageNumber.$extension"
-            client.head(pageUrl, headers, ensureSuccess = false).use {
-                pageUrl.takeIf { _ ->
-                    it.isSuccessful && it.header("Content-Type")?.startsWith("image/") == true
-                }
+    private suspend fun findPageImageUrl(imageSlug: String, chapterId: String, pageNumber: Int): String? = imageExtensions.firstNotNullOfOrNull { extension ->
+        val pageUrl = "$imageUrl/manga/$imageSlug/chapter-$chapterId/page-$pageNumber.$extension"
+        client.head(pageUrl, headers, ensureSuccess = false).use {
+            pageUrl.takeIf { _ ->
+                it.isSuccessful && it.header("Content-Type")?.startsWith("image/") == true
             }
         }
     }
