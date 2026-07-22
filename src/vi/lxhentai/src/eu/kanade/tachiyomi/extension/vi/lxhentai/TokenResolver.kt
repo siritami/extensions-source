@@ -101,7 +101,7 @@ object TokenResolver {
      * Layer 2: XOR-decode combined numeric arrays with key → produces inner script
      * Layer 3: Parse inner base64 JSON, XOR each element → final image URLs
      */
-    private const val INTERDecodeScript = """(function(){
+    private const val INTER_DECODE_SCRIPT = """(function(){
         try {
             var scripts = document.querySelectorAll('script:not([src])');
             var target = null;
