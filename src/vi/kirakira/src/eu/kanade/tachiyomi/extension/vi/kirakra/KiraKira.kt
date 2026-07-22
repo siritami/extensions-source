@@ -240,8 +240,6 @@ abstract class KiraKira :
     // Probe image URLs concurrently and stop at the first missing page.
     private suspend fun buildPageListFromPattern(comicSlug: String, chapterId: String): List<Page> = coroutineScope {
         val imageSlug = fetchImageSlug(comicSlug) ?: comicSlug
-        val imageExtension = findImageExtension(imageSlug, chapterId)
-            ?: throw Exception("Không tìm thấy hình ảnh")
         val pages = mutableListOf<Page>()
         var index = 1
 
@@ -249,17 +247,13 @@ abstract class KiraKira :
             val candidates = (index until minOf(index + pageProbeBatchSize, maxPageProbe + 1))
                 .map { pageNumber ->
                     async {
-                        val pageUrl = "$imageUrl/manga/$imageSlug/chapter-$chapterId/page-$pageNumber.$imageExtension"
-                        val isImage = client.head(pageUrl, headers, ensureSuccess = false).use {
-                            it.isSuccessful && it.header("Content-Type")?.startsWith("image/") == true
-                        }
-                        Triple(pageNumber, pageUrl, isImage)
+                        pageNumber to findPageImageUrl(imageSlug, chapterId, pageNumber)
                     }
                 }
                 .awaitAll()
 
-            for ((pageNumber, pageUrl, isImage) in candidates) {
-                if (!isImage) {
+            for ((pageNumber, pageUrl) in candidates) {
+                if (pageUrl == null) {
                     if (pages.isEmpty()) throw Exception("Không tìm thấy hình ảnh")
                     return@coroutineScope pages
                 }
@@ -277,11 +271,13 @@ abstract class KiraKira :
         pages
     }
 
-    private suspend fun findImageExtension(imageSlug: String, chapterId: String): String? {
-        return imageExtensions.firstOrNull { extension ->
-            val pageUrl = "$imageUrl/manga/$imageSlug/chapter-$chapterId/page-1.$extension"
+    private suspend fun findPageImageUrl(imageSlug: String, chapterId: String, pageNumber: Int): String? {
+        return imageExtensions.firstNotNullOfOrNull { extension ->
+            val pageUrl = "$imageUrl/manga/$imageSlug/chapter-$chapterId/page-$pageNumber.$extension"
             client.head(pageUrl, headers, ensureSuccess = false).use {
-                it.isSuccessful && it.header("Content-Type")?.startsWith("image/") == true
+                pageUrl.takeIf { _ ->
+                    it.isSuccessful && it.header("Content-Type")?.startsWith("image/") == true
+                }
             }
         }
     }
