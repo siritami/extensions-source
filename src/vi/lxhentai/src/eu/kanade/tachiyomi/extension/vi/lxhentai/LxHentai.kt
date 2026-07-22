@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.lxhentai
 
+import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
