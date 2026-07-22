@@ -26,7 +26,7 @@ object TokenResolver {
         val imageUrls = mutableListOf<String>()
         var latestToken = ""
 
-        return runWebView(timeout = 20.seconds) {
+        return runWebView(timeout = 30.seconds) {
             javaScriptEnabled = true
             domStorageEnabled = true
             loadWithOverviewMode = true
@@ -47,6 +47,13 @@ object TokenResolver {
             }
 
             poll(1.seconds) {
+                evaluateJs(
+                    """(function(){
+                        var b=document.querySelector('.swal2-confirm');
+                        if(b && !b.disabled && b.textContent.includes('tiếp tục')) b.click();
+                    })()""",
+                )
+
                 val result = synchronized(payloadLock) {
                     Result(latestToken, imageUrls.toList())
                 }
