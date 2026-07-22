@@ -92,6 +92,8 @@ abstract class MiMiHentai : KeiSource() {
                     }
 
                     is SortFilter -> addQueryParameter("sort", filter.toUriPart())
+
+                    else -> Unit
                 }
             }
         }.build()
