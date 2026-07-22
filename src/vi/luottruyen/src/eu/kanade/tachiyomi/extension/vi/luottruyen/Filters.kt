@@ -20,8 +20,7 @@ class GenreOption(
     val value: String,
 )
 
-class GenreFilter(genres: List<GenreOption>) :
-    UriPartFilter("Thể loại", listOf(GenreOption("Tất cả", "")) + genres)
+class GenreFilter(genres: List<GenreOption>) : UriPartFilter("Thể loại", listOf(GenreOption("Tất cả", "")) + genres)
 
 class SortFilter :
     UriPartFilter(
@@ -49,7 +48,6 @@ class StatusFilter :
         ),
     )
 
-open class UriPartFilter(displayName: String, private val values: List<GenreOption>) :
-    Filter.Select<String>(displayName, values.map { it.name }.toTypedArray()) {
+open class UriPartFilter(displayName: String, private val values: List<GenreOption>) : Filter.Select<String>(displayName, values.map { it.name }.toTypedArray()) {
     fun toUriPart(): String? = values[state].value.ifEmpty { null }
 }
