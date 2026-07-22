@@ -296,32 +296,6 @@ abstract class LuvEvaLand : KeiSource() {
 
     override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
-    // =============================== Related ==============================
-
-    override val supportsRelatedMangas get() = true
-
-    override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
-        val document = client.get("$baseUrl${manga.url}").asJsoup()
-        val relatedContainer = document.select(".comic-box-container")
-            .firstOrNull { container ->
-                container.selectFirst(".title-inner")?.text()?.contains("Truyện liên quan", ignoreCase = true) == true
-            }
-            ?: return emptyList()
-
-        return relatedContainer.select(".book-vertical__item").mapNotNull { element ->
-            val link = element.selectFirst(".book-vertical__name a[href*=/truyen-tranh/], a[href*=/truyen-tranh/]")
-                ?: return@mapNotNull null
-            val mangaUrl = link.absUrl("href")
-            if (!mangaPathRegex.containsMatchIn(mangaUrl) || chapterUrlRegex.containsMatchIn(mangaUrl)) return@mapNotNull null
-
-            SManga.create().apply {
-                title = link.text()
-                setUrlWithoutDomain(mangaUrl)
-                thumbnail_url = normalizeThumbnail(extractImageUrl(element.selectFirst(".book-vertical__image img, img")))
-            }
-        }.distinctBy { it.url }
-    }
-
     private val mangaPathRegex = Regex("""/truyen-tranh/""")
     private val chapterUrlRegex = Regex("""/(?:chap|chuong|chapter)""", RegexOption.IGNORE_CASE)
     private val chapterNumberRegex = Regex("""/(?:chap|chuong|chapter)-([0-9]+)""", RegexOption.IGNORE_CASE)
