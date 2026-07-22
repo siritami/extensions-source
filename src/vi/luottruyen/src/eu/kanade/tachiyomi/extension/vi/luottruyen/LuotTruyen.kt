@@ -17,16 +17,18 @@ import keiyoushi.utils.toJsonElement
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
-import okhttp3.FormBody
-import okhttp3.HttpUrl
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import okhttp3.FormBody
+import okhttp3.Headers
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Response
+import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 
 @Source
 abstract class LuotTruyen : KeiSource() {
@@ -69,13 +71,26 @@ abstract class LuotTruyen : KeiSource() {
         if (url.host != baseUrl.toHttpUrl().host || url.pathSegments.firstOrNull() != "truyen-tranh") return null
 
         val mangaSlug = url.pathSegments.getOrNull(1)?.takeIf { it.isNotEmpty() } ?: return null
-        val isMangaUrl = url.pathSegments.size == 2
-        val isChapterUrl = url.pathSegments.size == 4 &&
-            url.pathSegments[2].startsWith("chapter-") &&
-            url.pathSegments[3].isNotEmpty()
-        if (!isMangaUrl && !isChapterUrl) return null
+        val mangaPath = when {
+            url.pathSegments.size == 2 -> url.encodedPath
+            url.pathSegments.size == 4 &&
+                url.pathSegments[2].startsWith("chapter-") &&
+                url.pathSegments[3].isNotEmpty() -> {
+                val searchUrl = "$baseUrl/tim-truyen-nang-cao".toHttpUrl().newBuilder()
+                    .addQueryParameter("keyword", mangaSlug.replace('-', ' '))
+                    .addQueryParameter("advancedSearch", "true")
+                    .addQueryParameter("page", "1")
+                    .build()
+                client.get(searchUrl).asJsoup()
+                    .selectFirst("a[href^=$baseUrl/truyen-tranh/$mangaSlug-]")
+                    ?.attr("abs:href")
+                    ?.toHttpUrl()
+                    ?.encodedPath
+            }
+            else -> null
+        } ?: return null
 
-        val manga = SManga.create().apply { setUrlWithoutDomain("/truyen-tranh/$mangaSlug") }
+        val manga = SManga.create().apply { setUrlWithoutDomain(mangaPath) }
         return fetchMangaUpdate(manga, emptyList(), fetchDetails = true, fetchChapters = false).manga
     }
 
@@ -151,7 +166,7 @@ abstract class LuotTruyen : KeiSource() {
             .set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
             .build()
 
-    private fun chapterListParse(response: okhttp3.Response): List<SChapter> = response.asJsoup()
+    private fun chapterListParse(response: Response): List<SChapter> = response.asJsoup()
         .select("li.row:not(.heading)").mapNotNull { element ->
             val chapterLinkElement: Element = element.selectFirst("div.chapter a, a") ?: return@mapNotNull null
             SChapter.create().apply {
@@ -186,15 +201,7 @@ abstract class LuotTruyen : KeiSource() {
                 document.select(".chapter-content img, .reading-content img, .content-chapter img, .reading-detail .page-chapter img[data-index]")
             }
 
-        if (images.isEmpty()) {
-            val hasLoginHint = document.selectFirst(
-                "a[href*='/Account/Login'], a[href*='/dang-nhap'], a[href*='returnUrl='], .login-page-wrapper",
-            ) != null ||
-                document.title().contains("đăng nhập", ignoreCase = true) ||
-                document.title().contains("login", ignoreCase = true)
-            if (hasLoginHint) throw Exception(loginWebViewMessage)
-            return emptyList()
-        }
+        if (images.isEmpty()) return emptyList()
 
         return images.mapIndexed { index, image -> Page(index, imageUrl = image.absUrl("src")) }
     }
@@ -218,5 +225,4 @@ abstract class LuotTruyen : KeiSource() {
     override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
     private val relativeDateNumberRegex = Regex("""\d+""")
-    private val loginWebViewMessage = "Vui lòng đăng nhập bằng Webview để xem chương này"
 }
