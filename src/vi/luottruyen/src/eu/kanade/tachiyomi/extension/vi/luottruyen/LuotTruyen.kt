@@ -72,19 +72,19 @@ abstract class LuotTruyen : KeiSource() {
 
         val mangaSlug = url.pathSegments.getOrNull(1)?.takeIf { it.isNotEmpty() } ?: return null
         val mangaPath = when {
-            url.pathSegments.size == 2 -> url.encodedPath
+            url.pathSegments.size == 2 && mangaSlug.hasNumericIdSuffix() -> url.encodedPath
             url.pathSegments.size == 4 &&
                 url.pathSegments[2].startsWith("chapter-") &&
                 url.pathSegments[3].isNotEmpty() -> {
-                val searchUrl = "$baseUrl/tim-truyen-nang-cao".toHttpUrl().newBuilder()
-                    .addQueryParameter("keyword", mangaSlug.replace('-', ' '))
-                    .addQueryParameter("advancedSearch", "true")
-                    .addQueryParameter("page", "1")
-                    .build()
-                client.get(searchUrl).asJsoup()
-                    .selectFirst("a[href^=$baseUrl/truyen-tranh/$mangaSlug-]")
-                    ?.attr("abs:href")
-                    ?.toHttpUrl()
+                client.get(url).asJsoup()
+                    .select(".breadcrumb a[href]")
+                    .map { it.absUrl("href").toHttpUrl() }
+                    .firstOrNull {
+                        it.pathSegments.size == 2 &&
+                            it.pathSegments[0] == "truyen-tranh" &&
+                            it.pathSegments[1].startsWith("$mangaSlug-") &&
+                            it.pathSegments[1].hasNumericIdSuffix()
+                    }
                     ?.encodedPath
             }
             else -> null
@@ -223,6 +223,9 @@ abstract class LuotTruyen : KeiSource() {
         .toJsonElement()
 
     override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
+
+    private fun String.hasNumericIdSuffix(): Boolean =
+        substringAfterLast('-', missingDelimiterValue = "").let { it.isNotEmpty() && it.all(Char::isDigit) }
 
     private val relativeDateNumberRegex = Regex("""\d+""")
 }
