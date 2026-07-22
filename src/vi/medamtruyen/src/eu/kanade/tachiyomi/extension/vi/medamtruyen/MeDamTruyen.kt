@@ -18,7 +18,6 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.serialization.json.JsonElement
 import okhttp3.FormBody
-import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
@@ -252,10 +251,9 @@ abstract class MeDamTruyen : KeiSource() {
 
     // ============================== Chapters ==============================
 
-    private fun parseChapterList(document: Document): List<SChapter> =
-        document.select("div.chapter-list div.chapter-item")
-            .mapNotNull(::chapterFromElement)
-            .distinctBy { it.url }
+    private fun parseChapterList(document: Document): List<SChapter> = document.select("div.chapter-list div.chapter-item")
+        .mapNotNull(::chapterFromElement)
+        .distinctBy { it.url }
 
     private fun chapterFromElement(element: Element): SChapter? {
         val linkElement = element.selectFirst("a.chapter-link[href*=-chap-]") ?: return null
@@ -332,15 +330,13 @@ abstract class MeDamTruyen : KeiSource() {
         ).toJsonElement()
     }
 
-    override fun getFilterList(data: JsonElement?): FilterList =
-        getFilters(data?.parseAs<FilterData>())
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<FilterData>())
 
-    private fun parseFilterOptions(document: Document, selector: String): List<FilterOption> =
-        document.select("$selector a[href]").mapNotNull { element ->
-            val name = element.text().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            val path = element.absUrl("href").toHttpUrl().encodedPath
-            FilterOption(name, path)
-        }.distinctBy { it.path }
+    private fun parseFilterOptions(document: Document, selector: String): List<FilterOption> = document.select("$selector a[href]").mapNotNull { element ->
+        val name = element.text().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+        val path = element.absUrl("href").toHttpUrl().encodedPath
+        FilterOption(name, path)
+    }.distinctBy { it.path }
 
     // =============================== Related ==============================
 
