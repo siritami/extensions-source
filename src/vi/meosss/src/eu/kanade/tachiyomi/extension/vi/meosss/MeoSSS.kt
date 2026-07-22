@@ -49,15 +49,10 @@ abstract class MeoSSS : KeiSource() {
     // ============================== Latest ===============================
 
     override suspend fun getLatestUpdates(page: Int): MangasPage {
-        val url = "$baseUrl/moi-cap-nhat/".toHttpUrl().newBuilder()
-        if (page > 1) {
-            url.addPathSegment("page")
-            url.addPathSegment(page.toString())
-            url.addPathSegment("")
-        }
-        val document = client.get(url.build()).asJsoup()
+        val url = "$baseUrl/moi-cap-nhat/" + if (page > 1) "page/$page/" else ""
+        val document = client.get(url).asJsoup()
         val mangas = document.select(".manga-item-grid").map { it.mangaFromGridElement() }
-        val hasNextPage = document.select(".uk-pagination-next a").firstOrNull() != null
+        val hasNextPage = document.selectFirst(".uk-pagination a[aria-label='Trang sau'][href]") != null
         return MangasPage(mangas, hasNextPage)
     }
 
@@ -74,7 +69,8 @@ abstract class MeoSSS : KeiSource() {
             "$baseUrl/".toHttpUrl().newBuilder()
                 .addQueryParameter("s", query)
         } else {
-            "$baseUrl/bo-loc-nang-cao/".toHttpUrl().newBuilder().apply {
+            val path = "/bo-loc-nang-cao/" + if (page > 1) "page/$page/" else ""
+            "$baseUrl$path".toHttpUrl().newBuilder().apply {
                 filters.firstInstanceOrNull<GenreFilter>()?.state
                     ?.filter { it.state }
                     ?.forEach { addQueryParameter("genre[]", it.value) }
@@ -88,11 +84,6 @@ abstract class MeoSSS : KeiSource() {
                 }
                 filters.firstInstanceOrNull<SortFilter>()?.let {
                     addQueryParameter("sort", sortValues[it.state])
-                }
-                if (page > 1) {
-                    addPathSegment("page")
-                    addPathSegment(page.toString())
-                    addPathSegment("")
                 }
             }
         }.build()
