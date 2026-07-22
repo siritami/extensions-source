@@ -97,7 +97,7 @@ abstract class MeoSSS : KeiSource() {
 
         if (isFilterPage) {
             val mangas = document.select(".manga-item-details").map { it.mangaFromPopularElement() }
-            val hasNextPage = document.select("a:has(.uk-pagination-next)").firstOrNull()?.absUrl("href")?.isNotEmpty() == true
+            val hasNextPage = document.selectFirst(".uk-pagination a[aria-label='Trang sau'][href]") != null
             return MangasPage(mangas, hasNextPage)
         }
 
@@ -112,7 +112,7 @@ abstract class MeoSSS : KeiSource() {
                 thumbnail_url = article.selectFirst("img")?.imgUrl()
             }
         }
-        val hasNextPage = document.select("a:has(.uk-pagination-next)").firstOrNull()?.absUrl("href")?.isNotEmpty() == true
+        val hasNextPage = document.selectFirst(".uk-pagination a[aria-label='Trang sau'][href]") != null
         return MangasPage(mangas, hasNextPage)
     }
 
