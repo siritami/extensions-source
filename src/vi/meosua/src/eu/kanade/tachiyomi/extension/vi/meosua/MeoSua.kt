@@ -236,7 +236,7 @@ abstract class MeoSua : KeiSource() {
         val document = client.get(getChapterUrl(chapter)).asJsoup()
 
         if (document.selectFirst("#view-chapter .lock-card, #view-chapter #unlock-chapter, #view-chapter #xu-lock") != null) {
-            return emptyList()
+            throw Exception(lockedChapterMessage)
         }
 
         val imageUrls = document.select("#view-chapter .chapter-content img")
@@ -300,6 +300,9 @@ abstract class MeoSua : KeiSource() {
             }
         }.distinctBy { it.url }
     }
+
+    private val lockedChapterMessage =
+        "Vui lòng đăng nhập vào tài khoản phù hợp bằng webview để xem chương này"
 
     private val chapterNameRegex = Regex("chap\\s*\\d+(?:\\.\\d+)?", RegexOption.IGNORE_CASE)
     private val chapterWordRegex = Regex("chap", RegexOption.IGNORE_CASE)
