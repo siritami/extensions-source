@@ -32,6 +32,9 @@ import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class LuotTruyen : KeiSource() {
+    override fun OkHttpClient.Builder.configureClient() = apply {
+        rateLimit(3)
+    }
 
     // ============================== Popular ===============================
 
