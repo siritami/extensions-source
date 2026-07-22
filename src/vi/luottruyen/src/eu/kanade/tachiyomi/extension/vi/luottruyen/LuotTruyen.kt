@@ -42,7 +42,7 @@ abstract class LuotTruyen : KeiSource() {
     // =============================== Latest ===============================
 
     override suspend fun getLatestUpdates(page: Int): MangasPage = mangaListParse(
-        client.get("$baseUrl/?page=$page&typegroup=0").asJsoup(),
+        client.get("$baseUrl/tim-truyen-nang-cao?status=-1&sort=0&advancedSearch=true&page=$page").asJsoup(),
     )
 
     // =============================== Search ===============================
@@ -95,7 +95,7 @@ abstract class LuotTruyen : KeiSource() {
     }
 
     private fun mangaListParse(document: Document): MangasPage {
-        val mangaList = document.select("#ctl00_divCenter .row > .item, div.items > div.row > div.item, div.item").map { element ->
+        val mangaList = document.select("[id^=ctl00_divCenter] .row > .item").map { element ->
             SManga.create().apply {
                 val linkElement = element.selectFirst("figcaption h3 a, h3 a, a.jtip")!!
                 title = linkElement.text()
