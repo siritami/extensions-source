@@ -240,6 +240,8 @@ abstract class KiraKira :
     // Probe image URLs concurrently and stop at the first missing page.
     private suspend fun buildPageListFromPattern(comicSlug: String, chapterId: String): List<Page> = coroutineScope {
         val imageSlug = fetchImageSlug(comicSlug) ?: comicSlug
+        val imageExtension = findImageExtension(imageSlug, chapterId)
+            ?: throw Exception("Không tìm thấy hình ảnh")
         val pages = mutableListOf<Page>()
         var index = 1
 
@@ -247,7 +249,7 @@ abstract class KiraKira :
             val candidates = (index until minOf(index + pageProbeBatchSize, maxPageProbe + 1))
                 .map { pageNumber ->
                     async {
-                        val pageUrl = "$imageUrl/manga/$imageSlug/chapter-$chapterId/page-$pageNumber.jpg"
+                        val pageUrl = "$imageUrl/manga/$imageSlug/chapter-$chapterId/page-$pageNumber.$imageExtension"
                         val isImage = client.head(pageUrl, headers, ensureSuccess = false).use {
                             it.isSuccessful && it.header("Content-Type")?.startsWith("image/") == true
                         }
@@ -273,6 +275,15 @@ abstract class KiraKira :
         }
 
         pages
+    }
+
+    private suspend fun findImageExtension(imageSlug: String, chapterId: String): String? {
+        return imageExtensions.firstOrNull { extension ->
+            val pageUrl = "$imageUrl/manga/$imageSlug/chapter-$chapterId/page-1.$extension"
+            client.head(pageUrl, headers, ensureSuccess = false).use {
+                it.isSuccessful && it.header("Content-Type")?.startsWith("image/") == true
+            }
+        }
     }
 
     private suspend fun fetchImageSlug(comicSlug: String): String? {
@@ -321,6 +332,7 @@ abstract class KiraKira :
 
     private val maxPageProbe = 200
     private val pageProbeBatchSize = 10
+    private val imageExtensions = listOf("webp", "jpg", "jpeg", "png")
     private val lockedChapterMessage = "Vui lòng đăng nhập bằng tài khoản phù hợp qua webview để xem chương này"
     private val keyAutoUnlockChapters = "autoUnlockChapters"
     private val comicSlugRegex = Regex("/comics/([^/?#]+)")
