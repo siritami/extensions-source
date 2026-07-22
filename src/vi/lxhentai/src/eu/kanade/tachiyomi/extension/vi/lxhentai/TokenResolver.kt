@@ -4,18 +4,7 @@ import keiyoushi.utils.WebViewTimeoutException
 import keiyoushi.utils.runWebView
 import kotlin.time.Duration.Companion.seconds
 
-/**
- * Loads chapter in WebView, handles Cloudflare Turnstile verification,
- * decodes image URLs from the 3-layer obfuscated inline script,
- * and fetches the action token.
- *
- * Flow:
- *   1. WebView loads chapter page → Cloudflare Turnstile dialog appears
- *   2. Poll auto-clicks "OK, tiếp tục" when Turnstile completes
- *   3. POST /get_token succeeds → actionToken is set
- *   4. JS decode extracts image URLs from obfuscated inline script
- *   5. Returns image URLs + token for the extension to fetch
- */
+/** Loads chapter in WebView, solves Cloudflare Turnstile, decodes obfuscated image URLs. */
 object TokenResolver {
 
     class Result(val token: String = "", val srcs: List<String> = emptyList())
@@ -45,7 +34,7 @@ object TokenResolver {
             userAgent = userAgent.replace(webViewTokenRegex, ")")
 
             poll(1.seconds) {
-                // 1. Dismiss Cloudflare Turnstile dialog when ready
+                // Dismiss Cloudflare Turnstile dialog
                 evaluateJs(
                     """(function(){
                         var b=document.querySelector('.swal2-confirm');
@@ -53,7 +42,7 @@ object TokenResolver {
                     })()""",
                 )
 
-                // 2. Check if actionToken is available (Turnstile solved + /get_token called)
+                // Wait for actionToken after Turnstile + /get_token
                 val tokenResult = evaluateJs(
                     """(function(){
                         var t = window.actionToken;
@@ -64,7 +53,7 @@ object TokenResolver {
                 if (!tokenResult.isNullOrEmpty()) {
                     latestToken = tokenResult
 
-                    // 3. Decode image URLs from the obfuscated inline script
+                    // Decode image URLs from obfuscated inline script (3-layer decode)
                     val urlsJson = evaluateJs(INTER_DECODE_SCRIPT) as? String
                     val urls = parseUrlList(urlsJson)
 
@@ -78,7 +67,6 @@ object TokenResolver {
         }
     }
 
-    /** Parses a JSON string array of URLs, filtering for valid HTTP(S) URLs. */
     private fun parseUrlList(json: String?): List<String> {
         if (json.isNullOrEmpty() || json == "[]") return emptyList()
         return try {
@@ -93,61 +81,56 @@ object TokenResolver {
 
     private val webViewTokenRegex = Regex("""\;\s*wv\)""")
 
-    /**
-     * JavaScript that decodes the 3-layer obfuscated inline script to extract image URLs.
-     * Searches all inline scripts for the obfuscation pattern.
-     *
-     * Layer 1: Base64-decode the concatenated _b93f0c4 string array
-     * Layer 2: XOR-decode combined numeric arrays with key → produces inner script
-     * Layer 3: Parse inner base64 JSON, XOR each element → final image URLs
-     */
+    /** Rotation-proof JS: decodes 3-layer obfuscated inline script → image URLs. */
     private const val INTER_DECODE_SCRIPT = """(function(){
         try {
             var scripts = document.querySelectorAll('script:not([src])');
             var target = null;
             for (var i = 0; i < scripts.length; i++) {
-                var text = scripts[i].textContent;
-                if (text.indexOf('_b93f0c4') >= 0 || text.indexOf('_bfe4cfc') >= 0 || text.indexOf('_b5bac40') >= 0) {
-                    target = text;
+                var t = scripts[i].textContent;
+                if (t.indexOf('["KGZ1') >= 0 || t.indexOf('["KGZ1') >= 0 || t.indexOf('=\["KGZ1') >= 0) {
+                    target = t;
                     break;
                 }
             }
             if (!target) return '[]';
-
-            // Layer 1: base64 array → string
-            var b64Match = target.match(/_b(?:93f0c4|fe4cfc|5bac40)=\[((?:"[^"]+",?\s*)+)\]/);
+            var b64Match = target.match(/=\[((?:"[A-Za-z0-9+/=]{20,}",?\s*)+)\]/);
             if (!b64Match) return '[]';
-            var parts = b64Match[1].match(/"([^"]+)"/g).map(function(s){return s.replace(/"/g,'');});
-            var layer1 = decodeURIComponent(escape(atob(parts.join(''))));
-
-            // Layer 2: extract numeric arrays + XOR key
-            var keyMatch = layer1.match(/var _kfbbae8='([0-9a-f]+)'/);
-            if (!keyMatch) return '[]';
-            var key = keyMatch[1];
-            var arrRe = /var _[a-f0-9]+=\[((?:\d+,?)*)\]/g;
+            var parts = b64Match[1].match(/"([^"]+)"/g);
+            if (!parts) return '[]';
+            var joined = parts.map(function(s){return s.replace(/"/g,'');}).join('');
+            var raw = atob(joined);
+            var layer1;
+            try { layer1 = decodeURIComponent(escape(raw)); } catch(e2) { layer1 = raw; }
+            var key2Match = layer1.match(/var _\w+='([0-9a-f]{20,})'/);
+            if (!key2Match) return '[]';
+            var key2 = key2Match[1];
+            var arrRe = /var _\w+=\[((?:-?\d+,?)*)\]/g;
             var combined = [];
             var m;
             while ((m = arrRe.exec(layer1)) !== null) {
-                combined = combined.concat(m[1].split(',').filter(function(s){return s.length>0;}).map(Number));
+                var nums = m[1].split(',').filter(function(s){return s.length>0;}).map(Number);
+                combined = combined.concat(nums);
             }
+            if (combined.length === 0) return '[]';
             var decoded = '';
             for (var i = 0; i < combined.length; i++) {
-                decoded += String.fromCharCode(combined[i] ^ key.charCodeAt(i % key.length));
+                decoded += String.fromCharCode((combined[i] ^ key2.charCodeAt(i % key2.length)) & 0xFF);
             }
-
-            // Layer 3: extract inner base64 JSON + XOR key
-            var key3Match = decoded.match(/var _x141d8b="([0-9a-f]+)"/);
+            var key3Match = decoded.match(/var _\w+="([0-9a-f]{20,})"/);
             if (!key3Match) return '[]';
             var key3 = key3Match[1];
-            var jsonMatch = decoded.match(/var _x474d97="(A[A-Za-z0-9+/=]+)"/);
-            if (!jsonMatch) return '[]';
-            var jsonArr = JSON.parse(atob(jsonMatch[1]));
+            var jsonB64Match = decoded.match(/var _\w+="([A-Za-z0-9+/=]{50,})"/);
+            if (!jsonB64Match) return '[]';
+            var jsonArr = JSON.parse(atob(jsonB64Match[1]));
             var urls = [];
             for (var j = 0; j < jsonArr.length; j++) {
-                var item = decodeURIComponent(escape(atob(jsonArr[j])));
+                var item;
+                try { item = decodeURIComponent(escape(atob(jsonArr[j]))); }
+                catch(e3) { item = atob(jsonArr[j]); }
                 var url = '';
                 for (var k = 0; k < item.length; k++) {
-                    url += String.fromCharCode(item.charCodeAt(k) ^ key3.charCodeAt(k % key3.length));
+                    url += String.fromCharCode((item.charCodeAt(k) ^ key3.charCodeAt(k % key3.length)) & 0xFF);
                 }
                 if (url.indexOf('http') === 0 && urls.indexOf(url) < 0) urls.push(url);
             }
