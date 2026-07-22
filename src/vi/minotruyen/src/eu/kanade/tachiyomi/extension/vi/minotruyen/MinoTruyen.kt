@@ -192,11 +192,10 @@ abstract class MinoTruyen : KeiSource() {
         }
     }
 
-    private fun selectReaderServer(servers: List<ReaderPage>): ReaderPage? =
-        servers.firstOrNull { page ->
-            val host = normalizeImageUrl(page.imageUrl).toHttpUrlOrNull()?.host.orEmpty()
-            host.isNotEmpty() && !host.contains("ibyteimg.com", ignoreCase = true)
-        } ?: servers.firstOrNull()
+    private fun selectReaderServer(servers: List<ReaderPage>): ReaderPage? = servers.firstOrNull { page ->
+        val host = normalizeImageUrl(page.imageUrl).toHttpUrlOrNull()?.host.orEmpty()
+        host.isNotEmpty() && !host.contains("ibyteimg.com", ignoreCase = true)
+    } ?: servers.firstOrNull()
 
     private fun selectLegacyServer(servers: List<ChapterServer>): ChapterServer? {
         val candidates = servers.filter { it.content.isNotEmpty() }
