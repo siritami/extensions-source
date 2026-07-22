@@ -80,8 +80,9 @@ abstract class LoppyToon : KeiSource() {
 
     private fun String.isNovelUrl(): Boolean {
         val url = toHttpUrlOrNull() ?: baseUrl.toHttpUrl().resolve(this) ?: return false
+        val slug = url.pathSegments.getOrNull(1) ?: return false
         return url.pathSegments.firstOrNull() == "truyen" &&
-            url.pathSegments.getOrNull(1)?.startsWith("novel", ignoreCase = true) == true
+            slug.split('-').any { it.equals("novel", ignoreCase = true) }
     }
 
     private fun String.normalizeThumbnailUrl(): String {
@@ -135,6 +136,7 @@ abstract class LoppyToon : KeiSource() {
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         if (url.host != baseUrl.toHttpUrl().host || url.pathSegments.firstOrNull() != "truyen") return null
         val slug = url.pathSegments.getOrNull(1)?.takeIf(String::isNotEmpty) ?: return null
+        if (url.toString().isNovelUrl()) return null
         val manga = SManga.create().apply { setUrlWithoutDomain("/truyen/$slug") }
         return fetchMangaUpdate(manga, emptyList(), true, false).manga
     }
