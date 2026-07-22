@@ -240,6 +240,13 @@ abstract class LuvEvaLand : KeiSource() {
         }
     }
 
+    private fun parseDate(date: String): Long = runCatching {
+        LocalDate.parse(date, dateFormat)
+            .atStartOfDay(dateZone)
+            .toInstant()
+            .toEpochMilli()
+    }.getOrDefault(0L)
+
     // ============================== Pages =================================
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
@@ -314,13 +321,6 @@ abstract class LuvEvaLand : KeiSource() {
             }
         }.distinctBy { it.url }
     }
-
-    private fun parseDate(date: String): Long = runCatching {
-        LocalDate.parse(date, dateFormat)
-            .atStartOfDay(dateZone)
-            .toInstant()
-            .toEpochMilli()
-    }.getOrDefault(0L)
 
     private val mangaPathRegex = Regex("""/truyen-tranh/""")
     private val chapterUrlRegex = Regex("""/(?:chap|chuong|chapter)""", RegexOption.IGNORE_CASE)
