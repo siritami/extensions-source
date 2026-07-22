@@ -105,12 +105,14 @@ class BookDetail(
 @Serializable
 class Chapter(
     private val title: String? = null,
+    private val chapterId: Int,
     private val chapterNumber: String,
     private val createdAt: String? = null,
 ) {
     fun toSChapter(bookId: String) = SChapter.create().apply {
-        url = "/books/$bookId/$chapterNumber"
+        url = "/books/$bookId/$chapterId"
         name = title?.takeIf { it.isNotBlank() } ?: "Chapter $chapterNumber"
+        chapter_number = chapterNumber.toFloatOrNull() ?: -1F
         date_upload = parseDate(createdAt)
     }
 }
@@ -153,5 +155,23 @@ class ChapterServer(
 class ChapterPage(
     val imageUrl: String,
     @SerialName("drm_data")
+    val drmData: String? = null,
+)
+
+@Serializable
+class ReaderChapter(
+    val chapterId: Int,
+    val images: List<ReaderImage>,
+)
+
+@Serializable
+class ReaderImage(
+    val order: Int,
+    val servers: List<ReaderPage>,
+)
+
+@Serializable
+class ReaderPage(
+    val imageUrl: String,
     val drmData: String? = null,
 )

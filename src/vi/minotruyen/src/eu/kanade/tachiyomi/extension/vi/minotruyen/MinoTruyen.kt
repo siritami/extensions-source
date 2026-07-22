@@ -13,12 +13,14 @@ import keiyoushi.lib.cryptoaes.CryptoAES
 import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
+import keiyoushi.utils.extractNextJs
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -135,20 +137,42 @@ abstract class MinoTruyen : KeiSource() {
     // =============================== Pages ===============================
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
-        val html = client.get("$baseUrl/$category${chapter.url}").use { it.body.string() }
+        val document = client.get("$baseUrl/$category${chapter.url}").asJsoup()
+        val chapterId = chapter.url.substringAfterLast('/').toIntOrNull()
+        val embeddedPages = mutableListOf<ReaderPage>()
+        document.extractNextJs<JsonElement>(
+            predicate = { element ->
+                if (element is JsonObject && "chapterId" in element && "images" in element) {
+                    val readerChapter = runCatching { element.parseAs<ReaderChapter>() }.getOrNull()
+                    if (
+                        embeddedPages.isEmpty() &&
+                        readerChapter != null &&
+                        (chapterId == null || readerChapter.chapterId == chapterId)
+                    ) {
+                        readerChapter.images
+                            .sortedBy { it.order }
+                            .mapNotNullTo(embeddedPages) { selectReaderServer(it.servers) }
+                    }
+                }
+                false
+            },
+        )
 
-        val encrypted = encryptedDataRegex.find(html)?.groupValues?.get(1)
-            ?: return emptyList()
+        val pages = embeddedPages.ifEmpty {
+            val encrypted = encryptedDataRegex.find(document.html())?.groupValues?.get(1)
+                ?: return emptyList()
 
-        val encData = encrypted.substringAfter(":")
+            val encData = encrypted.substringAfter(":")
 
-        val decrypted = CryptoAES.decrypt(encData, aesKey)
-        if (decrypted.isBlank()) return emptyList()
+            val decrypted = CryptoAES.decrypt(encData, aesKey)
+            if (decrypted.isBlank()) return emptyList()
 
-        val servers = decrypted.parseAs<List<ChapterServer>>()
+            val servers = decrypted.parseAs<List<ChapterServer>>()
 
-        val selectedServer = selectImageServer(servers) ?: return emptyList()
-        val pages = selectedServer.content
+            selectLegacyServer(servers)?.content?.map { page ->
+                ReaderPage(page.imageUrl, page.drmData)
+            } ?: return emptyList()
+        }
 
         return pages.mapIndexed { index, page ->
             val normalizedImageUrl = normalizeImageUrl(page.imageUrl)
@@ -168,7 +192,13 @@ abstract class MinoTruyen : KeiSource() {
         }
     }
 
-    private fun selectImageServer(servers: List<ChapterServer>): ChapterServer? {
+    private fun selectReaderServer(servers: List<ReaderPage>): ReaderPage? =
+        servers.firstOrNull { page ->
+            val host = normalizeImageUrl(page.imageUrl).toHttpUrlOrNull()?.host.orEmpty()
+            host.isNotEmpty() && !host.contains("ibyteimg.com", ignoreCase = true)
+        } ?: servers.firstOrNull()
+
+    private fun selectLegacyServer(servers: List<ChapterServer>): ChapterServer? {
         val candidates = servers.filter { it.content.isNotEmpty() }
         if (candidates.isEmpty()) return null
 
