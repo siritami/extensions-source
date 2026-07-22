@@ -48,6 +48,6 @@ class StatusFilter :
         ),
     )
 
-open class UriPartFilter(displayName: String, private val values: List<GenreOption>) : Filter.Select<String>(displayName, values.map { it.name }.toTypedArray()) {
-    fun toUriPart(): String? = values[state].value.ifEmpty { null }
+open class UriPartFilter(displayName: String, private val options: List<GenreOption>) : Filter.Select<String>(displayName, options.map { it.name }.toTypedArray()) {
+    fun toUriPart(): String? = options[state].value.ifEmpty { null }
 }

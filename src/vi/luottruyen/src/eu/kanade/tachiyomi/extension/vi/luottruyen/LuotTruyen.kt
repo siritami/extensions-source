@@ -122,7 +122,7 @@ abstract class LuotTruyen : KeiSource() {
             null
         }
         val chaptersDeferred = if (fetchChapters) {
-            async { chapterListParse(client.post("$baseUrl/Story/ListChapterByStoryID", chapterHeaders, chapterBody(manga))) }
+            async { parseChapterList(client.post("$baseUrl/Story/ListChapterByStoryID", chapterHeaders, chapterBody(manga))) }
         } else {
             null
         }
@@ -166,7 +166,7 @@ abstract class LuotTruyen : KeiSource() {
             .set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
             .build()
 
-    private fun chapterListParse(response: Response): List<SChapter> = response.asJsoup()
+    private fun parseChapterList(response: Response): List<SChapter> = response.asJsoup()
         .select("li.row:not(.heading)").mapNotNull { element ->
             val chapterLinkElement: Element = element.selectFirst("div.chapter a, a") ?: return@mapNotNull null
             SChapter.create().apply {
