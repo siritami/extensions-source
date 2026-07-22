@@ -49,7 +49,7 @@ object TokenResolver {
                 // Single combined call: check token + decode URLs + return JSON
                 evaluateJs(CHECK_AND_DECODE_SCRIPT) { value ->
                     synchronized(payloadLock) {
-                        val result = parseResult(value) ?: return@parseResult
+                        val result = parseResult(value) ?: return@evaluateJs
                         latestResult = result
                         resolved = true
                     }
