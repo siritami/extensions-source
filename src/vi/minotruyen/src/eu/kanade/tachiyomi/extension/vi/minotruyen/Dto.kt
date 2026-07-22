@@ -74,7 +74,7 @@ class Book(
     private val cover: Cover? = null,
 ) {
     fun toSManga(baseUrl: String) = SManga.create().apply {
-        setUrlWithoutDomain("/books/$bookId")
+        url = "/books/$bookId"
         title = info.title.trim()
         thumbnail_url = resolveThumbnailUrl(cover?.imageUrl, baseUrl)
     }
@@ -93,7 +93,7 @@ class BookDetail(
     private val tags: List<Tag> = emptyList(),
 ) {
     fun toSManga(baseUrl: String) = SManga.create().apply {
-        setUrlWithoutDomain("/books/$bookId")
+        url = "/books/$bookId"
         title = info.title.trim()
         thumbnail_url = resolveThumbnailUrl(cover?.imageUrl, baseUrl)
         author = authors.joinToString { it.name }
@@ -109,7 +109,7 @@ class Chapter(
     private val createdAt: String? = null,
 ) {
     fun toSChapter(bookId: String) = SChapter.create().apply {
-        setUrlWithoutDomain("/books/$bookId/$chapterNumber")
+        url = "/books/$bookId/$chapterNumber"
         name = title?.takeIf { it.isNotBlank() } ?: "Chapter $chapterNumber"
         date_upload = parseDate(createdAt)
     }
