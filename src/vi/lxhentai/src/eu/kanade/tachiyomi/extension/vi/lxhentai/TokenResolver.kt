@@ -23,7 +23,9 @@ object TokenResolver {
     }
 
     private suspend fun resolveOnce(chapterUrl: String): Result {
+        val payloadLock = Any()
         var latestToken = ""
+        var latestUrls = emptyList<String>()
 
         return runWebView(timeout = 45.seconds) {
             javaScriptEnabled = true
@@ -42,24 +44,34 @@ object TokenResolver {
                     })()""",
                 )
 
-                // Wait for actionToken after Turnstile + /get_token
-                val tokenResult = evaluateJs(
+                // Check actionToken via callback
+                evaluateJs(
                     """(function(){
                         var t = window.actionToken;
                         return (t && typeof t === 'string' && t.length > 0) ? t : '';
                     })()""",
-                ) as? String
-
-                if (!tokenResult.isNullOrEmpty()) {
-                    latestToken = tokenResult
-
-                    // Decode image URLs from obfuscated inline script (3-layer decode)
-                    val urlsJson = evaluateJs(INTER_DECODE_SCRIPT) as? String
-                    val urls = parseUrlList(urlsJson)
-
-                    if (urls.isNotEmpty()) {
-                        resolve(Result(latestToken, urls))
+                ) { value ->
+                    val token = value.removeSurrounding("\"")
+                    if (token.isNotEmpty() && token != "null") {
+                        synchronized(payloadLock) { latestToken = token }
                     }
+                }
+
+                val token = synchronized(payloadLock) { latestToken }
+                if (token.isEmpty()) return@poll
+
+                // Decode image URLs via callback
+                evaluateJs(INTER_DECODE_SCRIPT) { value ->
+                    val json = value.removeSurrounding("\"")
+                    val urls = parseUrlList(json)
+                    if (urls.isNotEmpty()) {
+                        synchronized(payloadLock) { latestUrls = urls }
+                    }
+                }
+
+                val urls = synchronized(payloadLock) { latestUrls }
+                if (urls.isNotEmpty()) {
+                    resolve(Result(token, urls))
                 }
             }
 
@@ -88,7 +100,7 @@ object TokenResolver {
             var target = null;
             for (var i = 0; i < scripts.length; i++) {
                 var t = scripts[i].textContent;
-                if (t.indexOf('["KGZ1') >= 0 || t.indexOf('["KGZ1') >= 0 || t.indexOf('=\["KGZ1') >= 0) {
+                if (t.indexOf('["KGZ1') >= 0 || t.indexOf('=\["KGZ1') >= 0) {
                     target = t;
                     break;
                 }
