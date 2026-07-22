@@ -18,7 +18,7 @@ class ComicListDto(
 
             SManga.create().apply {
                 title = comic.title
-                setUrlWithoutDomain("/comics/$slug")
+                url = "/comics/$slug"
                 thumbnail_url = comic.thumbnail?.ifBlank { null } ?: comic.bannerImageUrl?.ifBlank { null }
             }
         }

@@ -15,7 +15,7 @@ class GenreFilter(private val genres: List<GenreOption>) :
 fun getFilters(genres: List<GenreOption>): FilterList {
     val filters = mutableListOf<Filter<*>>()
     if (genres.isNotEmpty()) {
-        filters += Filter.Header("Lọc theo thể loại")
+        filters += Filter.Header("Thể loại")
         filters += GenreFilter(listOf(GenreOption("Tất cả", "all")) + genres)
     }
     filters += SortFilter()

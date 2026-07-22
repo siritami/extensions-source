@@ -272,7 +272,7 @@ abstract class KiraKira :
             throw Exception("Không tìm thấy hình ảnh")
         }
 
-        return pages
+        pages
     }
 
     private suspend fun fetchImageSlug(comicSlug: String): String? {
