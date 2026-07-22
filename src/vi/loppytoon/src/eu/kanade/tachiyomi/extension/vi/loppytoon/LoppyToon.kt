@@ -15,11 +15,6 @@ import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.serialization.json.JsonElement
-import kotlin.time.Clock
-import kotlin.time.Duration.Companion.days
-import kotlin.time.Duration.Companion.hours
-import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -27,6 +22,11 @@ import okhttp3.OkHttpClient
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class LoppyToon : KeiSource() {
@@ -56,8 +56,7 @@ abstract class LoppyToon : KeiSource() {
 
     // =============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        parseMangaPage(client.get("$baseUrl/truyen-moi-cap-nhat?page=$page").asJsoup())
+    override suspend fun getLatestUpdates(page: Int): MangasPage = parseMangaPage(client.get("$baseUrl/truyen-moi-cap-nhat?page=$page").asJsoup())
 
     private fun parseMangaPage(document: Document): MangasPage {
         val mangaList = document.select("div.comic-item").mapNotNull(::mangaFromElement)
@@ -190,13 +189,12 @@ abstract class LoppyToon : KeiSource() {
 
     // ================================ Pages ===============================
 
-    override suspend fun getPageList(chapter: SChapter): List<Page> =
-        client.get(getChapterUrl(chapter)).asJsoup()
-            .select("img.manga-image")
-            .mapIndexed { index, element ->
-                val imageUrl = element.absUrl("src").ifEmpty { element.absUrl("data-src") }
-                Page(index, imageUrl = imageUrl)
-            }
+    override suspend fun getPageList(chapter: SChapter): List<Page> = client.get(getChapterUrl(chapter)).asJsoup()
+        .select("img.manga-image")
+        .mapIndexed { index, element ->
+            val imageUrl = element.absUrl("src").ifEmpty { element.absUrl("data-src") }
+            Page(index, imageUrl = imageUrl)
+        }
 
     // =============================== Filters ==============================
 
@@ -215,16 +213,15 @@ abstract class LoppyToon : KeiSource() {
         return getFilters(filterData)
     }
 
-    private fun Document.parseFilterOptions(path: String): List<FilterOption> =
-        select("nav .nav-dropdown a[href*='/$path/']")
-            .mapNotNull { element ->
-                val slug = element.absUrl("href").toHttpUrl().pathSegments.lastOrNull()
-                    ?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
-                val name = element.text().removePrefix("»").trim()
-                    .takeIf(String::isNotEmpty) ?: return@mapNotNull null
-                FilterOption(name, slug)
-            }
-            .distinctBy { it.slug }
+    private fun Document.parseFilterOptions(path: String): List<FilterOption> = select("nav .nav-dropdown a[href*='/$path/']")
+        .mapNotNull { element ->
+            val slug = element.absUrl("href").toHttpUrl().pathSegments.lastOrNull()
+                ?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+            val name = element.text().removePrefix("»").trim()
+                .takeIf(String::isNotEmpty) ?: return@mapNotNull null
+            FilterOption(name, slug)
+        }
+        .distinctBy { it.slug }
 
     // =============================== Related ==============================
 
