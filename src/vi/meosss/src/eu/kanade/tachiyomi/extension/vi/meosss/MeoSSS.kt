@@ -127,16 +127,14 @@ abstract class MeoSSS : KeiSource() {
 
     // ============================== Details ===============================
 
-    private fun parseMangaDetails(document: Document, manga: SManga): SManga {
-        return SManga.create().apply {
-            setUrlWithoutDomain(manga.url)
-            title = document.select("#manga-title").first()!!.text()
-            author = document.select(".manga-info-details a[href*=/tac-gia/]").firstOrNull()?.text()
-            description = document.select("#manga-description").firstOrNull()?.text()
-            genre = document.select(".manga-block a[href*=/the-loai/]").joinToString { it.text() }
-            status = parseStatus(document.select("#manga-status").firstOrNull()?.text()) ?: 0
-            thumbnail_url = document.select(".story-cover img").firstOrNull()?.imgUrl()
-        }
+    private fun parseMangaDetails(document: Document, manga: SManga): SManga = SManga.create().apply {
+        setUrlWithoutDomain(manga.url)
+        title = document.select("#manga-title").first()!!.text()
+        author = document.select(".manga-info-details a[href*=/tac-gia/]").firstOrNull()?.text()
+        description = document.select("#manga-description").firstOrNull()?.text()
+        genre = document.select(".manga-block a[href*=/the-loai/]").joinToString { it.text() }
+        status = parseStatus(document.select("#manga-status").firstOrNull()?.text()) ?: 0
+        thumbnail_url = document.select(".story-cover img").firstOrNull()?.imgUrl()
     }
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
