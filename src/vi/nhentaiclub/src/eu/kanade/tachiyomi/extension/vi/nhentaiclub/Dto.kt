@@ -20,7 +20,7 @@ internal class MangaDto(
     private val thumbnail: String? = null,
 ) {
     fun toSManga(imageUrl: String): SManga = SManga.create().apply {
-        setUrlWithoutDomain("/g/$id")
+        url = "/g/$id"
         title = name
         thumbnail_url = thumbnail?.takeIf(String::isNotBlank)
             ?: "$imageUrl/$id/thumbnail.jpg"
@@ -39,7 +39,7 @@ internal class MangaDetailsDto(
     private val chapterList: List<ChapterDto>,
 ) {
     fun toSManga(mangaUrl: String, imageUrl: String): SManga = SManga.create().apply {
-        setUrlWithoutDomain(mangaUrl)
+        url = mangaUrl
         title = name
         thumbnail_url = thumbnail?.takeIf(String::isNotBlank)
             ?: "$imageUrl/$id/thumbnail.jpg"
@@ -61,7 +61,7 @@ internal class MangaDetailsDto(
             .build()
 
         SChapter.create().apply {
-            setUrlWithoutDomain(chapterUrl.encodedPath + "?" + chapterUrl.encodedQuery)
+            url = chapterUrl.encodedPath + "?" + chapterUrl.encodedQuery
             name = if (chapter.name.equals("oneshot", ignoreCase = true)) {
                 chapter.name
             } else {
@@ -84,7 +84,7 @@ internal class MangaDetailsDto(
 
 @Serializable
 internal class ChapterDto(
-    private val name: String,
-    private val pictures: Int,
-    private val createdAt: String,
+    val name: String,
+    val pictures: Int,
+    val createdAt: String,
 )
