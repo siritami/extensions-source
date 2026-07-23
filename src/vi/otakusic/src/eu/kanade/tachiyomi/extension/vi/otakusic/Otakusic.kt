@@ -219,12 +219,14 @@ abstract class Otakusic : KeiSource() {
         val chapterDto = chapters.firstOrNull { it.chapterOriginalSlug == chapterOriginalSlug }
             ?: return emptyList()
         val apiUrl = chapterDto.apiUrl ?: return emptyList()
-        val imageFilenames = apiUrl.parseAs<List<String>>()
+        val pageData = client.get(apiUrl).parseAs<ChapterPagesResponse>().data
 
-        return imageFilenames.mapIndexed { index, filename ->
-            val imageUrl = "$imgBaseUrl/manga/uploads/chapter/$mangaSlug/$chapterOriginalSlug/$filename"
-            Page(index, imageUrl = imageUrl)
-        }
+        return pageData.item.chapterImages
+            .sortedBy { it.page }
+            .mapIndexed { index, image ->
+                val imageUrl = "${pageData.domainCdn}/${pageData.item.chapterPath}/${image.file}"
+                Page(index, imageUrl = imageUrl)
+            }
     }
 
     // ============================== Filters ===============================
@@ -259,7 +261,6 @@ abstract class Otakusic : KeiSource() {
             .distinctBy { it.url }
     }
 
-    private val imgBaseUrl get() = baseUrl.replace("://", "://img.")
     private val chapterUrlPrefix = "/api/chapter/"
     private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT)
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")

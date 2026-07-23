@@ -19,3 +19,26 @@ class ChapterDto(
     @SerialName("public_at") val publicAt: String? = null,
     val status: String? = null,
 )
+
+@Serializable
+class ChapterPagesResponse(
+    val data: ChapterPagesData,
+)
+
+@Serializable
+class ChapterPagesData(
+    @SerialName("domain_cdn") val domainCdn: String,
+    val item: ChapterPagesItem,
+)
+
+@Serializable
+class ChapterPagesItem(
+    @SerialName("chapter_path") val chapterPath: String,
+    @SerialName("chapter_image") val chapterImages: List<ChapterImage>,
+)
+
+@Serializable
+class ChapterImage(
+    @SerialName("image_page") val page: Int,
+    @SerialName("image_file") val file: String,
+)
