@@ -19,11 +19,14 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.runWebView
 import keiyoushi.utils.toJsonElement
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -212,7 +215,7 @@ abstract class LxHentai : KeiSource() {
                 useOkHttpNetwork = true
 
                 poll(1.seconds) {
-                    evaluateJs(checkAndDecodeScript) { value ->
+                    evaluateJs(checkAndDecodeSyncScript) { value ->
                         Log.e(TAG, "JS eval result: $value")
                         val parsed = parseTokenResult(value) ?: return@evaluateJs
                         Log.e(TAG, "JS resolve: token=${parsed.first.take(12)}... urls=${parsed.second.size}")
@@ -313,11 +316,13 @@ abstract class LxHentai : KeiSource() {
         return chapterUrl to actionToken
     }
 
+
+
     private val backgroundUrlRegex = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
     private val genreSlugRegex = Regex("""toggleGenre\('([^']+)'\)""")
-    private val checkAndDecodeScript by lazy {
-        javaClass.getResource("/assets/check_and_decode.js")?.readText()
-            ?: throw IllegalStateException("check_and_decode.js not found in assets")
+    private val checkAndDecodeSyncScript by lazy {
+        javaClass.getResource("/assets/check_and_decode_sync.js")?.readText()
+            ?: throw IllegalStateException("check_and_decode_sync.js not found in assets")
     }
 
     private companion object {
