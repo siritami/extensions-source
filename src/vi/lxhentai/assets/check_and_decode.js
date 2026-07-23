@@ -67,9 +67,10 @@
             } catch(e) { _dbg.push('events=err:' + e); }
         }
 
-        // 4. Decode URLs from first KGZ1 script (cached)
-        if (!window._lxCachedUrls) {
-            window._lxCachedUrls = [];
+        // 4. Decode URLs from KGZ1 scripts (retry every poll)
+        // REMOVED: if (!window._lxCachedUrls) guard to allow retry
+        window._lxCachedUrls = window._lxCachedUrls || [];
+        if (window._lxCachedUrls.length === 0) {
             try {
                 var scripts = document.querySelectorAll('script:not([src])');
                 var found = false;
@@ -78,16 +79,16 @@
                     if (txt.indexOf('["KGZ1') >= 0 || txt.indexOf('=\["KGZ1') >= 0) {
                         found = true;
                         var arrayMatch = txt.match(/=\[((?:"[A-Za-z0-9+/=]{20,}",?\s*)+)\]/);
-                        if (!arrayMatch) { _dbg.push('decode=noArray'); break; }
+                        if (!arrayMatch) { _dbg.push('decode=noArray'); continue; }
                         var parts = arrayMatch[1].match(/"([^"]+)"/g);
-                        if (!parts) { _dbg.push('decode=noParts'); break; }
+                        if (!parts) { _dbg.push('decode=noParts'); continue; }
                         var joined = parts.map(function(s){return s.replace(/"/g,'');}).join('');
                         var raw = atob(joined);
                         var layer1;
                         try { layer1 = decodeURIComponent(escape(raw)); } catch(e) { layer1 = raw; }
 
                         var key2Match = layer1.match(/var _\w+='([0-9a-f]{20,})'/);
-                        if (!key2Match) { _dbg.push('decode=noKey2'); break; }
+                        if (!key2Match) { _dbg.push('decode=noKey2'); continue; }
                         var key2 = key2Match[1];
 
                         var arrRe = /var _\w+=\[((?:-?\d+,?)*)\]/g;
@@ -97,7 +98,7 @@
                             var nums = m[1].split(',').filter(function(s){return s.length>0;}).map(Number);
                             combined = combined.concat(nums);
                         }
-                        if (combined.length === 0) { _dbg.push('decode=noNums'); break; }
+                        if (combined.length === 0) { _dbg.push('decode=noNums'); continue; }
 
                         var decoded = '';
                         for (var j = 0; j < combined.length; j++) {
@@ -105,11 +106,11 @@
                         }
 
                         var key3Match = decoded.match(/var _\w+="([0-9a-f]{20,})"/);
-                        if (!key3Match) { _dbg.push('decode=noKey3'); break; }
+                        if (!key3Match) { _dbg.push('decode=noKey3'); continue; }
                         var key3 = key3Match[1];
 
                         var jsonB64Match = decoded.match(/var _\w+="([A-Za-z0-9+/=]{50,})"/);
-                        if (!jsonB64Match) { _dbg.push('decode=noJsonB64'); break; }
+                        if (!jsonB64Match) { _dbg.push('decode=noJsonB64'); continue; }
 
                         var jsonArr = JSON.parse(atob(jsonB64Match[1]));
                         for (var k = 0; k < jsonArr.length; k++) {
