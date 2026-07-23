@@ -20,22 +20,24 @@ class GenreOption(
     val slug: String,
 )
 
-class SortFilter : UriPartFilter(
-    "Sắp xếp",
-    arrayOf(
-        Pair("Mới cập nhật", "recent-update"),
-        Pair("Xem nhiều", "view"),
-    ),
-)
+class SortFilter :
+    UriPartFilter(
+        "Sắp xếp",
+        arrayOf(
+            Pair("Mới cập nhật", "recent-update"),
+            Pair("Xem nhiều", "view"),
+        ),
+    )
 
-class StatusFilter : UriPartFilter(
-    "Trạng thái",
-    arrayOf(
-        Pair("Tất cả", "all"),
-        Pair("Hoàn thành", "completed"),
-        Pair("Đang tiến hành", "progress"),
-    ),
-)
+class StatusFilter :
+    UriPartFilter(
+        "Trạng thái",
+        arrayOf(
+            Pair("Tất cả", "all"),
+            Pair("Hoàn thành", "completed"),
+            Pair("Đang tiến hành", "progress"),
+        ),
+    )
 
 class Genre(name: String, val value: String) : Filter.CheckBox(name)
 

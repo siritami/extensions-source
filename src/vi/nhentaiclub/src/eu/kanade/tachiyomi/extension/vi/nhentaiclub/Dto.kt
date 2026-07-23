@@ -53,30 +53,29 @@ internal class MangaDetailsDto(
         }
     }
 
-    fun toSChapterList(baseUrl: String, language: String, zoneId: ZoneId): List<SChapter> =
-        chapterList.map { chapter ->
-            val chapterUrl = "$baseUrl/read/$id".toHttpUrl().newBuilder()
-                .addPathSegment(chapter.name)
-                .addQueryParameter("lang", language)
-                .addQueryParameter("pages", chapter.pictures.toString())
-                .build()
+    fun toSChapterList(baseUrl: String, language: String, zoneId: ZoneId): List<SChapter> = chapterList.map { chapter ->
+        val chapterUrl = "$baseUrl/read/$id".toHttpUrl().newBuilder()
+            .addPathSegment(chapter.name)
+            .addQueryParameter("lang", language)
+            .addQueryParameter("pages", chapter.pictures.toString())
+            .build()
 
-            SChapter.create().apply {
-                setUrlWithoutDomain(chapterUrl.encodedPath + "?" + chapterUrl.encodedQuery)
-                name = if (chapter.name.equals("oneshot", ignoreCase = true)) {
-                    chapter.name
-                } else {
-                    "Chapter ${chapter.name}"
-                }
-                chapter_number = chapter.name.toFloatOrNull() ?: -1F
-                date_upload = runCatching {
-                    LocalDate.parse(chapter.createdAt)
-                        .atStartOfDay(zoneId)
-                        .toInstant()
-                        .toEpochMilli()
-                }.getOrDefault(0L)
+        SChapter.create().apply {
+            setUrlWithoutDomain(chapterUrl.encodedPath + "?" + chapterUrl.encodedQuery)
+            name = if (chapter.name.equals("oneshot", ignoreCase = true)) {
+                chapter.name
+            } else {
+                "Chapter ${chapter.name}"
             }
+            chapter_number = chapter.name.toFloatOrNull() ?: -1F
+            date_upload = runCatching {
+                LocalDate.parse(chapter.createdAt)
+                    .atStartOfDay(zoneId)
+                    .toInstant()
+                    .toEpochMilli()
+            }.getOrDefault(0L)
         }
+    }
 
     fun pageCount(chapterName: String): Int? = chapterList
         .firstOrNull { it.name == chapterName }
