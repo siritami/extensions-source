@@ -257,8 +257,7 @@ abstract class Otakusic : KeiSource() {
         }.getOrDefault(0L)
     }
 
-    private fun chapterPathSegments(chapter: SChapter) =
-        "$baseUrl${chapter.url}".toHttpUrl().pathSegments.drop(2)
+    private fun chapterPathSegments(chapter: SChapter) = "$baseUrl${chapter.url}".toHttpUrl().pathSegments.drop(2)
 
     private val imgBaseUrl get() = baseUrl.replace("://", "://img.")
     private val chapterUrlPrefix = "/api/chapter/"
