@@ -210,13 +210,6 @@ abstract class LxHentai : KeiSource() {
                 userAgent = headers["User-Agent"]!!
 
                 poll(1.seconds) {
-                    evaluateJs(
-                        """(function(){
-                            var b=document.querySelector('.swal2-confirm');
-                            if(b && !b.disabled && b.textContent.includes('tiếp tục')) b.click();
-                        })()""",
-                    )
-
                     evaluateJs(checkAndDecodeScript) { value ->
                         val parsed = parseTokenResult(value) ?: return@evaluateJs
                         resolve(parsed)
