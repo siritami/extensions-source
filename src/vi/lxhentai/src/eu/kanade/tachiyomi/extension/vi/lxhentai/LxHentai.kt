@@ -17,7 +17,6 @@ import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.runWebView
 import keiyoushi.utils.toJsonElement
-import kotlin.time.Duration.Companion.seconds
 import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -27,6 +26,7 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 @Source
@@ -381,4 +381,5 @@ abstract class LxHentai : KeiSource() {
             }
             return JSON.stringify({token:t,urls:urls});
         } catch(e) { return JSON.stringify({token:'',urls:[]}); }
-    })()"""}
+    })()"""
+}
