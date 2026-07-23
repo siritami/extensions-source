@@ -225,7 +225,9 @@ abstract class LxHentai : KeiSource() {
 
                 loadUrl(chapterUrl)
             }
-        } catch (_: WebViewTimeoutException) { "" to emptyList() }
+        } catch (_: WebViewTimeoutException) {
+            "" to emptyList()
+        }
 
         val urls = imageUrls.filter { it.isNotBlank() }
         if (urls.isEmpty()) return emptyList()
