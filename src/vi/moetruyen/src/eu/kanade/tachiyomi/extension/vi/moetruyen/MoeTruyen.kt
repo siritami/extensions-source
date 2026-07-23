@@ -49,9 +49,9 @@ import java.util.Locale
 abstract class MoeTruyen : KeiSource() {
 
     private val imgxGrants = Collections.synchronizedMap(
-        object : LinkedHashMap<String, PageAccessEntry>(imgxGrantCacheSize, 0.75f, true) {
+        object : LinkedHashMap<String, PageAccessEntry>(IMGX_GRANT_CACHE_SIZE, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, PageAccessEntry>?): Boolean =
-                size > imgxGrantCacheSize
+                size > IMGX_GRANT_CACHE_SIZE
         },
     )
 
@@ -479,6 +479,6 @@ abstract class MoeTruyen : KeiSource() {
     private val secureRandom = SecureRandom()
 
     private companion object {
-        const val imgxGrantCacheSize = 500
+        const val IMGX_GRANT_CACHE_SIZE = 500
     }
 }
