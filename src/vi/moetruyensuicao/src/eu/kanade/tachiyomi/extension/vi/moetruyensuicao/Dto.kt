@@ -33,7 +33,7 @@ class MangaItem(
     val genres: List<GenreItem>? = null,
 ) {
     fun toSManga(): SManga = SManga.create().apply {
-        setUrlWithoutDomain(id.toString())
+        url = id.toString()
         this.title = this@MangaItem.title
         thumbnail_url = coverUrl ?: cover
         author = this@MangaItem.author
@@ -66,7 +66,7 @@ class ChapterItem(
     val access: String? = null,
 ) {
     fun toSChapter(): SChapter = SChapter.create().apply {
-        setUrlWithoutDomain("/v2/chapters/$id")
+        url = "/v2/chapters/$id"
         name = number?.toString()?.removeSuffix(".0")
             ?: numberText
             ?: title
