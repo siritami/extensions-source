@@ -449,8 +449,8 @@ abstract class MoeTruyen : KeiSource() {
         val source = response.body.source()
 
         if (!source.request(14) ||
-            source.buffer.getByte(0) != 0x49.toByte() || source.buffer.getByte(1) != 0x4D.toByte() ||
-            source.buffer.getByte(2) != 0x47.toByte() || source.buffer.getByte(3) != 0x58.toByte()
+            source.buffer[0] != 0x49.toByte() || source.buffer[1] != 0x4D.toByte() ||
+            source.buffer[2] != 0x47.toByte() || source.buffer[3] != 0x58.toByte()
         ) {
             return@Interceptor response
         }
