@@ -47,13 +47,6 @@ import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class MoeTruyen : KeiSource() {
-
-    private val imgxGrants = Collections.synchronizedMap(
-        object : LinkedHashMap<String, PageAccessEntry>(IMGX_GRANT_CACHE_SIZE, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, PageAccessEntry>?): Boolean = size > IMGX_GRANT_CACHE_SIZE
-        },
-    )
-
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         addInterceptor(imgxInterceptor())
         rateLimit(3)
@@ -359,46 +352,6 @@ abstract class MoeTruyen : KeiSource() {
         return pages.sortedBy { it.index }
     }
 
-    // ============================== Filters ===============================
-
-    override val supportsFilterFetching get() = true
-
-    override suspend fun fetchFilterData(): JsonElement = client.get("$baseUrl/manga").asJsoup()
-        .select(".filter-option[data-genre]")
-        .mapNotNull { element ->
-            val id = element.attr("data-genre").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            val name = element.selectFirst(".filter-name")?.text()?.takeIf { it.isNotEmpty() }
-                ?: return@mapNotNull null
-            GenreOption(name, id)
-        }
-        .distinctBy { it.id }
-        .toJsonElement()
-
-    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
-
-    // =============================== Related ==============================
-
-    override val supportsRelatedMangas get() = true
-
-    override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
-        val document = client.get("$baseUrl${manga.url}").asJsoup()
-        val section = document.selectFirst("section[aria-labelledby=manga-related-similar-title]")
-            ?: return emptyList()
-
-        return section.select("article.manga-related-card").mapNotNull { card ->
-            val link = card.selectFirst("a.manga-related-card__link[href^=/manga/]")
-                ?: return@mapNotNull null
-            val title = card.selectFirst("h3")?.text()?.takeIf { it.isNotEmpty() }
-                ?: return@mapNotNull null
-
-            SManga.create().apply {
-                setUrlWithoutDomain(link.absUrl("href"))
-                this.title = title
-                thumbnail_url = card.selectFirst("img")?.absUrl("src")
-            }
-        }.distinctBy { it.url }
-    }
-
     private fun createPageAccessProof(accessUrl: String, pageIndexes: List<Int>, token: String): PageAccessProof {
         val version = "imgx-page-access-proof-v1"
         val issuedAt = System.currentTimeMillis()
@@ -470,6 +423,52 @@ abstract class MoeTruyen : KeiSource() {
         override fun contentLength(): Long = size.toLong()
 
         override fun source(): BufferedSource = ByteArrayInputStream(data, offset, size).source().buffer()
+    }
+
+    private val imgxGrants = Collections.synchronizedMap(
+        object : LinkedHashMap<String, PageAccessEntry>(IMGX_GRANT_CACHE_SIZE, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, PageAccessEntry>?): Boolean = size > IMGX_GRANT_CACHE_SIZE
+        },
+    )
+
+    // ============================== Filters ===============================
+
+    override val supportsFilterFetching get() = true
+
+    override suspend fun fetchFilterData(): JsonElement = client.get("$baseUrl/manga").asJsoup()
+        .select(".filter-option[data-genre]")
+        .mapNotNull { element ->
+            val id = element.attr("data-genre").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            val name = element.selectFirst(".filter-name")?.text()?.takeIf { it.isNotEmpty() }
+                ?: return@mapNotNull null
+            GenreOption(name, id)
+        }
+        .distinctBy { it.id }
+        .toJsonElement()
+
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
+
+    // =============================== Related ==============================
+
+    override val supportsRelatedMangas get() = true
+
+    override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
+        val document = client.get("$baseUrl${manga.url}").asJsoup()
+        val section = document.selectFirst("section[aria-labelledby=manga-related-similar-title]")
+            ?: return emptyList()
+
+        return section.select("article.manga-related-card").mapNotNull { card ->
+            val link = card.selectFirst("a.manga-related-card__link[href^=/manga/]")
+                ?: return@mapNotNull null
+            val title = card.selectFirst("h3")?.text()?.takeIf { it.isNotEmpty() }
+                ?: return@mapNotNull null
+
+            SManga.create().apply {
+                setUrlWithoutDomain(link.absUrl("href"))
+                this.title = title
+                thumbnail_url = card.selectFirst("img")?.absUrl("src")
+            }
+        }.distinctBy { it.url }
     }
 
     private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
