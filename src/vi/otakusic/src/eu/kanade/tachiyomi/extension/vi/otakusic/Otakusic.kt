@@ -138,7 +138,7 @@ abstract class Otakusic : KeiSource() {
             null
         }
         val chaptersDeferred = if (fetchChapters) {
-            async { fetchChapterList(manga) }
+            async { loadChapterList(manga) }
         } else {
             null
         }
@@ -175,7 +175,7 @@ abstract class Otakusic : KeiSource() {
 
     // ============================== Chapters ==============================
 
-    private suspend fun fetchChapterList(manga: SManga): List<SChapter> {
+    private suspend fun loadChapterList(manga: SManga): List<SChapter> {
         val slug = getMangaUrl(manga).toHttpUrl().pathSegments.getOrNull(1) ?: return emptyList()
         val chapters = client.get("$baseUrl/api/v1/manga/chapters/$slug", apiHeaders)
             .parseAs<ChaptersResponse>().data
@@ -195,6 +195,18 @@ abstract class Otakusic : KeiSource() {
         val parts = chapterPathSegments(chapter)
         return "$baseUrl/doc-truyen/${parts[0]}/${parts[2]}"
     }
+
+    private fun parseDate(date: String?): Long {
+        if (date == null) return 0L
+        return runCatching {
+            LocalDateTime.parse(date, dateFormat)
+                .atZone(dateZone)
+                .toInstant()
+                .toEpochMilli()
+        }.getOrDefault(0L)
+    }
+
+    private fun chapterPathSegments(chapter: SChapter) = "$baseUrl${chapter.url}".toHttpUrl().pathSegments.drop(2)
 
     // =============================== Pages ================================
 
@@ -246,18 +258,6 @@ abstract class Otakusic : KeiSource() {
             .mapNotNull(::parseMangaCard)
             .distinctBy { it.url }
     }
-
-    private fun parseDate(date: String?): Long {
-        if (date == null) return 0L
-        return runCatching {
-            LocalDateTime.parse(date, dateFormat)
-                .atZone(dateZone)
-                .toInstant()
-                .toEpochMilli()
-        }.getOrDefault(0L)
-    }
-
-    private fun chapterPathSegments(chapter: SChapter) = "$baseUrl${chapter.url}".toHttpUrl().pathSegments.drop(2)
 
     private val imgBaseUrl get() = baseUrl.replace("://", "://img.")
     private val chapterUrlPrefix = "/api/chapter/"

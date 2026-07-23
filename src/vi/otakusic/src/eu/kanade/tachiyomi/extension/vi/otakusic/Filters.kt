@@ -47,7 +47,7 @@ class GenreFilter(genres: List<GenreOption>) :
         "Thể loại",
         arrayOf("Tất cả") + genres.map { it.name }.toTypedArray(),
     ) {
-    private val values = genres.map { it.value }
+    private val genreValues = genres.map { it.value }
 
-    fun toUriPart(): String? = if (state == 0) null else values[state - 1]
+    fun toUriPart(): String? = if (state == 0) null else genreValues[state - 1]
 }
