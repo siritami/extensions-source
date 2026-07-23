@@ -50,6 +50,31 @@ private fun authInterceptor() = Interceptor { chain ->
 
 # General Extension Development Notes
 
+## Close Unused Responses Directly
+
+When a request is made only to verify that an endpoint succeeds and its response
+body is intentionally unused, close the response directly:
+
+```kotlin
+client.get(url).close()
+```
+
+## Extract Typed Next.js Data Directly
+
+When the target is a serializable object with distinctive required fields, use
+the predicate-free `extractNextJs<T>()` overload. It infers the match from the
+DTO descriptor and returns the deserialized object directly. Do not traverse as
+`JsonElement`, mutate external collections inside the predicate, and always
+return `false` merely to collect data.
+
+```kotlin
+val chapter = document.extractNextJs<ReaderChapter>() ?: return emptyList()
+val pages = chapter.images.sortedBy { it.order }
+```
+
+Use an explicit predicate only when the inferred required fields are not unique
+enough to identify the intended object.
+
 ## Source Code Organization
 
 For source files with several responsibilities, group each override with its
