@@ -220,7 +220,7 @@ abstract class LxHentai : KeiSource() {
                             })()""",
                         )
 
-                        evaluateJs(CHECK_AND_DECODE_SCRIPT) { value ->
+                        evaluateJs(checkAndDecodeScript) { value ->
                             val parsed = parseTokenResult(value) ?: return@evaluateJs
                             token = parsed.first
                             imageUrls = parsed.second
@@ -321,9 +321,10 @@ abstract class LxHentai : KeiSource() {
         val actionToken = rawMetadata.substring(separatorIndex + 1)
         return chapterUrl to actionToken
     }
+
     private val backgroundUrlRegex = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
     private val genreSlugRegex = Regex("""toggleGenre\('([^']+)'\)""")
-    private const val CHECK_AND_DECODE_SCRIPT = """(function(){
+    private val checkAndDecodeScript = """(function(){
         try {
             var b = document.querySelector('.swal2-confirm');
             if (b && !b.disabled && b.textContent.indexOf('tiếp tục') >= 0) b.click();
