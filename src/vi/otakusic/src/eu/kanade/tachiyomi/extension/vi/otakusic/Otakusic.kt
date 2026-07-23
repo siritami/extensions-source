@@ -20,6 +20,7 @@ import kotlinx.serialization.json.JsonElement
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -219,14 +220,21 @@ abstract class Otakusic : KeiSource() {
         val chapterDto = chapters.firstOrNull { it.chapterOriginalSlug == chapterOriginalSlug }
             ?: return emptyList()
         val apiUrl = chapterDto.apiUrl ?: return emptyList()
-        val pageData = client.get(apiUrl).parseAs<ChapterPagesResponse>().data
 
-        return pageData.item.chapterImages
-            .sortedBy { it.page }
-            .mapIndexed { index, image ->
-                val imageUrl = "${pageData.domainCdn}/${pageData.item.chapterPath}/${image.file}"
+        return if (apiUrl.toHttpUrlOrNull() != null) {
+            val pageData = client.get(apiUrl).parseAs<ChapterPagesResponse>().data
+            pageData.item.chapterImages
+                .sortedBy { it.page }
+                .mapIndexed { index, image ->
+                    val imageUrl = "${pageData.domainCdn}/${pageData.item.chapterPath}/${image.file}"
+                    Page(index, imageUrl = imageUrl)
+                }
+        } else {
+            apiUrl.parseAs<List<String>>().mapIndexed { index, filename ->
+                val imageUrl = "$imgBaseUrl/manga/uploads/chapter/$mangaSlug/$chapterOriginalSlug/$filename"
                 Page(index, imageUrl = imageUrl)
             }
+        }
     }
 
     // ============================== Filters ===============================
@@ -261,6 +269,7 @@ abstract class Otakusic : KeiSource() {
             .distinctBy { it.url }
     }
 
+    private val imgBaseUrl get() = baseUrl.replace("://", "://img.")
     private val chapterUrlPrefix = "/api/chapter/"
     private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT)
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
