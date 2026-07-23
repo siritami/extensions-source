@@ -17,6 +17,7 @@ import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+import java.time.ZoneId
 
 @Source
 abstract class NhentaiClub : KeiSource() {
@@ -84,7 +85,7 @@ abstract class NhentaiClub : KeiSource() {
         val result = client.get(url).parseAs<AdvancedSearchResponse>()
         val mangas = result.data.map { it.toSManga(imageUrl) }
 
-        return MangasPage(mangas, page * 24 < result.total)
+        return MangasPage(mangas, page * pageSize < result.total)
     }
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
@@ -112,7 +113,7 @@ abstract class NhentaiClub : KeiSource() {
 
         return SMangaUpdate(
             manga = data.toSManga(manga.url, imageUrl),
-            chapters = data.toSChapterList(baseUrl, "VI", java.time.ZoneId.of("Asia/Ho_Chi_Minh")),
+            chapters = data.toSChapterList(baseUrl, language, vietnamZone),
         )
     }
 
@@ -131,7 +132,7 @@ abstract class NhentaiClub : KeiSource() {
         return (1..pageCount).map { pageNumber ->
             Page(
                 index = pageNumber - 1,
-                imageUrl = "$imageUrl/$mangaId/VI/$chapterName/$pageNumber.jpg",
+                imageUrl = "$imageUrl/$mangaId/$language/$chapterName/$pageNumber.jpg",
             )
         }
     }
@@ -173,5 +174,8 @@ abstract class NhentaiClub : KeiSource() {
     private fun SManga.id(): String = (baseUrl + url).toHttpUrl().pathSegments.getOrNull(1)
         ?: error("Missing manga ID in URL: $url")
 
+    private val pageSize = 24
+    private val language = "VI"
+    private val vietnamZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val genreRegex = Regex("""\{label:\"([^\"]+)\",href:\"/genre/([^\"]+)\"""")
 }
