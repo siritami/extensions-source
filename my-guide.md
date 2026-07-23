@@ -128,6 +128,14 @@ private val xhrHeaders: Headers
         .build()
 ```
 
+    ## Derived URLs
+
+    When a URL is derived from a configurable `baseUrl`, declare it with a getter so changes to the custom URL are reflected on every access:
+
+    ```kotlin
+    private val apiUrl get() = "https://api.${baseUrl.toHttpUrl().host}"
+    ```
+
 ## Fetch Independent Data in Parallel
 
 When a suspend method needs multiple independent network responses, fetch them concurrently with structured concurrency instead of waiting for each request sequentially. This is especially useful in `fetchFilterData()` when filter groups come from separate endpoints.
