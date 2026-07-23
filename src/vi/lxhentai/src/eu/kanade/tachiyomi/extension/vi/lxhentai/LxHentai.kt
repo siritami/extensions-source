@@ -213,9 +213,9 @@ abstract class LxHentai : KeiSource() {
 
                 poll(1.seconds) {
                     evaluateJs(checkAndDecodeScript) { value ->
-                        Log.d(TAG, "JS eval result: $value")
+                        Log.e(TAG, "JS eval result: $value")
                         val parsed = parseTokenResult(value) ?: return@evaluateJs
-                        Log.d(TAG, "JS resolve: token=${parsed.first.take(12)}... urls=${parsed.second.size}")
+                        Log.e(TAG, "JS resolve: token=${parsed.first.take(12)}... urls=${parsed.second.size}")
                         resolve(parsed)
                     }
                 }
@@ -243,18 +243,6 @@ abstract class LxHentai : KeiSource() {
             val json = cleaned
                 .removePrefix("Object {").removeSuffix("}")
                 .replace("Object {", "{")
-
-            // Extract and log debug info
-            val dbgMatch = Regex(""""dbg"\s*:\s*\[([^\]]*)\]""").find(json)
-            if (dbgMatch != null) {
-                val dbgEntries = Regex(""""([^"]+)"""").findAll(dbgMatch.groupValues[1])
-                    .map { it.groupValues[1] }
-                    .toList()
-                for (entry in dbgEntries) {
-                    Log.d(TAG, "JS_DBG: $entry")
-                }
-            }
-
             val tokenMatch = Regex(""""token"\s*:\s*\"([^\"]*)\"""").find(json)
             val urlsMatch = Regex(""""urls"\s*:\s*\[([^\]]*)\]""").find(json)
 

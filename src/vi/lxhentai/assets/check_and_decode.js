@@ -136,9 +136,16 @@
         var t = window._lxToken;
         var urls = window._lxCachedUrls;
         _dbg.push('result:token=' + (t ? t.substring(0, 12) + '...' : 'null') + ' urls=' + (urls ? urls.length : 0));
+
+        // Output debug to console.error so KeiyoushiWebView logs it
+        try { console.error('LXDBG ' + _dbg.join(' | ')); } catch(e) {}
+
         if (t && urls && urls.length > 0) {
-            return JSON.stringify({token: t, urls: urls, dbg: _dbg});
+            return JSON.stringify({token: t, urls: urls});
         }
-        return JSON.stringify({token: t || '', urls: urls || [], dbg: _dbg});
-    } catch(e) { return JSON.stringify({token:'',urls:[],dbg:['outerErr:'+e]}); }
+        return JSON.stringify({token: t || '', urls: urls || []});
+    } catch(e) {
+        try { console.error('LXDBG err:' + e); } catch(ex) {}
+        return JSON.stringify({token:'',urls:[]});
+    }
 })()
