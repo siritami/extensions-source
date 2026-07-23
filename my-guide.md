@@ -59,6 +59,16 @@ body is intentionally unused, close the response directly:
 client.get(url).close()
 ```
 
+## Pass POST Bodies Positionally
+
+Pass the request body as the second positional argument to `client.post`:
+
+```kotlin
+client.post(url, formBody)
+```
+
+Do not use the redundant named form `client.post(url, body = formBody)`.
+
 ## Extract Typed Next.js Data Directly
 
 When the target is a serializable object with distinctive required fields, use

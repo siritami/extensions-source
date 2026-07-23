@@ -96,7 +96,7 @@ abstract class MeDamTruyen : KeiSource() {
                 .add("keyword", query)
                 .build()
 
-            return parseSearchApiResponse(client.post("$baseUrl/wp-admin/admin-ajax.php", body = formBody))
+            return parseSearchApiResponse(client.post("$baseUrl/wp-admin/admin-ajax.php", formBody))
         }
 
         val filterPath = filters.firstInstanceOrNull<GenreFilter>()?.toUriPart()
