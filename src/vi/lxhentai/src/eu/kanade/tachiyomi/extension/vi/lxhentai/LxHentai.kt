@@ -208,6 +208,7 @@ abstract class LxHentai : KeiSource() {
                 loadWithOverviewMode = true
                 useWideViewPort = true
                 userAgent = headers["User-Agent"]!!
+                useOkHttpNetwork = true
 
                 poll(1.seconds) {
                     evaluateJs(checkAndDecodeScript) { value ->
