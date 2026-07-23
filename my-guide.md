@@ -163,20 +163,22 @@ while (hasMorePages) {
 
 ## Deeplink Configuration
 
-For any extension, ensure deeplink configuration in `build.gradle.kts` properly matches the site's URL structure:
+Configure deeplinks in `build.gradle.kts` to match only the site's routes that can resolve to manga entries. Prefer the narrowest pattern that covers both manga details and chapter URLs:
 
 ```kotlin
-deelink {
-    path("/.*")
+deeplink {
+    path("/manga/.*")
 }
 ```
 
-This ensures deeplinks like `https://<source-domain>.com/any-path` work correctly.
+For example, this pattern covers `/manga/<slug>` and `/manga/<slug>/chapters/<chapter>` without sending unrelated site URLs to the extension.
 
 **Best Practices:**
-- Use `path("/.*")` to match any path pattern
+- Avoid `path("/.*")` when the supported routes have a stable prefix
+- Use the narrowest pattern that includes every URL handled by `getMangaByUrl()`
+- Use `path("/.*")` only when valid manga URLs have no reliable shared route pattern
 - Avoid using `host()` as it is not necessary when using `baseUrl`
-- Avoid overly restrictive patterns that may miss valid URLs
+- Verify that detail and chapter URLs are both covered
 
 ## Search Functionality
 
