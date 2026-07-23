@@ -509,6 +509,50 @@ class Example : KeiSource() {
 
 ---
 
+# WebView Defaults
+
+`runWebView` already enables these WebView settings by default, so do not repeat them in your `runWebView` block:
+
+- `javaScriptEnabled = true`
+- `domStorageEnabled = true`
+- `blockNetworkImage = false` (`blockImages = false` in the DSL)
+
+Only set settings that differ from the defaults:
+
+```kotlin
+runWebView(timeout = 45.seconds) {
+    loadWithOverviewMode = true
+    useWideViewPort = true
+    userAgent = userAgent.replace(Regex(""";\s*wv\)"""), ")")
+    // ...
+}
+```
+
+Check the current defaults in `extensions-source/core/src/main/kotlin/keiyoushi/utils/WebView.kt` (`setupWebView` function) before adding settings.
+
+## Resolve Directly in Callbacks
+
+When extracting data from `evaluateJs` callbacks, call `resolve(Unit)` directly instead of setting a flag and checking it later:
+
+```kotlin
+runWebView(timeout = 45.seconds) {
+    poll(1.seconds) {
+        evaluateJs(CHECK_AND_DECODE_SCRIPT) { value ->
+            val parsed = parseResult(value) ?: return@evaluateJs
+            token = parsed.first
+            urls = parsed.second
+            resolve(Unit)  // complete immediately
+        }
+    }
+
+    loadUrl(chapterUrl)
+}
+```
+
+Avoid the pattern of setting `resolved = true` in a callback, guarding `return@poll`, and checking the flag after each `evaluateJs` call. Calling `resolve` directly is simpler and avoids unnecessary state management.
+
+---
+
 # JsonElement Utilities
 
 `keiyoushi.utils` provides shorthand extensions for `kotlinx.serialization.json.JsonElement`.
