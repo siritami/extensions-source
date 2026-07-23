@@ -1,5 +1,18 @@
 (function(){
     try {
+        var _dbg = [];
+
+        // 0. Diagnose page state
+        _dbg.push('swal=' + !!document.querySelector('.swal2-popup'));
+        _dbg.push('swalTitle=' + (document.querySelector('.swal2-title')?.textContent || 'none'));
+        var btn = document.querySelector('.swal2-confirm');
+        _dbg.push('btn=' + (btn ? btn.textContent.trim().substring(0, 30) : 'none'));
+        _dbg.push('btnDisabled=' + (btn ? btn.disabled : 'n/a'));
+        _dbg.push('turnstile=' + (typeof turnstile !== 'undefined'));
+        _dbg.push('domain=' + (typeof domain !== 'undefined'));
+        _dbg.push('csrf=' + (typeof csrf_token !== 'undefined'));
+        _dbg.push('fetch=' + (typeof window.fetch));
+
         // 1. Hook fetch to capture token from /get_token POST response
         if (!window._lxHooked) {
             window._lxHooked = true;
@@ -7,17 +20,27 @@
             var origFetch = window.fetch.bind(window);
             window.fetch = function(input, init) {
                 var url = (typeof input === 'string') ? input : (input && input.url) || '';
+                _dbg.push('FETCH:' + url.substring(0, 80));
                 if (url.indexOf('get_token') >= 0) {
+                    _dbg.push('HOOK:get_token intercepted');
                     return origFetch(input, init).then(function(resp) {
+                        _dbg.push('HOOK:resp status=' + resp.status);
                         var clone = resp.clone();
-                        clone.json().then(function(data) {
-                            window._lxToken = data.action_token || null;
-                        }).catch(function(){});
+                        clone.text().then(function(txt) {
+                            _dbg.push('HOOK:body=' + txt.substring(0, 200));
+                            try {
+                                var data = JSON.parse(txt);
+                                window._lxToken = data.action_token || null;
+                            } catch(pe) { window._lxToken = null; }
+                        }).catch(function(ce) { _dbg.push('HOOK:clone err=' + ce); });
                         return resp;
                     });
                 }
                 return origFetch(input, init);
             };
+            _dbg.push('hookInstalled=ok');
+        } else {
+            _dbg.push('hookAlready=ok');
         }
 
         // 2. Click Turnstile confirm button
@@ -26,6 +49,9 @@
             if (b && !b.disabled && b.textContent.indexOf('tiếp tục') >= 0) {
                 b.click();
                 window._lxClicked = true;
+                _dbg.push('clicked=ok');
+            } else {
+                _dbg.push('clicked=skip btnDisabled=' + (b ? b.disabled : 'noBtn'));
             }
         }
 
@@ -37,7 +63,8 @@
                     document.dispatchEvent(new Event(t, {bubbles: true}));
                 });
                 window.dispatchEvent(new Event('scroll'));
-            } catch(e) {}
+                _dbg.push('events=ok');
+            } catch(e) { _dbg.push('events=err:' + e); }
         }
 
         // 4. Decode URLs from first KGZ1 script (cached)
@@ -45,20 +72,22 @@
             window._lxCachedUrls = [];
             try {
                 var scripts = document.querySelectorAll('script:not([src])');
+                var found = false;
                 for (var i = 0; i < scripts.length; i++) {
                     var txt = scripts[i].textContent;
                     if (txt.indexOf('["KGZ1') >= 0 || txt.indexOf('=\["KGZ1') >= 0) {
+                        found = true;
                         var arrayMatch = txt.match(/=\[((?:"[A-Za-z0-9+/=]{20,}",?\s*)+)\]/);
-                        if (!arrayMatch) continue;
+                        if (!arrayMatch) { _dbg.push('decode=noArray'); break; }
                         var parts = arrayMatch[1].match(/"([^"]+)"/g);
-                        if (!parts) continue;
+                        if (!parts) { _dbg.push('decode=noParts'); break; }
                         var joined = parts.map(function(s){return s.replace(/"/g,'');}).join('');
                         var raw = atob(joined);
                         var layer1;
                         try { layer1 = decodeURIComponent(escape(raw)); } catch(e) { layer1 = raw; }
 
                         var key2Match = layer1.match(/var _\w+='([0-9a-f]{20,})'/);
-                        if (!key2Match) continue;
+                        if (!key2Match) { _dbg.push('decode=noKey2'); break; }
                         var key2 = key2Match[1];
 
                         var arrRe = /var _\w+=\[((?:-?\d+,?)*)\]/g;
@@ -68,7 +97,7 @@
                             var nums = m[1].split(',').filter(function(s){return s.length>0;}).map(Number);
                             combined = combined.concat(nums);
                         }
-                        if (combined.length === 0) continue;
+                        if (combined.length === 0) { _dbg.push('decode=noNums'); break; }
 
                         var decoded = '';
                         for (var j = 0; j < combined.length; j++) {
@@ -76,11 +105,11 @@
                         }
 
                         var key3Match = decoded.match(/var _\w+="([0-9a-f]{20,})"/);
-                        if (!key3Match) continue;
+                        if (!key3Match) { _dbg.push('decode=noKey3'); break; }
                         var key3 = key3Match[1];
 
                         var jsonB64Match = decoded.match(/var _\w+="([A-Za-z0-9+/=]{50,})"/);
-                        if (!jsonB64Match) continue;
+                        if (!jsonB64Match) { _dbg.push('decode=noJsonB64'); break; }
 
                         var jsonArr = JSON.parse(atob(jsonB64Match[1]));
                         for (var k = 0; k < jsonArr.length; k++) {
@@ -95,18 +124,21 @@
                                 window._lxCachedUrls.push(url);
                             }
                         }
+                        _dbg.push('decode=ok count=' + window._lxCachedUrls.length);
                         break;
                     }
                 }
-            } catch(e) {}
+                if (!found) _dbg.push('decode=noKgzs1 scripts=' + scripts.length);
+            } catch(e) { _dbg.push('decode=err:' + e); }
         }
 
         // 5. Return when both token and URLs are ready
         var t = window._lxToken;
         var urls = window._lxCachedUrls;
+        _dbg.push('result:token=' + (t ? t.substring(0, 12) + '...' : 'null') + ' urls=' + (urls ? urls.length : 0));
         if (t && urls && urls.length > 0) {
-            return JSON.stringify({token: t, urls: urls});
+            return JSON.stringify({token: t, urls: urls, dbg: _dbg});
         }
-        return JSON.stringify({token: t || '', urls: urls || []});
-    } catch(e) { return JSON.stringify({token:'',urls:[]}); }
+        return JSON.stringify({token: t || '', urls: urls || [], dbg: _dbg});
+    } catch(e) { return JSON.stringify({token:'',urls:[],dbg:['outerErr:'+e]}); }
 })()

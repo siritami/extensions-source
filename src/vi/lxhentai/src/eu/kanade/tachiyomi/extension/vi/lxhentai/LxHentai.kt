@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.lxhentai
 
+import android.util.Log
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -212,7 +213,9 @@ abstract class LxHentai : KeiSource() {
 
                 poll(1.seconds) {
                     evaluateJs(checkAndDecodeScript) { value ->
+                        Log.d(TAG, "JS eval result: $value")
                         val parsed = parseTokenResult(value) ?: return@evaluateJs
+                        Log.d(TAG, "JS resolve: token=${parsed.first.take(12)}... urls=${parsed.second.size}")
                         resolve(parsed)
                     }
                 }
@@ -240,6 +243,18 @@ abstract class LxHentai : KeiSource() {
             val json = cleaned
                 .removePrefix("Object {").removeSuffix("}")
                 .replace("Object {", "{")
+
+            // Extract and log debug info
+            val dbgMatch = Regex(""""dbg"\s*:\s*\[([^\]]*)\]""").find(json)
+            if (dbgMatch != null) {
+                val dbgEntries = Regex(""""([^"]+)"""").findAll(dbgMatch.groupValues[1])
+                    .map { it.groupValues[1] }
+                    .toList()
+                for (entry in dbgEntries) {
+                    Log.d(TAG, "JS_DBG: $entry")
+                }
+            }
+
             val tokenMatch = Regex(""""token"\s*:\s*\"([^\"]*)\"""").find(json)
             val urlsMatch = Regex(""""urls"\s*:\s*\[([^\]]*)\]""").find(json)
 
@@ -315,5 +330,9 @@ abstract class LxHentai : KeiSource() {
     private val checkAndDecodeScript by lazy {
         javaClass.getResource("/assets/check_and_decode.js")?.readText()
             ?: throw IllegalStateException("check_and_decode.js not found in assets")
+    }
+
+    private companion object {
+        const val TAG = "LxHentai"
     }
 }
