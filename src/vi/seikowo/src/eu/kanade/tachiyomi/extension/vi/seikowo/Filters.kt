@@ -44,7 +44,7 @@ class GenreFilter(genres: List<String>) :
         arrayOf("All Genres", *genres.toTypedArray()),
     ) {
     val selectedValue: String?
-        get() = values[state]
+        get() = genreValues[state]
 
-    private val values = listOf(null) + genres
+    private val genreValues = listOf(null) + genres
 }
