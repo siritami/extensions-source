@@ -19,6 +19,6 @@ keiyoushi {
 
     deeplink {
         path("/truyen/..*")
-        path("/..*-chap-..*")
+        path("/.*-chap-..*")
     }
 }
