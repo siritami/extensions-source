@@ -205,21 +205,28 @@ abstract class LxHentai : KeiSource() {
         val chapterUrl = "$baseUrl${chapter.url}"
 
         val (token, imageUrls) = try {
-            runWebView<Pair<String, List<String>>>(timeout = 30.seconds) {
+            runWebView<Pair<String, List<String>>>(timeout = 60.seconds) {
                 loadWithOverviewMode = true
                 useWideViewPort = true
                 userAgent = headers["User-Agent"]!!
+                useOkHttpNetwork = true
 
-                // Inject fetch hook BEFORE page scripts run
+                // [v25] Inject fetch hook BEFORE page scripts run via onPageStarted
+                // This intercepts /get_token responses (for token) AND image fetch requests (for URLs)
                 onPageStarted {
                     evaluateJs(fetchHookScript)
                 }
 
+                // Poll every 1s: wait for gate to open (3s hasFocus) + token + URLs
                 poll(1.seconds) {
                     evaluateJs(decodeUrlsScript) { value ->
-                        Log.e(TAG, "JS eval result: $value")
-                        val parsed = parseTokenResult(value) ?: return@evaluateJs
-                        Log.e(TAG, "JS resolve: token=${parsed.first.take(12)}... urls=${parsed.second.size}")
+                        Log.d(TAG, "JS eval: $value")
+                        val parsed = parseTokenResult(value)
+                        if (parsed == null) {
+                            Log.d(TAG, "JS not ready yet, waiting...")
+                            return@evaluateJs
+                        }
+                        Log.d(TAG, "JS resolve: token=${parsed.first.take(12)}... urls=${parsed.second.size}")
                         resolve(parsed)
                     }
                 }
@@ -243,19 +250,14 @@ abstract class LxHentai : KeiSource() {
         val cleaned = value.trim().removeSurrounding("\"").removeSurrounding("'")
         if (cleaned.isEmpty() || cleaned == "null" || cleaned == "[]") return null
 
+        // v25 poll script returns proper JSON: {"token":"...","urls":[...]}
         return try {
-            val json = cleaned
-                .removePrefix("Object {").removeSuffix("}")
-                .replace("Object {", "{")
-            val tokenMatch = Regex(""""token"\s*:\s*\"([^\"]*)\"""").find(json)
-            val urlsMatch = Regex(""""urls"\s*:\s*\[([^\]]*)\]""").find(json)
-
-            val t = tokenMatch?.groupValues?.get(1) ?: return null
-            val urlsRaw = urlsMatch?.groupValues?.get(1) ?: return null
-
-            val urls = Regex(""""([^"]*http[^"]*)"""").findAll(urlsRaw)
-                .map { it.groupValues[1] }
-                .toList()
+            val json = cleaned.toJsonElement().asJsonObject
+            val t = json["token"]?.asString.orEmpty()
+            val urls = json["urls"]?.asJsonArray
+                ?.mapNotNull { it.asString }
+                ?.filter { it.isNotBlank() && it.startsWith("http") }
+                .orEmpty()
 
             if (t.isNotEmpty() && urls.isNotEmpty()) t to urls else null
         } catch (_: Exception) {
@@ -320,12 +322,12 @@ abstract class LxHentai : KeiSource() {
     private val backgroundUrlRegex = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
     private val genreSlugRegex = Regex("""toggleGenre\('([^']+)'\)""")
     private val fetchHookScript by lazy {
-        javaClass.getResource("/assets/fetch_hook.js")?.readText()
-            ?: throw IllegalStateException("fetch_hook.js not found in assets")
+        javaClass.getResource("/assets/fetch_hook_v25.js")?.readText()
+            ?: throw IllegalStateException("fetch_hook_v25.js not found in assets")
     }
     private val decodeUrlsScript by lazy {
-        javaClass.getResource("/assets/decode_urls.js")?.readText()
-            ?: throw IllegalStateException("decode_urls.js not found in assets")
+        javaClass.getResource("/assets/decode_urls_v25.js")?.readText()
+            ?: throw IllegalStateException("decode_urls_v25.js not found in assets")
     }
 
     private companion object {
