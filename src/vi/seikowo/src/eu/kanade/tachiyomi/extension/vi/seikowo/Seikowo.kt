@@ -20,15 +20,14 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
-import kotlin.math.abs
-import kotlin.time.Instant
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
-import okhttp3.Response
 import org.jsoup.Jsoup
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.time.Instant
 
 @Source
 abstract class Seikowo : KeiSource() {
