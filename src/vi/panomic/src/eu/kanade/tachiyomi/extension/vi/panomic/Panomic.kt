@@ -23,6 +23,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Response
+import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.time.LocalDate
@@ -256,8 +257,16 @@ abstract class Panomic : KeiSource() {
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val imageUrls = client.get("$baseUrl${chapter.url}").use { response ->
+            val html = response.body.string()
+            val loginButton = Jsoup.parse(html).selectFirst(
+                "button.v-btn.v-big-btn[data-toggle=modal][data-target='#info-modal']",
+            )
+            if (loginButton?.text() == "Đăng nhập") {
+                throw Exception("Đăng nhập webview bằng tài khoản phù hợp để xem chương này")
+            }
+
             ImageDecryptor.extractImageUrls(
-                response.body.string(),
+                html,
                 response.request.url.toString(),
             )
         }
