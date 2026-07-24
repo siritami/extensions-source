@@ -250,14 +250,17 @@ abstract class LxHentai : KeiSource() {
         val cleaned = value.trim().removeSurrounding("\"").removeSurrounding("'")
         if (cleaned.isEmpty() || cleaned == "null" || cleaned == "[]") return null
 
-        // v25 poll script returns proper JSON: {"token":"...","urls":[...]}
+        // v25 poll script returns JSON: {"token":"...","urls":["url1","url2",...]}
         return try {
-            val json = cleaned.toJsonElement().asJsonObject
-            val t = json["token"]?.asString.orEmpty()
-            val urls = json["urls"]?.asJsonArray
-                ?.mapNotNull { it.asString }
-                ?.filter { it.isNotBlank() && it.startsWith("http") }
-                .orEmpty()
+            val tokenMatch = Regex(""""token"\s*:\s*"([^"]*)"""").find(cleaned)
+            val t = tokenMatch?.groupValues?.get(1).orEmpty()
+
+            val urlsMatch = Regex(""""urls"\s*:\s*\[([^\]]*)\]""").find(cleaned)
+            val urlsRaw = urlsMatch?.groupValues?.get(1).orEmpty()
+
+            val urls = Regex(""""(https?://[^"]+)"""").findAll(urlsRaw)
+                .map { it.groupValues[1] }
+                .toList()
 
             if (t.isNotEmpty() && urls.isNotEmpty()) t to urls else null
         } catch (_: Exception) {
