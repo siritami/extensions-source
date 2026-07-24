@@ -223,19 +223,20 @@ abstract class Seikowo : KeiSource() {
         val fromLabels = entry.category
             .orEmpty()
             .mapNotNull { it.term }
-            .map { it.trim() }
-            .filterNot { term ->
-                term.startsWith("ID_") ||
-                    term.startsWith("Type_") ||
-                    term.startsWith("Status_") ||
-                    term.equals("Data_Node", ignoreCase = true) ||
-                    term.startsWith("Parent_")
-            }
 
         return (fromLabels + metadata.tags.orEmpty())
-            .map(::decodeHtmlEntities)
+            .map { decodeHtmlEntities(it).trim() }
+            .filterNot(::isInternalLabel)
             .toSet()
     }
+
+    private fun isInternalLabel(label: String): Boolean =
+        label.isBlank() ||
+            label.startsWith("ID_", ignoreCase = true) ||
+            label.startsWith("Type_", ignoreCase = true) ||
+            label.startsWith("Status_", ignoreCase = true) ||
+            label.startsWith("Parent_", ignoreCase = true) ||
+            label.equals("Data_Node", ignoreCase = true)
 
     // ============================== Details ===============================
 
