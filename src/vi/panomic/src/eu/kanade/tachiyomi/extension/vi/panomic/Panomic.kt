@@ -149,11 +149,10 @@ abstract class Panomic : KeiSource() {
         }
     }
 
-    private fun FilterList.firstSelectedFilterUri(): String? =
-        firstInstanceOrNull<GenreFilter>()?.toUriPart()?.ifEmpty { null }
-            ?: firstInstanceOrNull<GroupFilter>()?.toUriPart()?.ifEmpty { null }
-            ?: firstInstanceOrNull<SeriesTypeFilter>()?.toUriPart()?.ifEmpty { null }
-            ?: firstInstanceOrNull<KeywordFilter>()?.toUriPart()?.ifEmpty { null }
+    private fun FilterList.firstSelectedFilterUri(): String? = firstInstanceOrNull<GenreFilter>()?.toUriPart()?.ifEmpty { null }
+        ?: firstInstanceOrNull<GroupFilter>()?.toUriPart()?.ifEmpty { null }
+        ?: firstInstanceOrNull<SeriesTypeFilter>()?.toUriPart()?.ifEmpty { null }
+        ?: firstInstanceOrNull<KeywordFilter>()?.toUriPart()?.ifEmpty { null }
 
     // ============================== Details ===============================
 
@@ -191,23 +190,21 @@ abstract class Panomic : KeiSource() {
         )
     }
 
-    private fun parseMangaDetails(document: Document, manga: SManga): SManga {
-        return SManga.create().apply {
-            setUrlWithoutDomain(manga.url)
-            title = document.selectFirst("h2.info-title, .info-title")
-                ?.text()
-                ?.takeIf { it.isNotEmpty() }
-                ?: error("Missing manga title")
-            thumbnail_url = document.selectFirst("div.col-sm-4 img.img-thumbnail, .detail-info img.img-thumbnail")?.lazyImgUrl()
-            author = document.selectFirst("strong:contains(Tác giả) + span")?.text()?.ifEmpty { null }
-            status = document.selectFirst("span.comic-stt")?.text()
-                ?.let(::parseStatus)
-                ?: SManga.UNKNOWN
-            genre = document.select("a[href*=/the-loai/]")
-                .joinToString { it.text() }
-                .ifEmpty { null }
-            description = document.selectFirst("div.text-justify")?.text()?.ifEmpty { null }
-        }
+    private fun parseMangaDetails(document: Document, manga: SManga): SManga = SManga.create().apply {
+        setUrlWithoutDomain(manga.url)
+        title = document.selectFirst("h2.info-title, .info-title")
+            ?.text()
+            ?.takeIf { it.isNotEmpty() }
+            ?: error("Missing manga title")
+        thumbnail_url = document.selectFirst("div.col-sm-4 img.img-thumbnail, .detail-info img.img-thumbnail")?.lazyImgUrl()
+        author = document.selectFirst("strong:contains(Tác giả) + span")?.text()?.ifEmpty { null }
+        status = document.selectFirst("span.comic-stt")?.text()
+            ?.let(::parseStatus)
+            ?: SManga.UNKNOWN
+        genre = document.select("a[href*=/the-loai/]")
+            .joinToString { it.text() }
+            .ifEmpty { null }
+        description = document.selectFirst("div.text-justify")?.text()?.ifEmpty { null }
     }
 
     private fun parseStatus(status: String): Int {
@@ -254,19 +251,17 @@ abstract class Panomic : KeiSource() {
         return trailingPart.ifEmpty { rawName.trim() }
     }
 
-    private fun parseChapterDate(date: String): Long {
-        return runCatching {
-            LocalDate.parse(date, dateFormatShort)
-                .atStartOfDay(dateZone)
-                .toInstant()
-                .toEpochMilli()
-        }.recoverCatching {
-            LocalDate.parse(date, dateFormatLong)
-                .atStartOfDay(dateZone)
-                .toInstant()
-                .toEpochMilli()
-        }.getOrDefault(0L)
-    }
+    private fun parseChapterDate(date: String): Long = runCatching {
+        LocalDate.parse(date, dateFormatShort)
+            .atStartOfDay(dateZone)
+            .toInstant()
+            .toEpochMilli()
+    }.recoverCatching {
+        LocalDate.parse(date, dateFormatLong)
+            .atStartOfDay(dateZone)
+            .toInstant()
+            .toEpochMilli()
+    }.getOrDefault(0L)
 
     // =============================== Pages ================================
 
