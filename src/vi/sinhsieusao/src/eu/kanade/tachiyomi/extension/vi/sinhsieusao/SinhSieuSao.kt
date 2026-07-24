@@ -27,8 +27,7 @@ import okhttp3.OkHttpClient
 abstract class SinhSieuSao : KeiSource() {
     override fun OkHttpClient.Builder.configureClient() = rateLimit(3)
 
-    override fun Headers.Builder.configureHeaders() =
-        add("Accept", "application/json")
+    override fun Headers.Builder.configureHeaders() = add("Accept", "application/json")
 
     // ============================== Popular =======================================
 
@@ -130,19 +129,17 @@ abstract class SinhSieuSao : KeiSource() {
             chapters
         }
 
-    return SMangaUpdate(work.toSManga(baseUrl), updatedChapters)
+        return SMangaUpdate(work.toSManga(baseUrl), updatedChapters)
     }
 
-    private suspend fun fetchWork(workId: String): WorkDto =
-        client.get("$baseUrl/api/v1/works/$workId").parseAs()
+    private suspend fun fetchWork(workId: String): WorkDto = client.get("$baseUrl/api/v1/works/$workId").parseAs()
 
-    private suspend fun fetchMangaChapters(mangaId: Int, workId: Int): List<SChapter> =
-        client.get("$baseUrl/api/v1/mangas/$mangaId")
-            .parseAs<MangaDto>()
-            .chapters
-            .filter { it.processingStatus == "processed" }
-            .sortedByDescending { it.order }
-            .map { it.toSChapter(workId) }
+    private suspend fun fetchMangaChapters(mangaId: Int, workId: Int): List<SChapter> = client.get("$baseUrl/api/v1/mangas/$mangaId")
+        .parseAs<MangaDto>()
+        .chapters
+        .filter { it.processingStatus == "processed" }
+        .sortedByDescending { it.order }
+        .map { it.toSChapter(workId) }
 
     private suspend fun fetchAlbumChapters(albumId: Int, workId: Int): List<SChapter> {
         val album = client.get(albumUrl(albumId)).parseAs<AlbumResponse>()
@@ -176,14 +173,13 @@ abstract class SinhSieuSao : KeiSource() {
 
     override fun getMangaUrl(manga: SManga): String = "$baseUrl/works/${manga.url}"
 
-    override fun getChapterUrl(chapter: SChapter): String =
-        when {
-            chapter.url.startsWith("album:") && chapter.url.count { it == ':' } == 2 ->
-                "$baseUrl/works/${chapter.url.substringAfterLast(':')}"
-            chapter.url.startsWith("album:") -> baseUrl
-            chapter.url.startsWith("/works/") -> baseUrl + chapter.url
-            else -> "$baseUrl/chapters/${chapter.url}"
-        }
+    override fun getChapterUrl(chapter: SChapter): String = when {
+        chapter.url.startsWith("album:") && chapter.url.count { it == ':' } == 2 ->
+            "$baseUrl/works/${chapter.url.substringAfterLast(':')}"
+        chapter.url.startsWith("album:") -> baseUrl
+        chapter.url.startsWith("/works/") -> baseUrl + chapter.url
+        else -> "$baseUrl/chapters/${chapter.url}"
+    }
 
     // ============================== Filters =======================================
 
@@ -221,6 +217,5 @@ abstract class SinhSieuSao : KeiSource() {
         }
     }
 
-    private fun albumUrl(albumId: Int) =
-        "$baseUrl/api/v1/albums/$albumId?limit=200&offset=0&photos_sort=oldest"
+    private fun albumUrl(albumId: Int) = "$baseUrl/api/v1/albums/$albumId?limit=200&offset=0&photos_sort=oldest"
 }
