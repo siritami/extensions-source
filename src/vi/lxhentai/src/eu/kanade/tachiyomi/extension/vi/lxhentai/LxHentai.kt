@@ -211,8 +211,13 @@ abstract class LxHentai : KeiSource() {
                 userAgent = headers["User-Agent"]!!
                 useOkHttpNetwork = true
 
+                // Inject fetch hook BEFORE page scripts run
+                onPageStarted {
+                    evaluateJs(fetchHookScript)
+                }
+
                 poll(1.seconds) {
-                    evaluateJs(checkAndDecodeSyncScript) { value ->
+                    evaluateJs(decodeUrlsScript) { value ->
                         Log.e(TAG, "JS eval result: $value")
                         val parsed = parseTokenResult(value) ?: return@evaluateJs
                         Log.e(TAG, "JS resolve: token=${parsed.first.take(12)}... urls=${parsed.second.size}")
@@ -315,9 +320,13 @@ abstract class LxHentai : KeiSource() {
 
     private val backgroundUrlRegex = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
     private val genreSlugRegex = Regex("""toggleGenre\('([^']+)'\)""")
-    private val checkAndDecodeSyncScript by lazy {
-        javaClass.getResource("/assets/check_and_decode_sync.js")?.readText()
-            ?: throw IllegalStateException("check_and_decode_sync.js not found in assets")
+    private val fetchHookScript by lazy {
+        javaClass.getResource("/assets/fetch_hook.js")?.readText()
+            ?: throw IllegalStateException("fetch_hook.js not found in assets")
+    }
+    private val decodeUrlsScript by lazy {
+        javaClass.getResource("/assets/decode_urls.js")?.readText()
+            ?: throw IllegalStateException("decode_urls.js not found in assets")
     }
 
     private companion object {
