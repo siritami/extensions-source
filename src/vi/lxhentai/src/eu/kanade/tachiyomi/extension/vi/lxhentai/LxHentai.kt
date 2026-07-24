@@ -205,11 +205,10 @@ abstract class LxHentai : KeiSource() {
         val chapterUrl = "$baseUrl${chapter.url}"
 
         val (token, imageUrls) = try {
-            runWebView<Pair<String, List<String>>>(timeout = 45.seconds) {
+            runWebView<Pair<String, List<String>>>(timeout = 30.seconds) {
                 loadWithOverviewMode = true
                 useWideViewPort = true
                 userAgent = headers["User-Agent"]!!
-                useOkHttpNetwork = true
 
                 // Inject fetch hook BEFORE page scripts run
                 onPageStarted {
