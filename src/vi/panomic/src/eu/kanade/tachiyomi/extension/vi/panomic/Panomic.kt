@@ -158,21 +158,10 @@ abstract class Panomic : KeiSource() {
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         if (url.host != baseUrl.toHttpUrl().host) return null
-
-        val detailUrl = if (url.pathSegments.firstOrNull() == "truyen") {
-            url
-        } else if (chapterUrlRegex.matches(url.encodedPath)) {
-            client.get(url).asJsoup()
-                .selectFirst(".breadcrumb a[href*='/truyen/']")
-                ?.absUrl("href")
-                ?.toHttpUrlOrNull()
-                ?: return null
-        } else {
-            return null
-        }
+        if (url.pathSegments.firstOrNull() != "truyen") return null
 
         val manga = SManga.create().apply {
-            setUrlWithoutDomain(detailUrl.encodedPath)
+            setUrlWithoutDomain(url.encodedPath)
         }
         return fetchMangaUpdate(manga, emptyList(), true, false).manga
     }
@@ -347,6 +336,5 @@ abstract class Panomic : KeiSource() {
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val chapterNameRegex = Regex("Chap\\s*\\d+(\\.\\d+)?", RegexOption.IGNORE_CASE)
     private val chapterUrlNumberRegex = Regex("-chap-(\\d+(?:\\.\\d+)?)/?", RegexOption.IGNORE_CASE)
-    private val chapterUrlRegex = Regex("/.+-chap-[^/]+/?", RegexOption.IGNORE_CASE)
     private val thumb150Regex = Regex("-150x150(\\.[a-zA-Z0-9]+)$")
 }
