@@ -230,13 +230,12 @@ abstract class Seikowo : KeiSource() {
             .toSet()
     }
 
-    private fun isInternalLabel(label: String): Boolean =
-        label.isBlank() ||
-            label.startsWith("ID_", ignoreCase = true) ||
-            label.startsWith("Type_", ignoreCase = true) ||
-            label.startsWith("Status_", ignoreCase = true) ||
-            label.startsWith("Parent_", ignoreCase = true) ||
-            label.equals("Data_Node", ignoreCase = true)
+    private fun isInternalLabel(label: String): Boolean = label.isBlank() ||
+        label.startsWith("ID_", ignoreCase = true) ||
+        label.startsWith("Type_", ignoreCase = true) ||
+        label.startsWith("Status_", ignoreCase = true) ||
+        label.startsWith("Parent_", ignoreCase = true) ||
+        label.equals("Data_Node", ignoreCase = true)
 
     // ============================== Details ===============================
 
