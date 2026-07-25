@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.vi.lxhentai
 
-import android.util.Log
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -220,13 +219,10 @@ abstract class LxHentai : KeiSource() {
 
                 poll(1.seconds) {
                     evaluateJs(decodeUrlsScript) { value ->
-                        Log.e(TAG, "JS eval(${value?.length}): ${value?.take(80)}...")
                         val parsed = parseTokenResult(value.orEmpty())
                         if (parsed == null) {
-                            Log.e(TAG, "JS not ready yet")
                             return@evaluateJs
                         }
-                        Log.e(TAG, "JS resolve: token=${parsed.first.take(12)}... urls=${parsed.second.size}")
                         resolve(parsed)
                     }
                 }
@@ -274,8 +270,7 @@ abstract class LxHentai : KeiSource() {
                 .orEmpty()
 
             if (token.isNotEmpty() && urls.isNotEmpty()) token to urls else null
-        } catch (e: Exception) {
-            Log.e(TAG, "parseTokenResult error: $e")
+        } catch (_: Exception) {
             null
         }
     }
@@ -345,7 +340,5 @@ abstract class LxHentai : KeiSource() {
             ?: throw IllegalStateException("decode_urls.js not found in assets")
     }
 
-    private companion object {
-        const val TAG = "LxHentai"
-    }
+
 }
