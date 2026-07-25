@@ -59,6 +59,33 @@ body is intentionally unused, close the response directly:
 client.get(url).close()
 ```
 
+## Preserve Actionable Custom Messages
+
+The general recommendation to return `emptyList()` for locked or empty content
+must not be applied mechanically when an extension already throws a purposeful
+custom message that tells the user how to resolve the problem.
+
+For example, keep an existing exception that instructs the user to open the
+chapter in WebView and enter its password:
+
+```kotlin
+if (document.selectFirst("form.post-password-form") != null) {
+    throw Exception(passwordWebViewMessage)
+}
+```
+
+Preserve this behavior when all of the following are true:
+
+- The condition is detected explicitly, such as a password, login, or access form.
+- The user can resolve the condition through a concrete action.
+- The message explains that action instead of reporting a generic parsing error.
+- Returning `emptyList()` would hide the required action from the user.
+
+Continue returning `emptyList()` when content is merely missing, empty, or
+unsupported and there is no useful action for the user to take. Do not replace
+an existing actionable custom message with `emptyList()` solely to follow the
+generic empty-list recommendation.
+
 ## Pass POST Bodies Positionally
 
 Pass the request body as the second positional argument to `client.post`:
