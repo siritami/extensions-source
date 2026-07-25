@@ -166,20 +166,18 @@ abstract class TuSachXinhXinh : KeiSource() {
         )
     }
 
-    private fun parseMangaDetails(document: Document, manga: SManga): SManga {
-        return SManga.create().apply {
-            setUrlWithoutDomain(manga.url)
-            title = document.selectFirst("h2.info-title")!!.text()
-            thumbnail_url = document.selectFirst("div.col-sm-4 img.img-thumbnail")?.lazyImgUrl()
-            author = document.selectFirst("strong:contains(Tác giả) + span")?.text()
-            status = document.selectFirst("span.comic-stt")?.text()
-                ?.let { parseStatus(it) }
-                ?: SManga.UNKNOWN
-            genre = document.select("a[href*=/the-loai/]")
-                .joinToString { it.text() }
-                .ifEmpty { null }
-            description = document.selectFirst("div.text-justify")?.text()
-        }
+    private fun parseMangaDetails(document: Document, manga: SManga): SManga = SManga.create().apply {
+        setUrlWithoutDomain(manga.url)
+        title = document.selectFirst("h2.info-title")!!.text()
+        thumbnail_url = document.selectFirst("div.col-sm-4 img.img-thumbnail")?.lazyImgUrl()
+        author = document.selectFirst("strong:contains(Tác giả) + span")?.text()
+        status = document.selectFirst("span.comic-stt")?.text()
+            ?.let { parseStatus(it) }
+            ?: SManga.UNKNOWN
+        genre = document.select("a[href*=/the-loai/]")
+            .joinToString { it.text() }
+            .ifEmpty { null }
+        description = document.selectFirst("div.text-justify")?.text()
     }
 
     private fun parseStatus(status: String): Int {
