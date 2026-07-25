@@ -209,7 +209,6 @@ abstract class LxHentai : KeiSource() {
                 loadWithOverviewMode = true
                 useWideViewPort = true
                 userAgent = headers["User-Agent"]!!
-                useOkHttpNetwork = true
 
                 // [v25] Inject fetch hook BEFORE page scripts run via onPageStarted
                 // This intercepts /get_token responses (for token) AND image fetch requests (for URLs)
