@@ -606,6 +606,8 @@ import keiyoushi.utils.array   // val JsonElement.array: JsonArray
 import keiyoushi.utils.int     // val JsonElement.int: Int
 import keiyoushi.utils.long    // val JsonElement.long: Long
 import keiyoushi.utils.string  // val JsonElement.string: String
+import keiyoushi.utils.stringOrNull
+import keiyoushi.utils.getStringOrNull
 ```
 
 ## Usage
@@ -617,6 +619,20 @@ val genres = data?.jsonObject?.get("data") as? JsonArray
 // After (shorthand)
 val genres = data["data"]?.array
 ```
+
+For optional string fields, prefer the shared nullable helpers over direct
+`jsonPrimitive.contentOrNull` chains:
+
+```kotlin
+// JsonObject
+val slug = element.getStringOrNull("slug")
+
+// JsonElement?
+val slug = data["slug"]?.stringOrNull
+```
+
+Keep the `kotlinx.serialization.json.JsonObject` import when it is required for
+a predicate type check, but use the `keiyoushi.utils` accessors for its values.
 
 The `get` operator on `JsonElement?` internally calls `this?.jsonObject?.get(key)`,
 and `array` wraps `this.jsonArray`. Both throw on type mismatch — use `?.` to get
