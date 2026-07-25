@@ -35,8 +35,7 @@ open class UriPartFilter(
 
 class Genre(name: String, val value: String) : Filter.CheckBox(name)
 
-class GenreFilter(genres: List<GenreOption>) :
-    Filter.Group<Genre>("Thể loại", genres.map { Genre(it.name, it.value) })
+class GenreFilter(genres: List<GenreOption>) : Filter.Group<Genre>("Thể loại", genres.map { Genre(it.name, it.value) })
 
 class StatusFilter :
     UriPartFilter(

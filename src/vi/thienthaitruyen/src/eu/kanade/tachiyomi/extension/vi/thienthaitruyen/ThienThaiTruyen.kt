@@ -72,8 +72,7 @@ abstract class ThienThaiTruyen : KeiSource() {
     )
 
     // ============================== Search ================================
-    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage =
-        getMangaList(page, query, filters)
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage = getMangaList(page, query, filters)
 
     private suspend fun getMangaList(
         page: Int,
@@ -147,23 +146,22 @@ abstract class ThienThaiTruyen : KeiSource() {
     }
 
     // ============================== Chapters ==============================
-    private fun parseChapterList(document: Document): List<SChapter> =
-        document.select("div.chapter-items > a.flex.justify-between.items-center.w-full")
-            .mapNotNull { element ->
-                val url = element.absUrl("href").takeIf(String::isNotEmpty)
-                    ?: return@mapNotNull null
-                val name = element.selectFirst("p.text-sm.text-white.font-medium")
-                    ?.text()
-                    ?.takeIf(String::isNotEmpty)
-                    ?: element.text().takeIf(String::isNotEmpty)
-                    ?: return@mapNotNull null
+    private fun parseChapterList(document: Document): List<SChapter> = document.select("div.chapter-items > a.flex.justify-between.items-center.w-full")
+        .mapNotNull { element ->
+            val url = element.absUrl("href").takeIf(String::isNotEmpty)
+                ?: return@mapNotNull null
+            val name = element.selectFirst("p.text-sm.text-white.font-medium")
+                ?.text()
+                ?.takeIf(String::isNotEmpty)
+                ?: element.text().takeIf(String::isNotEmpty)
+                ?: return@mapNotNull null
 
-                SChapter.create().apply {
-                    setUrlWithoutDomain(url)
-                    this.name = name
-                    date_upload = parseChapterDate(element.selectFirst("p.text-xs span")?.text())
-                }
+            SChapter.create().apply {
+                setUrlWithoutDomain(url)
+                this.name = name
+                date_upload = parseChapterDate(element.selectFirst("p.text-xs span")?.text())
             }
+        }
 
     private fun parseChapterDate(dateStr: String?): Long {
         val relativeDate = parseRelativeDate(dateStr)
