@@ -339,6 +339,4 @@ abstract class LxHentai : KeiSource() {
         javaClass.getResource("/assets/decode_urls.js")?.readText()
             ?: throw IllegalStateException("decode_urls.js not found in assets")
     }
-
-
 }
