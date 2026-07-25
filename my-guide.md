@@ -144,6 +144,11 @@ configuration near the top of the class and constants near the bottom. Do not
 add empty optional sections, and do not reorder code when doing so would change
 initialization or runtime behavior.
 
+Place a helper next to the selector or request function that owns and calls it
+when it has fewer than three call sites. Keep it in a shared Utilities section
+when it is called three or more times, especially when those callers use
+different selectors or parsing contexts.
+
 ## Derived Request Headers
 
 Declare custom request headers with an explicit `Headers` getter when they should be built from the source's current `headersBuilder()` on each access:
