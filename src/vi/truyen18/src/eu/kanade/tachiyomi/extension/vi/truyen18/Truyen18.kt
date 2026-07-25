@@ -16,6 +16,7 @@ import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getStringOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import okhttp3.HttpUrl
@@ -224,6 +225,12 @@ abstract class Truyen18 : KeiSource() {
     }
 
     // ============================== Pages =================================
+
+    @Serializable
+    private class ReaderChapter(
+        val slug: String,
+        val content: String,
+    )
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val chapterSlug = getChapterUrl(chapter).toHttpUrl().pathSegments.lastOrNull()
