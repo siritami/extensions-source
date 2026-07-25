@@ -86,7 +86,9 @@ abstract class SoaiCaComic : KeiSource() {
         return SManga.create().apply {
             title = element.selectFirst("h3.comic-title")!!.text()
             setUrlWithoutDomain(linkElement.absUrl("href"))
-            thumbnail_url = element.selectFirst(".comic-img img, img.img-thumbnail")?.absUrl("src")
+            thumbnail_url = resolveSearchThumbnailUrl(
+                element.selectFirst(".comic-img img, img.img-thumbnail")?.absUrl("src"),
+            )
         }
     }
 
@@ -206,7 +208,9 @@ abstract class SoaiCaComic : KeiSource() {
         return SManga.create().apply {
             title = linkElement.text()
             setUrlWithoutDomain(url)
-            thumbnail_url = element.selectFirst("img.list-left-img")?.absUrl("src")
+            thumbnail_url = resolveSearchThumbnailUrl(
+                element.selectFirst("img.list-left-img")?.absUrl("src"),
+            )
         }
     }
 
