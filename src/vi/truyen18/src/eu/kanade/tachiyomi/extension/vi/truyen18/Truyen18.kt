@@ -16,11 +16,6 @@ import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.serialization.json.JsonElement
-import kotlin.time.Clock
-import kotlin.time.Duration.Companion.days
-import kotlin.time.Duration.Companion.hours
-import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -33,6 +28,11 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class Truyen18 : KeiSource() {
@@ -41,13 +41,11 @@ abstract class Truyen18 : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        parseMangaPage(client.get(buildPagedUrl("/xem-nhieu-nhat", page)))
+    override suspend fun getPopularManga(page: Int): MangasPage = parseMangaPage(client.get(buildPagedUrl("/xem-nhieu-nhat", page)))
 
     // ============================== Latest ================================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        parseMangaPage(client.get(buildPagedUrl("/moi-cap-nhat", page)))
+    override suspend fun getLatestUpdates(page: Int): MangasPage = parseMangaPage(client.get(buildPagedUrl("/moi-cap-nhat", page)))
 
     // ============================== Search ================================
 
@@ -265,8 +263,7 @@ abstract class Truyen18 : KeiSource() {
             .toJsonElement()
     }
 
-    override fun getFilterList(data: JsonElement?): FilterList =
-        getFilters(data?.parseAs<List<GenreOption>>())
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
     // =============================== Related ==============================
 
