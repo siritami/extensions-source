@@ -13,9 +13,11 @@ import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.extractNextJs
 import keiyoushi.utils.firstInstanceOrNull
+import keiyoushi.utils.getStringOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -227,9 +229,11 @@ abstract class Truyen18 : KeiSource() {
         val chapterSlug = getChapterUrl(chapter).toHttpUrl().pathSegments.lastOrNull()
             ?: return emptyList()
         val chapterData = client.get(getChapterUrl(chapter))
-            .extractNextJs<ChapterData>()
-            ?.chapter
-            ?.takeIf { it.slug == chapterSlug }
+            .extractNextJs<ReaderChapter> { element ->
+                element is JsonObject &&
+                    element.getStringOrNull("slug") == chapterSlug &&
+                    !element.getStringOrNull("content").isNullOrBlank()
+            }
             ?: return emptyList()
 
         return Jsoup.parseBodyFragment(chapterData.content, baseUrl)
