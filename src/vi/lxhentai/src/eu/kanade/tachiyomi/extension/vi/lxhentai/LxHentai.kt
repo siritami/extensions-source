@@ -18,7 +18,11 @@ import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.runWebView
 import keiyoushi.utils.toJsonElement
+import keiyoushi.utils.getStringOrNull
+import keiyoushi.utils.getArrayOrNull
+import keiyoushi.utils.stringOrNull
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -210,22 +214,19 @@ abstract class LxHentai : KeiSource() {
                 useWideViewPort = true
                 userAgent = headers["User-Agent"]!!
 
-                // [v25] Inject fetch hook BEFORE page scripts run via onPageStarted
-                // This intercepts /get_token responses (for token) AND image fetch requests (for URLs)
                 onPageStarted {
                     evaluateJs(fetchHookScript)
                 }
 
-                // Poll every 1s: wait for gate to open (3s hasFocus) + token + URLs
                 poll(1.seconds) {
                     evaluateJs(decodeUrlsScript) { value ->
-                        Log.d(TAG, "JS eval: $value")
-                        val parsed = parseTokenResult(value)
+                        Log.e(TAG, "JS eval(${value?.length}): ${value?.take(80)}...")
+                        val parsed = parseTokenResult(value.orEmpty())
                         if (parsed == null) {
-                            Log.d(TAG, "JS not ready yet, waiting...")
+                            Log.e(TAG, "JS not ready yet")
                             return@evaluateJs
                         }
-                        Log.d(TAG, "JS resolve: token=${parsed.first.take(12)}... urls=${parsed.second.size}")
+                        Log.e(TAG, "JS resolve: token=${parsed.first.take(12)}... urls=${parsed.second.size}")
                         resolve(parsed)
                     }
                 }
@@ -246,23 +247,35 @@ abstract class LxHentai : KeiSource() {
     }
 
     private fun parseTokenResult(value: String): Pair<String, List<String>>? {
-        val cleaned = value.trim().removeSurrounding("\"").removeSurrounding("'")
-        if (cleaned.isEmpty() || cleaned == "null" || cleaned == "[]") return null
+        if (value.isBlank()) return null
 
-        // v25 poll script returns JSON: {"token":"...","urls":["url1","url2",...]}
+        //   JS returns: {"token":"abc","urls":["url1"]}
+        //   callback gets: "{\"token\":\"abc\",\"urls\":[\"url1\"]}"  (escaped)
         return try {
-            val tokenMatch = Regex(""""token"\s*:\s*"([^"]*)"""").find(cleaned)
-            val t = tokenMatch?.groupValues?.get(1).orEmpty()
+            val jsonStr = try {
+                value.parseAs<String>()
+            } catch (_: Exception) {
+                value.trim().let { s ->
+                    val inner = if (s.startsWith("\"") && s.endsWith("\"")) {
+                        s.substring(1, s.length - 1)
+                    } else {
+                        s.removeSurrounding("'")
+                    }
+                    inner.replace("\\\"", "\"").replace("\\\\", "\\")
+                }
+            }
 
-            val urlsMatch = Regex(""""urls"\s*:\s*\[([^\]]*)\]""").find(cleaned)
-            val urlsRaw = urlsMatch?.groupValues?.get(1).orEmpty()
+            if (jsonStr.isBlank() || jsonStr == "null" || jsonStr == "[]") return null
 
-            val urls = Regex(""""(https?://[^"]+)"""").findAll(urlsRaw)
-                .map { it.groupValues[1] }
-                .toList()
+            val json = jsonStr.parseAs<JsonObject>()
+            val token = json.getStringOrNull("token").orEmpty()
+            val urls = json.getArrayOrNull("urls")
+                ?.mapNotNull { it.stringOrNull }
+                .orEmpty()
 
-            if (t.isNotEmpty() && urls.isNotEmpty()) t to urls else null
-        } catch (_: Exception) {
+            if (token.isNotEmpty() && urls.isNotEmpty()) token to urls else null
+        } catch (e: Exception) {
+            Log.e(TAG, "parseTokenResult error: $e")
             null
         }
     }
@@ -324,12 +337,12 @@ abstract class LxHentai : KeiSource() {
     private val backgroundUrlRegex = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
     private val genreSlugRegex = Regex("""toggleGenre\('([^']+)'\)""")
     private val fetchHookScript by lazy {
-        javaClass.getResource("/assets/fetch_hook_v25.js")?.readText()
-            ?: throw IllegalStateException("fetch_hook_v25.js not found in assets")
+        javaClass.getResource("/assets/fetch_hook.js")?.readText()
+            ?: throw IllegalStateException("fetch_hook.js not found in assets")
     }
     private val decodeUrlsScript by lazy {
-        javaClass.getResource("/assets/decode_urls_v25.js")?.readText()
-            ?: throw IllegalStateException("decode_urls_v25.js not found in assets")
+        javaClass.getResource("/assets/decode_urls.js")?.readText()
+            ?: throw IllegalStateException("decode_urls.js not found in assets")
     }
 
     private companion object {

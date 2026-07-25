@@ -1,32 +1,33 @@
-// URL decoder only - runs in poll, retrieves token from window._lxToken
-(function(){
+// Poll script v25 - retrieves token + image URLs captured by fetch_hook_v25
+// Runs in evaluateJs every second until both token and URLs are ready
+// Sources for URLs (in priority order):
+//   1. window.__lxCapturedUrls  - from Array.prototype.slice hook or property trap
+//   2. window.__lxImageUrls     - from fetch hook intercepting image requests
+// Sources for token:
+//   1. window.__lxToken          - from fetch hook intercepting /get_token response
+(function() {
     try {
         var _dbg = [];
 
-        // 0. Diagnose page state
-        _dbg.push('swal=' + !!document.querySelector('.swal2-popup'));
-        _dbg.push('swalTitle=' + (document.querySelector('.swal2-title')?.textContent || 'none'));
-        var btn = document.querySelector('.swal2-confirm');
-        _dbg.push('btn=' + (btn ? btn.textContent.trim().substring(0, 30) : 'none'));
-        _dbg.push('btnDisabled=' + (btn ? btn.disabled : 'n/a'));
-        _dbg.push('turnstile=' + (typeof turnstile !== 'undefined'));
-        _dbg.push('domain=' + (typeof domain !== 'undefined'));
-        _dbg.push('csrf=' + (typeof csrf_token !== 'undefined'));
-        _dbg.push('fetch=' + (typeof window.fetch));
-
-        // 1. Click Turnstile confirm button
+        // 1. Click Turnstile confirm button if available and enabled
+        //    After Turnstile solves, KGZ1 enables the OK button; we auto-click it
         if (!window._lxClicked) {
-            var b = document.querySelector('.swal2-confirm');
-            if (b && !b.disabled && b.textContent.indexOf('tiếp tục') >= 0) {
-                b.click();
-                window._lxClicked = true;
-                _dbg.push('clicked=ok');
-            } else {
-                _dbg.push('clicked=skip btnDisabled=' + (b ? b.disabled : 'noBtn'));
+            var btns = document.querySelectorAll('.swal2-confirm');
+            for (var bi = 0; bi < btns.length; bi++) {
+                var b = btns[bi];
+                if (b && !b.disabled) {
+                    var txt = (b.textContent || '').toLowerCase();
+                    if (txt.indexOf('ok') >= 0 || txt.indexOf('tiếp tục') >= 0 || txt.indexOf('continue') >= 0) {
+                        b.click();
+                        window._lxClicked = true;
+                        _dbg.push('clicked=ok');
+                        break;
+                    }
+                }
             }
         }
 
-        // 2. Dispatch events to bypass automation gate (v25 hard mode)
+        // 2. Dispatch events to trigger gate (hasFocus after 3s will set __humanOK)
         if (!window._lxDone) {
             window._lxDone = true;
             try {
@@ -34,89 +35,48 @@
                     document.dispatchEvent(new Event(t, {bubbles: true}));
                 });
                 window.dispatchEvent(new Event('scroll'));
-                _dbg.push('events=ok');
-            } catch(e) { _dbg.push('events=err:' + e); }
+                _dbg.push('events=dispatched');
+            } catch(e) {}
         }
 
-        // 3. Decode URLs from KGZ1 scripts (retry every poll)
-        // REMOVED: if (!window._lxCachedUrls) guard to allow retry
-        window._lxCachedUrls = window._lxCachedUrls || [];
-        if (window._lxCachedUrls.length === 0) {
-            try {
-                var scripts = document.querySelectorAll('script:not([src])');
-                var found = false;
-                for (var i = 0; i < scripts.length; i++) {
-                    var txt = scripts[i].textContent;
-                    if (txt.indexOf('["KGZ1') >= 0 || txt.indexOf('=["KGZ1') >= 0) {
-                        found = true;
-                        var arrayMatch = txt.match(/=\[((?:"[A-Za-z0-9+\/=]{20,}",?\s*)+)\]/);
-                        if (!arrayMatch) { _dbg.push('decode=noArray'); continue; }
-                        var parts = arrayMatch[1].match(/\"([^\"]+)\"/g);
-                        if (!parts) { _dbg.push('decode=noParts'); continue; }
-                        var joined = parts.map(function(s){return s.replace(/\"/g,'');}).join('');
-                        var raw = atob(joined);
-                        var layer1;
-                        try { layer1 = decodeURIComponent(escape(raw)); } catch(e) { layer1 = raw; }
-
-                        var key2Match = layer1.match(/var _\w+='([0-9a-f]{20,})'/);
-                        if (!key2Match) { _dbg.push('decode=noKey2'); continue; }
-                        var key2 = key2Match[1];
-
-                        var arrRe = /var _\w+=\[((?:-?\d+,?)*)\]/g;
-                        var combined = [];
-                        var m;
-                        while ((m = arrRe.exec(layer1)) !== null) {
-                            var nums = m[1].split(',').filter(function(s){return s.length>0;}).map(Number);
-                            combined = combined.concat(nums);
-                        }
-                        if (combined.length === 0) { _dbg.push('decode=noNums'); continue; }
-
-                        var decoded = '';
-                        for (var j = 0; j < combined.length; j++) {
-                            decoded += String.fromCharCode((combined[j] ^ key2.charCodeAt(j % key2.length)) & 0xFF);
-                        }
-
-                        var key3Match = decoded.match(/var _\w+="([0-9a-f]{20,})"/);
-                        if (!key3Match) { _dbg.push('decode=noKey3'); continue; }
-                        var key3 = key3Match[1];
-
-                        var jsonB64Match = decoded.match(/var _\w+="([A-Za-z0-9+\/=]{50,})"/);
-                        if (!jsonB64Match) { _dbg.push('decode=noJsonB64'); continue; }
-
-                        var jsonArr = JSON.parse(atob(jsonB64Match[1]));
-                        for (var k = 0; k < jsonArr.length; k++) {
-                            var item;
-                            try { item = decodeURIComponent(escape(atob(jsonArr[k]))); } catch(e) { item = atob(jsonArr[k]); }
-                            var url = '';
-                            for (var p = 0; p < item.length; p++) {
-                                url += String.fromCharCode((item.charCodeAt(p) ^ key3.charCodeAt(p % key3.length)) & 0xFF);
-                            }
-                            if (url.indexOf('http') === 0 && window._lxCachedUrls.indexOf(url) < 0) {
-                                window._lxCachedUrls.push(url);
-                            }
-                        }
-                        _dbg.push('decode=ok count=' + window._lxCachedUrls.length);
-                        break;
-                    }
-                }
-                if (!found) _dbg.push('decode=noKgzs1 scripts=' + scripts.length);
-            } catch(e) { _dbg.push('decode=err:' + e); }
+        // 3. Collect URLs from all sources
+        var urls = [];
+        // Priority 1: captured from window['_0x...'] property via slice hook or defineProperty trap
+        if (window.__lxCapturedUrls && window.__lxCapturedUrls.length > 0) {
+            urls = window.__lxCapturedUrls;
+        }
+        // Priority 2: captured from fetch hook (image requests with Token header)
+        if (urls.length === 0 && window.__lxImageUrls && window.__lxImageUrls.length > 0) {
+            urls = window.__lxImageUrls;
         }
 
-        // 4. Return when both token and URLs are ready
-        var t = window._lxToken;
-        var urls = window._lxCachedUrls;
-        _dbg.push('result:token=' + (t ? t.substring(0, 12) + '...' : 'null') + ' urls=' + (urls ? urls.length : 0));
+        // 4. Get token from fetch hook
+        var token = window.__lxToken || null;
 
-        // Output debug to console.error so KeiyoushiWebView logs it
-        try { console.error('LXDBG ' + _dbg.join(' | ')); } catch(e) {}
+        // 5. Debug output
+        var hookOk = window.__lxHookInstalled || false;
+        var capLen = (window.__lxCapturedUrls || []).length;
+        var imgLen = (window.__lxImageUrls || []).length;
+        var debug = (window.__lxDebug || []).slice(-6).join(' | ');
 
-        if (t && urls && urls.length > 0) {
-            return JSON.stringify({token: t, urls: urls});
+        _dbg.push('hook=' + hookOk);
+        _dbg.push('cap=' + capLen);
+        _dbg.push('img=' + imgLen);
+        _dbg.push('token=' + (token ? token.substring(0, 10) + '...' : 'null'));
+        _dbg.push('urls=' + urls.length);
+        _dbg.push('dbg=[' + debug + ']');
+
+        try { console.error('LXDBG v25 ' + _dbg.join(' | ')); } catch(e) {}
+
+        // 6. Return when both token AND URLs are ready
+        if (token && urls.length > 0) {
+            return JSON.stringify({token: token, urls: urls});
         }
-        return JSON.stringify({token: t || '', urls: urls || []});
+
+        // Return partial state
+        return JSON.stringify({token: token || '', urls: urls || [], ready: false});
     } catch(e) {
-        try { console.error('LXDBG err:' + e); } catch(ex) {}
-        return JSON.stringify({token:'',urls:[]});
+        try { console.error('LXDBG v25 err:' + e); } catch(ex) {}
+        return JSON.stringify({token: '', urls: [], error: String(e)});
     }
-})()
+})();
