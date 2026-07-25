@@ -276,7 +276,7 @@ abstract class TeamLanhLung : KeiSource() {
         val html = response.body.string()
         val document = Jsoup.parse(html, response.request.url.toString())
 
-        if (document.selectFirst("form.post-password-form input[name=post_password], input[name=post_password]") != null) {
+        if (document.selectFirst("form.post-password-form") != null) {
             throw Exception(passwordWebViewMessage)
         }
 
