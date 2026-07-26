@@ -34,13 +34,11 @@ abstract class TruyenHentaivn : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        mangaListParse(client.get(listPageUrl("/top-de-cu", page)))
+    override suspend fun getPopularManga(page: Int): MangasPage = mangaListParse(client.get(listPageUrl("/top-de-cu", page)))
 
     // ============================== Latest ================================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        mangaListParse(client.get(listPageUrl("/danh-sach", page)))
+    override suspend fun getLatestUpdates(page: Int): MangasPage = mangaListParse(client.get(listPageUrl("/danh-sach", page)))
 
     // ============================== Search ================================
 
@@ -82,8 +80,8 @@ abstract class TruyenHentaivn : KeiSource() {
     }
 
     private fun listPageUrl(path: String, page: Int): HttpUrl = "$baseUrl$path".toHttpUrl().newBuilder()
-            .addQueryParameter("page", page.toString())
-            .build()
+        .addQueryParameter("page", page.toString())
+        .build()
 
     private fun mangaListParse(response: Response): MangasPage {
         val document = response.asJsoup()
@@ -115,27 +113,26 @@ abstract class TruyenHentaivn : KeiSource() {
         )
     }
 
-    private fun mangaDetailsParse(document: Document, manga: SManga): SManga =
-        SManga.create().apply {
-            setUrlWithoutDomain(manga.url)
-            title = document.selectFirst(".comic-info .info h1.name")!!.text()
-            author = document.selectFirst(".meta-data .author i")
-                ?.text()
-                ?.ifEmpty { null }
-            genre = document.select(".meta-data .genre a")
-                .joinToString { it.text() }
-                .ifEmpty { null }
-            description = document.selectFirst(".comic-description .inner")
-                ?.text()
-                ?.ifEmpty { null }
-            status = parseStatus(
-                document.select(".tsinfo .imptdt")
-                    .firstOrNull { it.text().contains("Tình trạng") }
-                    ?.selectFirst("i")
-                    ?.text(),
-            )
-            thumbnail_url = document.selectFirst(".comic-info .book img")?.absUrl("src")
-        }
+    private fun mangaDetailsParse(document: Document, manga: SManga): SManga = SManga.create().apply {
+        setUrlWithoutDomain(manga.url)
+        title = document.selectFirst(".comic-info .info h1.name")!!.text()
+        author = document.selectFirst(".meta-data .author i")
+            ?.text()
+            ?.ifEmpty { null }
+        genre = document.select(".meta-data .genre a")
+            .joinToString { it.text() }
+            .ifEmpty { null }
+        description = document.selectFirst(".comic-description .inner")
+            ?.text()
+            ?.ifEmpty { null }
+        status = parseStatus(
+            document.select(".tsinfo .imptdt")
+                .firstOrNull { it.text().contains("Tình trạng") }
+                ?.selectFirst("i")
+                ?.text(),
+        )
+        thumbnail_url = document.selectFirst(".comic-info .book img")?.absUrl("src")
+    }
 
     private fun parseStatus(statusText: String?): Int {
         val normalized = statusText?.lowercase(Locale.ROOT)
@@ -213,8 +210,7 @@ abstract class TruyenHentaivn : KeiSource() {
         .distinctBy { it.path }
         .toJsonElement()
 
-    override fun getFilterList(data: JsonElement?): FilterList =
-        getFilters(data?.parseAs<List<GenreOption>>())
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
     // =============================== Related ==============================
 
