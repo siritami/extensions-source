@@ -13,7 +13,7 @@ class FirstPageInterceptor : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        if (request.url.fragment != firstPageFragment) return chain.proceed(request)
+        if (request.url.fragment != FIRST_PAGE_FRAGMENT) return chain.proceed(request)
 
         val response = chain.proceed(request)
         if (!response.isSuccessful) return response
@@ -48,4 +48,4 @@ class FirstPageInterceptor : Interceptor {
     }
 }
 
-internal const val firstPageFragment = "truyenmm-first-page"
+internal const val FIRST_PAGE_FRAGMENT = "truyenmm-first-page"
