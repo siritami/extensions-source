@@ -20,9 +20,9 @@ class FirstPageInterceptor : Interceptor {
 
         val source = response.body.byteStream().use(BitmapFactory::decodeStream)
             ?: throw IOException("Failed to decode first page")
-        val targetHeight = source.height * targetWidth / source.width
+        val targetHeight = source.height * TARGET_WIDTH / source.width
         val resized = try {
-            Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
+            Bitmap.createScaledBitmap(source, TARGET_WIDTH, targetHeight, true)
         } catch (error: Throwable) {
             source.recycle()
             throw error
@@ -43,7 +43,9 @@ class FirstPageInterceptor : Interceptor {
         }
     }
 
-    private val targetWidth = 720
+    private companion object {
+        const val TARGET_WIDTH = 720
+    }
 }
 
 internal const val firstPageFragment = "truyenmm-first-page"
