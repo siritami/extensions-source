@@ -57,8 +57,7 @@ class FirstPageInterceptor : Interceptor {
         }
     }
 
-    private fun ByteArray.readUnsignedShort(offset: Int): Int =
-        ((this[offset].toInt() and 0xFF) shl 8) or (this[offset + 1].toInt() and 0xFF)
+    private fun ByteArray.readUnsignedShort(offset: Int): Int = ((this[offset].toInt() and 0xFF) shl 8) or (this[offset + 1].toInt() and 0xFF)
 
     private companion object {
         const val JPEG_HEADER_SIZE = 10
