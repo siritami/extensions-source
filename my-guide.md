@@ -40,6 +40,31 @@ private fun authInterceptor() = Interceptor { chain ->
 
 - Import `okhttp3.Interceptor` and use `Interceptor` in declarations. Avoid fully qualified type names such as `okhttp3.Interceptor` in implementation code.
 
+---
+
+## Loading JS Assets Directly (Avoid `by lazy` for Large Scripts)
+
+When an extension injects large JavaScript via `evaluateJs` (e.g. anti-bot hooks), avoid caching the script string in a `by lazy` property. The `lazy` delegate keeps the string in memory for the lifetime of the extension class, which is wasteful since the WebView is only opened occasionally.
+
+### Instead — load inside the suspend function
+
+```kotlin
+override suspend fun getPageList(chapter: SChapter): List<Page> {
+    val hookScript = javaClass.getResource("/assets/hook.js")?.readText()
+        ?: throw IllegalStateException("hook.js not found")
+    val pollScript = javaClass.getResource("/assets/poll.js")?.readText()
+        ?: throw IllegalStateException("poll.js not found")
+
+    runWebView<...>(timeout = 60.seconds) {
+        onPageStarted { evaluateJs(hookScript) }
+        poll(1.seconds) { evaluateJs(pollScript) { ... resolve(...) } }
+        loadUrl(url)
+    }
+}
+```
+
+This way the strings are created on demand and garbage-collected after `getPageList` returns. The I/O cost (`getResource` + `readText`) is negligible compared to the WebView startup time.
+
 ## Requirements
 
 - `getLocalStorage` creates a WebView at `baseUrl` origin and reads `localStorage`
@@ -469,9 +494,10 @@ override suspend fun getSearchMangaList(
 
 `KeiSource` guarantees that `fetchDetails` and `fetchChapters` are not both `false`. Do not add an early return for that impossible state.
 
-Only perform the network request for a requested field. When details and chapters use independent requests, start both with `async` inside `coroutineScope` so they run in parallel, then preserve the existing value for any field that was not requested:
-
-If the details document is always fetched and already contains the manga details, parse and return those details unconditionally instead of checking `fetchDetails`.
+When one fetched document already contains both manga details and chapters,
+parse and return both unconditionally. Do not check `fetchDetails` or
+`fetchChapters` after paying for the shared request, because doing so discards
+data that is already available.
 
 ```kotlin
 override suspend fun fetchMangaUpdate(
@@ -479,33 +505,17 @@ override suspend fun fetchMangaUpdate(
     chapters: List<SChapter>,
     fetchDetails: Boolean,
     fetchChapters: Boolean,
-): SMangaUpdate = coroutineScope {
-    val mangaDeferred = if (fetchDetails) {
-        async {
-            val document = client.get("$baseUrl${manga.url}").asJsoup()
-            parseDetails(document, manga)
-        }
-    } else {
-        null
-    }
-    val chaptersDeferred = if (fetchChapters) {
-        async { fetchChapters(manga) }
-    } else {
-        null
-    }
-
-    SMangaUpdate(
-        manga = mangaDeferred?.await() ?: manga,
-        chapters = chaptersDeferred?.await() ?: chapters,
+): SMangaUpdate {
+    val document = client.get(getMangaUrl(manga)).asJsoup()
+    return SMangaUpdate(
+        manga = parseMangaDetails(document, manga),
+        chapters = parseChapterList(document),
     )
 }
 ```
 
-**Why:**
-- Ensures consistency in the data returned
-- Avoids partial updates that may cause issues
-- Simplifies the logic by removing conditional checks
-- Follows the pattern used in most successful extensions
+Only preserve an unrequested existing value when obtaining that field requires
+an independent request or other meaningful extra work.
 
 ---
 
