@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.truyenmm
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -9,16 +10,18 @@ class TruyenMMGetTopicResponse(
 
 @Serializable
 class TruyenMMTopic(
-    val _id: String? = null,
     val chapters: List<TruyenMMChapter>? = null,
-    val genres: List<String>? = null,
-    val img: String? = null,
-    val name: String? = null,
 )
 
 @Serializable
 class TruyenMMChapter(
-    val name: String? = null,
-    val id: String? = null,
-    val update_time: Long? = null,
+    val name: String,
+    val id: String,
+    @SerialName("update_time") val updateTime: Long? = null,
+)
+
+@Serializable
+class GenreOption(
+    val name: String,
+    val slug: String,
 )

@@ -6,12 +6,18 @@ plugins {
 
 keiyoushi {
     name = "TruyenMM"
-    versionCode = 2
+    versionCode = 3
     contentWarning = ContentWarning.NSFW
-    libVersion = "1.4"
+    libVersion = "1.6"
 
     source {
         lang = "vi"
-        baseUrl = "https://truyenmmhayr.com"
+        baseUrl {
+            custom("https://truyenmmhayr.com")
+        }
+    }
+
+    deeplink {
+        path("/truyen/.*")
     }
 }
