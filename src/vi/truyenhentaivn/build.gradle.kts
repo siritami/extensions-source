@@ -18,7 +18,7 @@ keiyoushi {
     }
 
     deeplink {
-        path("/.*-doc-truyen-.*\\.html")
-        path("/.*-xem-truyen-.*\\.html")
+        path("/..*-doc-truyen-..*\\.html")
+        path("/..*-..*-xem-truyen-..*\\.html")
     }
 }
