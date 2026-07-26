@@ -9,40 +9,41 @@ import okhttp3.ResponseBody.Companion.asResponseBody
 import okio.Buffer
 import java.io.IOException
 
-class TallImageInterceptor : Interceptor {
+class FirstPageInterceptor : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        if (request.url.fragment != tallImageFragment) return chain.proceed(request)
+        if (request.url.fragment != firstPageFragment) return chain.proceed(request)
 
         val response = chain.proceed(request)
         if (!response.isSuccessful) return response
 
         val source = response.body.byteStream().use(BitmapFactory::decodeStream)
-            ?: throw IOException("Failed to decode tall image")
-        val resized = if (source.height > maxImageHeight) {
-            val width = source.width * maxImageHeight / source.height
-            Bitmap.createScaledBitmap(source, width, maxImageHeight, true)
-        } else {
-            source
+            ?: throw IOException("Failed to decode first page")
+        val targetHeight = source.height * targetWidth / source.width
+        val resized = try {
+            Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
+        } catch (error: Throwable) {
+            source.recycle()
+            throw error
         }
 
         return try {
             val output = Buffer()
             if (!resized.compress(Bitmap.CompressFormat.JPEG, 95, output.outputStream())) {
-                throw IOException("Failed to encode tall image")
+                throw IOException("Failed to encode first page")
             }
 
             response.newBuilder()
                 .body(output.asResponseBody("image/jpeg".toMediaType()))
                 .build()
         } finally {
-            if (resized !== source) resized.recycle()
+            resized.recycle()
             source.recycle()
         }
     }
 
-    private val maxImageHeight = 6500
+    private val targetWidth = 720
 }
 
-internal const val tallImageFragment = "truyenmm-tall-image"
+internal const val firstPageFragment = "truyenmm-first-page"

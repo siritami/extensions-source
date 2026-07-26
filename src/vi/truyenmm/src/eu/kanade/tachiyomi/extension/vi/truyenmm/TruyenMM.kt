@@ -36,7 +36,7 @@ import kotlin.time.Duration.Companion.seconds
 abstract class TruyenMM : KeiSource() {
 
     override fun OkHttpClient.Builder.configureClient() = rateLimit(3)
-        .addInterceptor(TallImageInterceptor())
+        .addInterceptor(FirstPageInterceptor())
 
     // ============================== Popular ===============================
 
@@ -237,7 +237,7 @@ abstract class TruyenMM : KeiSource() {
 
         return imageUrls.mapIndexed { index, imageUrl ->
             val readerUrl = if (imageUrl.substringBefore('#').endsWith("/0.jpg")) {
-                "$imageUrl#$tallImageFragment"
+                "$imageUrl#$firstPageFragment"
             } else {
                 imageUrl
             }
