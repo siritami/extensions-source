@@ -208,10 +208,12 @@ abstract class TruyenHentaiz : KeiSource() {
         val imageUrls = document.select("#chapter-content img[src], #chapter-content img[data-src]")
             .mapNotNull { it.extractImageUrl() }
             .filterNot { it.startsWith("data:") }
+            .filterNot(::isChapterBanner)
             .ifEmpty {
                 document.select("#chapter-content img, .chapter-content img")
                     .mapNotNull { it.extractImageUrl() }
                     .filterNot { it.startsWith("data:") }
+                    .filterNot(::isChapterBanner)
             }
             .distinct()
 
@@ -219,6 +221,9 @@ abstract class TruyenHentaiz : KeiSource() {
             Page(index, imageUrl = imageUrl)
         }
     }
+
+    private fun isChapterBanner(imageUrl: String): Boolean =
+        imageUrl.toHttpUrlOrNull()?.pathSegments?.lastOrNull() == "bn.png"
 
     // ============================== Filters ===============================
 
