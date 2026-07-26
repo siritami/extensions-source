@@ -15,11 +15,6 @@ import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.serialization.json.JsonElement
-import kotlin.time.Clock
-import kotlin.time.Duration.Companion.days
-import kotlin.time.Duration.Companion.hours
-import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -27,6 +22,11 @@ import okhttp3.OkHttpClient
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class TruyenHentai18 : KeiSource() {
@@ -35,8 +35,7 @@ abstract class TruyenHentai18 : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        parseMangaPage(client.get(buildPagedUrl("/xem-nhieu-nhat", page)))
+    override suspend fun getPopularManga(page: Int): MangasPage = parseMangaPage(client.get(buildPagedUrl("/xem-nhieu-nhat", page)))
 
     private fun parseMangaPage(response: Response): MangasPage {
         val document = response.asJsoup()
@@ -60,8 +59,7 @@ abstract class TruyenHentai18 : KeiSource() {
 
     // ============================== Latest ================================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        parseMangaPage(client.get(buildPagedUrl("/moi-cap-nhat", page)))
+    override suspend fun getLatestUpdates(page: Int): MangasPage = parseMangaPage(client.get(buildPagedUrl("/moi-cap-nhat", page)))
 
     // ============================== Search ================================
 
@@ -145,15 +143,14 @@ abstract class TruyenHentai18 : KeiSource() {
             ?.joinToString("\n")
     }
 
-    private fun parseChapterList(document: Document): List<SChapter> =
-        document.select("div.chapter-item").map { element ->
-            val link = element.selectFirst("a.fw-bold")!!
-            SChapter.create().apply {
-                setUrlWithoutDomain(link.absUrl("href"))
-                name = link.text()
-                date_upload = parseRelativeDate(element.selectFirst("div.chapter-date")?.text())
-            }
+    private fun parseChapterList(document: Document): List<SChapter> = document.select("div.chapter-item").map { element ->
+        val link = element.selectFirst("a.fw-bold")!!
+        SChapter.create().apply {
+            setUrlWithoutDomain(link.absUrl("href"))
+            name = link.text()
+            date_upload = parseRelativeDate(element.selectFirst("div.chapter-date")?.text())
         }
+    }
 
     private fun parseRelativeDate(value: String?): Long {
         val dateText = value?.lowercase() ?: return 0L
@@ -176,12 +173,11 @@ abstract class TruyenHentai18 : KeiSource() {
 
     // ============================== Pages =================================
 
-    override suspend fun getPageList(chapter: SChapter): List<Page> =
-        client.get(getChapterUrl(chapter)).asJsoup()
-            .select("div#viewer.chapter-container img")
-            .mapIndexed { index, element ->
-                Page(index, imageUrl = imageUrl(element))
-            }
+    override suspend fun getPageList(chapter: SChapter): List<Page> = client.get(getChapterUrl(chapter)).asJsoup()
+        .select("div#viewer.chapter-container img")
+        .mapIndexed { index, element ->
+            Page(index, imageUrl = imageUrl(element))
+        }
 
     private fun imageUrl(element: Element): String? = when {
         element.hasAttr("data-src") -> element.attr("abs:data-src")
@@ -219,8 +215,7 @@ abstract class TruyenHentai18 : KeiSource() {
         }
     }
 
-    override fun getFilterList(data: JsonElement?): FilterList =
-        getFilters(data?.parseAs<List<GenreOption>>())
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
     private val dateNumberRegex = Regex("\\d+")
 }
