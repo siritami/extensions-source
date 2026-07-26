@@ -22,6 +22,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -275,7 +276,7 @@ abstract class Seikowo : KeiSource() {
             thumbnail_url = metadata.coverImage
             status = parseStatus(metadata.status)
             genre = metadata.tags?.joinToString()?.let(::decodeHtmlEntities)
-            memo = buildJsonObject { put("postId", postId) }
+            memo = buildJsonObject { put("postId", JsonPrimitive(postId)) }
         }
 
         val seriesId = metadata.seriesId
