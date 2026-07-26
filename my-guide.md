@@ -112,6 +112,48 @@ val pages = chapter.images.sortedBy { it.order }
 Use an explicit predicate only when the inferred required fields are not unique
 enough to identify the intended object.
 
+### Join Split Next.js Flight Records Locally
+
+Use the normal `extractNextJs<T>()` flow first. Some App Router sites split one
+RSC ByteText chunk across multiple ordered `self.__next_f.push` scripts. For
+example, one script may end with the ByteText header `21:Tc4e,`, while the next
+script starts with the referenced HTML. Parsing each script separately leaves
+the model field unresolved as `"$21"` or resolves the chunk as an empty string.
+
+When this behavior is confirmed for a source, decode the second item from each
+push array, join those strings in document order, and pass the continuous RSC
+stream to `extractNextJsRsc<T>()`:
+
+```kotlin
+private fun Document.extractReaderChapter(chapterSlug: String): ReaderChapter? {
+    val rscBody = select("script:not([src])")
+        .mapNotNull { script ->
+            val data = script.data()
+            if (!data.startsWith(nextFlightPrefix)) return@mapNotNull null
+
+            runCatching {
+                data.substring(nextFlightPrefix.length, data.lastIndexOf(')'))
+                    .parseAs<JsonArray>()
+                    .getOrNull(1)
+                    ?.stringOrNull
+            }.getOrNull()
+        }
+        .joinToString("")
+
+    return rscBody.extractNextJsRsc<ReaderChapter> { element ->
+        element is JsonObject &&
+            element.getStringOrNull("slug") == chapterSlug &&
+            !element.getStringOrNull("content").isNullOrBlank()
+    }
+}
+```
+
+Keep this workaround local to the affected source unless multiple sources prove
+that the shared parser needs the same behavior. Preserve script order, decode
+the push arrays with JSON utilities instead of manually unescaping JavaScript,
+and continue using an explicit predicate only when the target object is not
+uniquely identifiable from its required fields.
+
 ## Source Code Organization
 
 For source files with several responsibilities, group each override with its

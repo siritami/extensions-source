@@ -12,7 +12,9 @@ keiyoushi {
 
     source {
         lang = "vi"
-        baseUrl = "https://truyen18.co"
+        baseUrl {
+            custom("https://truyen18.co")
+        }
     }
 
     deeplink {
