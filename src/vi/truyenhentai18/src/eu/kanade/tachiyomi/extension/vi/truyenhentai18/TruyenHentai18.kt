@@ -153,7 +153,7 @@ abstract class TruyenHentai18 : KeiSource() {
     }
 
     private fun parseRelativeDate(value: String?): Long {
-        val dateText = value?.lowercase() ?: return 0L
+        val dateText = value?.substringAfterLast("•")?.trim()?.lowercase() ?: return 0L
         if ("trước" !in dateText) return 0L
 
         val amount = dateNumberRegex.find(dateText)?.value?.toIntOrNull() ?: return 0L
