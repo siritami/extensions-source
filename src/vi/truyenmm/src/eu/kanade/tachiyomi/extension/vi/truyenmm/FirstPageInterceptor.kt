@@ -2,7 +2,7 @@ package eu.kanade.tachiyomi.extension.vi.truyenmm
 
 import okhttp3.Interceptor
 import okhttp3.Response
-import okhttp3.ResponseBody.Companion.asResponseBody
+import okhttp3.ResponseBody.Companion.toResponseBody
 
 class FirstPageInterceptor : Interceptor {
 
@@ -18,7 +18,7 @@ class FirstPageInterceptor : Interceptor {
         normalizeWidth(image)
 
         return response.newBuilder()
-            .body(image.asResponseBody(mediaType))
+            .body(image.toResponseBody(mediaType))
             .build()
     }
 
