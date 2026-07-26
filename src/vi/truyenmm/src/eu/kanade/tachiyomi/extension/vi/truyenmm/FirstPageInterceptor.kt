@@ -8,9 +8,14 @@ class FirstPageInterceptor : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        if (request.url.fragment != FIRST_PAGE_FRAGMENT) return chain.proceed(request)
+        if (request.url.queryParameter(FIRST_PAGE_QUERY_PARAMETER) != FIRST_PAGE_QUERY_VALUE) {
+            return chain.proceed(request)
+        }
 
-        val response = chain.proceed(request)
+        val imageUrl = request.url.newBuilder()
+            .removeAllQueryParameters(FIRST_PAGE_QUERY_PARAMETER)
+            .build()
+        val response = chain.proceed(request.newBuilder().url(imageUrl).build())
         if (!response.isSuccessful) return response
 
         val mediaType = response.body.contentType()
@@ -74,4 +79,5 @@ class FirstPageInterceptor : Interceptor {
     }
 }
 
-internal const val FIRST_PAGE_FRAGMENT = "truyenmm-first-page"
+internal const val FIRST_PAGE_QUERY_PARAMETER = "truyenmm_first_page"
+internal const val FIRST_PAGE_QUERY_VALUE = "1"

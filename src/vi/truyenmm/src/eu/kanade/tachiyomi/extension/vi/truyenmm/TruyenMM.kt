@@ -237,7 +237,10 @@ abstract class TruyenMM : KeiSource() {
 
         return imageUrls.mapIndexed { index, imageUrl ->
             val readerUrl = if (imageUrl.substringBefore('#').endsWith("/0.jpg")) {
-                "$imageUrl#$FIRST_PAGE_FRAGMENT"
+                imageUrl.toHttpUrl().newBuilder()
+                    .addQueryParameter(FIRST_PAGE_QUERY_PARAMETER, FIRST_PAGE_QUERY_VALUE)
+                    .build()
+                    .toString()
             } else {
                 imageUrl
             }
