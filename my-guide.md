@@ -712,6 +712,28 @@ val expiresAt = data["expires_at"]?.let { runCatching { it.long }.getOrNull() } 
 
 Prefer these shared helpers over source-local `JsonElement` conversion extensions.
 
+## Store Request Identifiers in Memo
+
+When a listing response provides an identifier needed by later requests, store it
+in `SManga.memo` and reuse it instead of fetching the details page only to recover
+the same identifier. Memo values are `JsonElement`s, so wrap string values in
+`JsonPrimitive` explicitly:
+
+```kotlin
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+
+manga.memo = buildJsonObject {
+    put("postId", JsonPrimitive(postId))
+}
+
+val postId = manga.memo["postId"]?.string ?: fetchPostId(manga.url)
+```
+
+Preserve the memo value on the manga returned from `fetchMangaUpdate`. Keep a
+network fallback for old library entries created before the memo was added, so
+they fetch the identifier once and retain it for subsequent updates.
+
 When parsing filter data produced by the extension's own `fetchFilterData()`, do
 not wrap `parseAs` in `runCatching`. Handle only the nullable input explicitly and
 let malformed non-null filter data propagate:
