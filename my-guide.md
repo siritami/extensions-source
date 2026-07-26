@@ -344,6 +344,20 @@ override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
 
 ### 2. Filter-Based Search
 
+When extending `Filter.Select`, do not declare a property named `values` in
+the subclass. `Filter.Select` already has a member with that name, so the new
+property hides the inherited member and causes a compilation error. Use a
+specific name such as `slugs`, `ids`, or `paths` instead:
+
+```kotlin
+class GenreFilter(genres: List<GenreOption>) :
+    Filter.Select<String>("Genre", genres.map { it.name }.toTypedArray()) {
+    private val slugs = genres.map { it.slug }
+
+    fun toUriPart(): String = slugs[state]
+}
+```
+
 ```kotlin
 override suspend fun getSearchMangaList(
     page: Int,

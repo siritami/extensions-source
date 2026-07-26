@@ -26,7 +26,7 @@ class GenreFilter(genres: List<GenreOption>) :
         "Thể loại",
         genres.map { it.name }.toTypedArray(),
     ) {
-    private val values = genres.map { it.slug }
+    private val slugs = genres.map { it.slug }
 
-    fun toUriPart(): String = values[state]
+    fun toUriPart(): String = slugs[state]
 }
