@@ -13,7 +13,6 @@ class GenreFilter(genres: List<GenreOption>) :
     fun toUriPart(): String = slugs[state]
 }
 
-fun getFilters(genres: List<GenreOption>?): FilterList =
-    genres?.takeIf { it.isNotEmpty() }
-        ?.let { FilterList(GenreFilter(it)) }
-        ?: FilterList()
+fun getFilters(genres: List<GenreOption>?): FilterList = genres?.takeIf { it.isNotEmpty() }
+    ?.let { FilterList(GenreFilter(it)) }
+    ?: FilterList()

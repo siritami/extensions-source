@@ -39,13 +39,11 @@ abstract class TruyenMM : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        parseMangaListPage(client.get("$baseUrl/danh-sach-truyen/$page"))
+    override suspend fun getPopularManga(page: Int): MangasPage = parseMangaListPage(client.get("$baseUrl/danh-sach-truyen/$page"))
 
     // ============================== Latest ================================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        parseMangaListPage(client.get("$baseUrl/truyen-moi-cap-nhat/$page"))
+    override suspend fun getLatestUpdates(page: Int): MangasPage = parseMangaListPage(client.get("$baseUrl/truyen-moi-cap-nhat/$page"))
 
     // ============================== Search ================================
 
@@ -256,8 +254,7 @@ abstract class TruyenMM : KeiSource() {
         .distinctBy { it.slug }
         .toJsonElement()
 
-    override fun getFilterList(data: JsonElement?): FilterList =
-        getFilters(data?.parseAs<List<GenreOption>>())
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
     // =============================== Related ==============================
 
