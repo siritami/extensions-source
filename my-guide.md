@@ -59,6 +59,45 @@ body is intentionally unused, close the response directly:
 client.get(url).close()
 ```
 
+## Store Thumbnail Fallback URLs in Fragments
+
+When each thumbnail has its own fallback URL, store the fallback in the primary
+thumbnail URL's fragment and read it from an application interceptor. URL
+fragments remain available through `request.url.fragment` but are not sent to
+the image server.
+
+```kotlin
+private val thumbnailFallbackInterceptor = Interceptor { chain ->
+    val request = chain.request()
+    val response = chain.proceed(request)
+    val fallbackUrl = request.url.fragment
+        ?.takeIf { it.startsWith(thumbnailFallbackFragmentPrefix) }
+        ?.removePrefix(thumbnailFallbackFragmentPrefix)
+        ?: return@Interceptor response
+
+    if (response.code != 401 && response.code != 404) {
+        return@Interceptor response
+    }
+
+    response.close()
+    chain.proceed(GET(fallbackUrl, request.headers))
+}
+
+private fun withThumbnailFallback(primaryUrl: String, fallbackUrl: String): String =
+    primaryUrl.toHttpUrl().newBuilder()
+        .fragment("$thumbnailFallbackFragmentPrefix$fallbackUrl")
+        .build()
+        .toString()
+
+private val thumbnailFallbackFragmentPrefix = "fallback-url:"
+```
+
+Prefer this over storing primary-to-fallback pairs in a mutable map. The
+fragment keeps the fallback scoped to its image request, works for repeated and
+concurrent requests, and does not leave stale entries when an image is never
+loaded. Use a distinct prefix so the interceptor ignores unrelated fragments,
+and close the failed response before executing the fallback request.
+
 ## Preserve Actionable Custom Messages
 
 The general recommendation to return `emptyList()` for locked or empty content
