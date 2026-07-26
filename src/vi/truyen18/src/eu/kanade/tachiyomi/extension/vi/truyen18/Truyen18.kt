@@ -265,10 +265,10 @@ abstract class Truyen18 : KeiSource() {
             .joinToString("")
 
         return rscBody.extractNextJsRsc<ReaderChapter> { element ->
-                element is JsonObject &&
-                    element.getStringOrNull("slug") == chapterSlug &&
-                    !element.getStringOrNull("content").isNullOrBlank()
-            }
+            element is JsonObject &&
+                element.getStringOrNull("slug") == chapterSlug &&
+                !element.getStringOrNull("content").isNullOrBlank()
+        }
     }
 
     // ============================== Filters ===============================
