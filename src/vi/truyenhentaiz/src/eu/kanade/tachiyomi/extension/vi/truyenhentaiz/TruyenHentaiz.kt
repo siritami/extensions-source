@@ -222,8 +222,7 @@ abstract class TruyenHentaiz : KeiSource() {
         }
     }
 
-    private fun isChapterBanner(imageUrl: String): Boolean =
-        imageUrl.toHttpUrlOrNull()?.pathSegments?.lastOrNull() == "bn.png"
+    private fun isChapterBanner(imageUrl: String): Boolean = imageUrl.toHttpUrlOrNull()?.pathSegments?.lastOrNull() == "bn.png"
 
     // ============================== Filters ===============================
 
