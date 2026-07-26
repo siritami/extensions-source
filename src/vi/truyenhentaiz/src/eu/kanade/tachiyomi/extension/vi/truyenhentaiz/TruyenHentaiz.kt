@@ -206,11 +206,11 @@ abstract class TruyenHentaiz : KeiSource() {
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val document = client.get(getChapterUrl(chapter)).asJsoup()
         val imageUrls = document.select("#chapter-content img[src], #chapter-content img[data-src]")
-            .mapNotNull(Element::extractImageUrl)
+            .mapNotNull { it.extractImageUrl() }
             .filterNot { it.startsWith("data:") }
             .ifEmpty {
                 document.select("#chapter-content img, .chapter-content img")
-                    .mapNotNull(Element::extractImageUrl)
+                    .mapNotNull { it.extractImageUrl() }
                     .filterNot { it.startsWith("data:") }
             }
             .distinct()

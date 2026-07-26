@@ -191,6 +191,12 @@ when it has fewer than three call sites. Keep it in a shared Utilities section
 when it is called three or more times, especially when those callers use
 different selectors or parsing contexts.
 
+Do not use callable references such as `Element::helper` for member extension
+functions declared inside a source class; Kotlin prohibits references to
+elements that are members and extensions at the same time. Call the extension
+through a lambda or use a regular member helper that accepts the receiver as a
+parameter.
+
 ## Derived Request Headers
 
 Declare custom request headers with an explicit `Headers` getter when they should be built from the source's current `headersBuilder()` on each access:
