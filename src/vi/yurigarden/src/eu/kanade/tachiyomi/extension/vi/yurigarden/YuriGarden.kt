@@ -143,13 +143,13 @@ abstract class YuriGarden :
 
     override suspend fun getPopularManga(page: Int): MangasPage {
         loadAuthToken()
-        val url = "$apiUrl/comics/rank/trending".toHttpUrl().newBuilder()
+        val requestUrl = "$apiUrl/comics/rank/trending".toHttpUrl().newBuilder()
             .addQueryParameter("viewType", "view")
             .addQueryParameter("trendingType", "day")
             .addQueryParameter("r18", allowR18.toString())
             .build()
 
-        val result = client.get(url, apiHeaders).parseAs<List<TrendingComic>>()
+        val result = client.get(requestUrl, apiHeaders).parseAs<List<TrendingComic>>()
 
         val mangaList = result.map { comic ->
             SManga.create().apply {
@@ -168,14 +168,14 @@ abstract class YuriGarden :
 
     override suspend fun getLatestUpdates(page: Int): MangasPage {
         loadAuthToken()
-        val url = "$apiUrl/comics".toHttpUrl().newBuilder()
+        val requestUrl = "$apiUrl/comics".toHttpUrl().newBuilder()
             .addQueryParameter("page", page.toString())
             .addQueryParameter("limit", limit.toString())
             .addQueryParameter("r18", allowR18.toString())
             .addQueryParameter("full", "true")
             .build()
 
-        val result = client.get(url, apiHeaders).parseAs<ComicsResponse>()
+        val result = client.get(requestUrl, apiHeaders).parseAs<ComicsResponse>()
 
         val mangaList = result.comics.map { comic ->
             SManga.create().apply {
@@ -194,7 +194,7 @@ abstract class YuriGarden :
 
     override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
         loadAuthToken()
-        val url = "$apiUrl/comics".toHttpUrl().newBuilder().apply {
+        val requestUrl = "$apiUrl/comics".toHttpUrl().newBuilder().apply {
             addQueryParameter("page", page.toString())
             addQueryParameter("limit", limit.toString())
             addQueryParameter("allowR18", allowR18.toString())
@@ -237,7 +237,7 @@ abstract class YuriGarden :
             }
         }.build()
 
-        val result = client.get(url, apiHeaders).parseAs<ComicsResponse>()
+        val result = client.get(requestUrl, apiHeaders).parseAs<ComicsResponse>()
         val mangaList = result.comics.map { comic ->
             SManga.create().apply {
                 url = "/comic/${comic.id}"
@@ -250,7 +250,7 @@ abstract class YuriGarden :
 
     // ============================== Details ===============================
 
-    private fun mangaId(manga: SManga): String = manga.url.toHttpUrl(baseUrl).pathSegments.last()
+    private fun mangaId(manga: SManga): String = baseUrl.toHttpUrl().resolve(manga.url)!!.pathSegments.last()
 
     private fun ComicDetail.toSManga() = SManga.create().apply {
         url = "/comic/${this@toSManga.id}"
@@ -309,7 +309,7 @@ abstract class YuriGarden :
         )
     }
 
-    private fun chapterId(chapter: SChapter): String = chapter.url.toHttpUrl(baseUrl).pathSegments.last()
+    private fun chapterId(chapter: SChapter): String = baseUrl.toHttpUrl().resolve(chapter.url)!!.pathSegments.last()
 
     private fun List<ChapterData>.toSChapters(comicId: String): List<SChapter> = this
         .sortedWith(
