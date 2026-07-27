@@ -320,9 +320,7 @@ abstract class TruyenTVN : KeiSource() {
         val mangaList = document.select("main div.comic-card > a[href]")
             .map(::parseMangaElement)
             .distinctBy { it.url }
-        val hasNextPage = document.selectFirst("link[rel=next], a[href*='paged=']:has(i.fa-chevron-right)") != null ||
-            mangaList.size >= mangaPageSize
-        return MangasPage(mangaList, hasNextPage)
+        return MangasPage(mangaList, mangaList.isNotEmpty())
     }
 
     private fun parseMangaElement(mangaElement: Element): SManga = SManga.create().apply {
@@ -354,5 +352,4 @@ abstract class TruyenTVN : KeiSource() {
     private val popularPath = "/xem-nhieu-nhat"
     private val chapterOrderNewest = "newest_first"
     private val chaptersPerPage = 16
-    private val mangaPageSize = 24
 }
