@@ -56,6 +56,8 @@ abstract class YuriGarden :
 
     private var authChecked = false
 
+    private val authTokenMutex = Mutex()
+
     private var cachedMangaToken: String? = null
 
     private var cachedMangaTokenServerFn: String? = null
@@ -103,10 +105,9 @@ abstract class YuriGarden :
     private fun loginRequiredInterceptor() = Interceptor { chain ->
         val response = chain.proceed(chain.request())
         val responseUrl = response.request.url
-        val isApiUnauthorized = response.code == 401 && responseUrl.host == apiHost
         val isLoginPage = responseUrl.host == baseHost && responseUrl.encodedPath == "/login"
 
-        if (isApiUnauthorized || isLoginPage) {
+        if (isLoginPage) {
             cachedAuthToken = null
             authChecked = false
             response.close()
@@ -115,13 +116,43 @@ abstract class YuriGarden :
         response
     }
 
-    private suspend fun loadAuthToken() {
-        if (authChecked) return
-        authChecked = true
+    private suspend fun loadAuthToken() = authTokenMutex.withLock {
+        if (authChecked) return@withLock
         cachedAuthToken = runCatching { readApiAccessToken() }.getOrNull()
+        authChecked = true
     }
 
-    private suspend fun readApiAccessToken(): String? {
+    private suspend fun refreshAuthToken(staleToken: String?): Boolean = authTokenMutex.withLock {
+        if (cachedAuthToken != staleToken && !cachedAuthToken.isNullOrBlank()) return@withLock true
+
+        val refreshedToken = runCatching { readApiAccessToken(staleToken) }.getOrNull()
+        cachedAuthToken = refreshedToken
+        authChecked = true
+        !refreshedToken.isNullOrBlank() && refreshedToken != staleToken
+    }
+
+    private suspend fun authenticatedGet(url: HttpUrl): Response {
+        loadAuthToken()
+        val staleToken = cachedAuthToken
+        val response = client.get(url, apiHeaders)
+        if (response.code != 401) return response
+
+        response.close()
+        if (!refreshAuthToken(staleToken)) throw IOException(loginRequiredMessage)
+
+        return client.get(url, apiHeaders).also { retryResponse ->
+            if (retryResponse.code == 401) {
+                cachedAuthToken = null
+                authChecked = false
+                retryResponse.close()
+                throw IOException(loginRequiredMessage)
+            }
+        }
+    }
+
+    private suspend fun authenticatedGet(url: String): Response = authenticatedGet(url.toHttpUrl())
+
+    private suspend fun readApiAccessToken(staleToken: String? = null): String? {
         val pool = ('a'..'z') + ('A'..'Z')
         val bridgeName = (1..(10..20).random())
             .map { pool.random() }
@@ -131,11 +162,24 @@ abstract class YuriGarden :
         val script = readAuthTokenScript.replace("__AUTH_BRIDGE_NAME__", bridgeName)
 
         return runWebView(timeout = 10.seconds) {
-            jsBridge(bridgeName) { value -> resolve(value.ifBlank { null }) }
-            onPageFinished {
-                evaluateJs(script)
+            jsBridge(bridgeName) { value ->
+                if (staleToken == null) {
+                    resolve(value.ifBlank { null })
+                } else if (value.isNotBlank() && value != staleToken) {
+                    resolve(value)
+                }
             }
-            loadData(baseUrl, "")
+            if (staleToken == null) {
+                onPageFinished {
+                    evaluateJs(script)
+                }
+                loadData(baseUrl, "")
+            } else {
+                poll(1.seconds) {
+                    evaluateJs(script)
+                }
+                loadUrl(baseUrl)
+            }
         }
     }
 
@@ -149,7 +193,7 @@ abstract class YuriGarden :
             .addQueryParameter("r18", allowR18.toString())
             .build()
 
-        val result = client.get(requestUrl, apiHeaders).parseAs<List<TrendingComic>>()
+        val result = authenticatedGet(requestUrl).parseAs<List<TrendingComic>>()
 
         val mangaList = result.map { comic ->
             SManga.create().apply {
@@ -175,7 +219,7 @@ abstract class YuriGarden :
             .addQueryParameter("full", "true")
             .build()
 
-        val result = client.get(requestUrl, apiHeaders).parseAs<ComicsResponse>()
+        val result = authenticatedGet(requestUrl).parseAs<ComicsResponse>()
 
         val mangaList = result.comics.map { comic ->
             SManga.create().apply {
@@ -237,7 +281,7 @@ abstract class YuriGarden :
             }
         }.build()
 
-        val result = client.get(requestUrl, apiHeaders).parseAs<ComicsResponse>()
+        val result = authenticatedGet(requestUrl).parseAs<ComicsResponse>()
         val mangaList = result.comics.map { comic ->
             SManga.create().apply {
                 url = "/comic/${comic.id}"
@@ -273,7 +317,7 @@ abstract class YuriGarden :
         if (url.host != baseHost || url.pathSegments.firstOrNull() != "comic") return null
         val comicId = url.pathSegments.getOrNull(1)?.takeIf(String::isNotBlank) ?: return null
         loadAuthToken()
-        return client.get("$apiUrl/comics/$comicId", apiHeaders)
+        return authenticatedGet("$apiUrl/comics/$comicId")
             .parseAs<ComicDetail>()
             .toSManga()
     }
@@ -288,14 +332,14 @@ abstract class YuriGarden :
         val comicId = mangaId(manga)
         val details = if (fetchDetails) {
             async {
-                client.get("$apiUrl/comics/$comicId", apiHeaders).parseAs<ComicDetail>().toSManga()
+                authenticatedGet("$apiUrl/comics/$comicId").parseAs<ComicDetail>().toSManga()
             }
         } else {
             null
         }
         val chapterList = if (fetchChapters) {
             async {
-                client.get("$apiUrl/chapters/comic/$comicId", apiHeaders)
+                authenticatedGet("$apiUrl/chapters/comic/$comicId")
                     .parseAs<List<ChapterData>>()
                     .toSChapters(comicId)
             }
@@ -340,7 +384,7 @@ abstract class YuriGarden :
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         loadAuthToken()
-        val response = client.get("$apiUrl/chapters/pages/${chapterId(chapter)}", apiHeaders)
+        val response = authenticatedGet("$apiUrl/chapters/pages/${chapterId(chapter)}")
         val result = decryptIfNeeded(response)
 
         return result.pages.mapIndexed { index, page ->
@@ -468,7 +512,7 @@ abstract class YuriGarden :
 
     override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
         loadAuthToken()
-        val result = client.get("$apiUrl/comics/related/${mangaId(manga)}", apiHeaders)
+        val result = authenticatedGet("$apiUrl/comics/related/${mangaId(manga)}")
             .parseAs<List<Comic>>()
 
         return result.map { comic ->
