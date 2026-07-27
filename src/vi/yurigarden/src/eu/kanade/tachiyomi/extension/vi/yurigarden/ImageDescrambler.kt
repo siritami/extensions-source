@@ -9,34 +9,24 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.asResponseBody
 import okio.Buffer
-import java.io.IOException
 
 /** Descrambles YuriGarden images using key-based strip permutation. */
 class ImageDescrambler : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val response = chain.proceed(chain.request())
-        val key = response.request.url.fragment
-            ?.takeIf { it.startsWith(KEY_FRAGMENT_PREFIX) }
-            ?.removePrefix(KEY_FRAGMENT_PREFIX)
+        val fragment = response.request.url.fragment ?: return response
+        if (!fragment.contains("KEY=")) return response
+
+        val key = fragment.substringAfter("KEY=")
+        val bitmap = BitmapFactory.decodeStream(response.body.byteStream())
             ?: return response
-        val bitmap = response.use {
-            BitmapFactory.decodeStream(it.body.byteStream())
-        } ?: throw IOException("Failed to decode scrambled image")
+
+        val descrambled = unscrambleImage(bitmap, key)
+        bitmap.recycle()
 
         val buffer = Buffer()
-        val descrambled = try {
-            unscrambleImage(bitmap, key)
-        } finally {
-            bitmap.recycle()
-        }
-
-        try {
-            if (!descrambled.compress(Bitmap.CompressFormat.JPEG, 90, buffer.outputStream())) {
-                throw IOException("Failed to encode descrambled image")
-            }
-        } finally {
-            descrambled.recycle()
-        }
+        descrambled.compress(Bitmap.CompressFormat.JPEG, 90, buffer.outputStream())
+        descrambled.recycle()
 
         return response.newBuilder()
             .body(buffer.asResponseBody(MEDIA_TYPE, buffer.size))
@@ -126,7 +116,6 @@ class ImageDescrambler : Interceptor {
 
     companion object {
         private const val PARTS = 10
-        private const val KEY_FRAGMENT_PREFIX = "KEY="
 
         private val MEDIA_TYPE = "image/jpeg".toMediaType()
 
