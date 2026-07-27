@@ -789,23 +789,33 @@ Prefer these shared helpers over source-local `JsonElement` conversion extension
 
 When a listing response provides an identifier needed by later requests, store it
 in `SManga.memo` and reuse it instead of fetching the details page only to recover
-the same identifier. Memo values are `JsonElement`s, so wrap string values in
-`JsonPrimitive` explicitly:
+the same identifier. Prefer the shared JSON helpers from `keiyoushi.utils` for
+reading and encoding memo values:
 
 ```kotlin
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
+import keiyoushi.utils.stringOrNull
+import keiyoushi.utils.toJsonElement
+import kotlinx.serialization.json.JsonObject
 
-manga.memo = buildJsonObject {
-    put("postId", JsonPrimitive(postId))
-}
+val postId = manga.memo["postId"]?.stringOrNull ?: fetchPostId(manga.url)
 
-val postId = manga.memo["postId"]?.string ?: fetchPostId(manga.url)
+private fun JsonObject.withPostId(postId: String): JsonObject =
+    JsonObject(this + ("postId" to postId.toJsonElement()))
 ```
+
+Use `JsonObject` directly when an updated memo must preserve existing entries.
+The shared utilities provide typed accessors and serialization, but do not
+provide an immutable object-merge builder.
 
 Preserve the memo value on the manga returned from `fetchMangaUpdate`. Keep a
 network fallback for old library entries created before the memo was added, so
 they fetch the identifier once and retain it for subsequent updates.
+
+Do not fetch the details document unconditionally in `fetchMangaUpdate`. When
+only chapters are requested and the identifier already exists in `SManga.memo`,
+use it directly and skip the details request. Fetch the document only when
+details are requested or when a requested operation still needs a missing
+identifier.
 
 When parsing filter data produced by the extension's own `fetchFilterData()`, do
 not wrap `parseAs` in `runCatching`. Handle only the nullable input explicitly and
