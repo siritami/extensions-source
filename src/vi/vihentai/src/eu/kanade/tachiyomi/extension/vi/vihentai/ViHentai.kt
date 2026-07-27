@@ -211,16 +211,15 @@ abstract class ViHentai :
         )
     }
 
-    private fun parseChapterList(document: Document): List<SChapter> = document.select("ul.overflow-y-auto a[href*=/truyen/]").mapNotNull { chapterElement ->
-        val chapterName = chapterElement.selectFirst("div.grow span.text-ellipsis, div.grow span.truncate")
-            ?.text()
-            .orEmpty()
+    private fun parseChapterList(document: Document): List<SChapter> = document.select("ul.overflow-y-auto > li").mapNotNull { chapterRow ->
+        val chapterLink = chapterRow.selectFirst("a[href*=/truyen/]") ?: return@mapNotNull null
+        val chapterName = chapterRow.selectFirst("span.truncate.text-ellipsis")?.text().orEmpty()
         if (chapterName.isEmpty()) return@mapNotNull null
 
         SChapter.create().apply {
-            setUrlWithoutDomain(chapterElement.absUrl("href"))
+            setUrlWithoutDomain(chapterLink.absUrl("href"))
             name = chapterName
-            date_upload = parseDate(chapterElement.selectFirst("span.timeago[datetime]")?.attr("datetime"))
+            date_upload = parseDate(chapterRow.selectFirst("span.timeago[datetime]")?.attr("datetime"))
         }
     }.distinctBy { it.url }
 
