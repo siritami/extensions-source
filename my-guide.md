@@ -223,7 +223,7 @@ uniquely identifiable from its required fields.
 For source files with several responsibilities, group each override with its
 related parsers and helpers under consistent section markers. Keep sections in
 the normal source flow: Auth (when needed), Popular, Latest, Search, Details,
-Pages, Filters, then Related (when supported).
+Pages, Filters, Related (when supported), then Utilities (when needed).
 
 ```kotlin
 // ================================ Auth =================================
@@ -243,6 +243,9 @@ Pages, Filters, then Related (when supported).
 
 // =============================== Related ==============================
 // Optional: include only when the source implements related manga support.
+
+// ============================= Utilities =============================
+// Optional: include only when the source has shared helpers or constants.
 ```
 
 Place narrowly scoped helpers in the section that uses them. Keep shared
@@ -253,7 +256,9 @@ initialization or runtime behavior.
 Place a helper next to the selector or request function that owns and calls it
 when it has fewer than three call sites. Keep it in a shared Utilities section
 when it is called three or more times, especially when those callers use
-different selectors or parsing contexts.
+different selectors or parsing contexts. Place the Utilities section after all
+feature sections so shared helpers and constants do not interrupt the normal
+source flow. Do not use it as a catch-all for helpers owned by one feature.
 
 Do not use callable references such as `Element::helper` for member extension
 functions declared inside a source class; Kotlin prohibits references to
