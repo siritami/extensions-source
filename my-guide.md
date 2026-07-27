@@ -84,6 +84,41 @@ body is intentionally unused, close the response directly:
 client.get(url).close()
 ```
 
+## Check Content Type Before Copying Response Bodies
+
+When an interceptor only needs to inspect HTML, check the response content type
+before calling `peekBody`, `string`, or another operation that copies or consumes
+the body. This avoids buffering images and other potentially large binary responses.
+
+```kotlin
+val contentType = response.body.contentType()
+val isHtml = contentType?.let {
+    (it.type == "text" && it.subtype == "html") || it.subtype == "xhtml+xml"
+} == true
+if (!isHtml) return response
+
+val html = response.peekBody(Long.MAX_VALUE).string()
+```
+
+Accept both `text/html` and XHTML when the inspected page may use either format.
+
+## Read Complete Response Buffers
+
+When code must pass an entire response body as a `ByteArray`, fully buffer the
+source before reading `source.buffer`:
+
+```kotlin
+response.body.use {
+    val source = it.source()
+    source.request(Long.MAX_VALUE)
+    decode(source.buffer.readByteArray())
+}
+```
+
+Do not read `source.buffer` after requesting only a small signature prefix. The
+buffer may contain only that prefix and produce truncated data. Keep the read
+inside `ResponseBody.use` so the original response body is closed.
+
 ## Store Thumbnail Fallback URLs in Fragments
 
 When each thumbnail has its own fallback URL, store the fallback in the primary
@@ -267,6 +302,11 @@ through a lambda or use a regular member helper that accepts the receiver as a
 parameter.
 
 ## Derived Request Headers
+
+`KeiSource` already adds the default User-Agent, root `Referer` (`$baseUrl/`),
+and `Origin` headers. Do not override `configureHeaders()` only to set the same
+root `Referer`. Override it only when the source requires a different or
+additional global header.
 
 Declare custom request headers with an explicit `Headers` getter when they should be built from the source's current `headersBuilder()` on each access:
 
