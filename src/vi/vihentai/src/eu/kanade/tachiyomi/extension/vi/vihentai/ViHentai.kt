@@ -43,7 +43,7 @@ abstract class ViHentai :
 
     private val preferences: SharedPreferences by getPreferencesLazy()
 
-    // ================================ Auth =================================
+    // ============================ Password Gate ============================
 
     override fun OkHttpClient.Builder.configureClient() = apply {
         addInterceptor { chain ->
@@ -261,19 +261,25 @@ abstract class ViHentai :
 
     override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
         val document = client.get("$baseUrl${manga.url}").asJsoup()
-        val relatedSection = document.select("h5")
-            .firstOrNull { it.text() == "Có thể bạn thích" }
-            ?.parent()
-            ?: return emptyList()
+        val relatedSectionTitles = listOf("Truyện cùng tác giả", "Có thể bạn thích")
 
-        return relatedSection.select("div.flex.gap-2.w-full").mapNotNull { card ->
-            val link = card.selectFirst("a[href*=/truyen/]") ?: return@mapNotNull null
-            SManga.create().apply {
-                setUrlWithoutDomain(link.absUrl("href"))
-                title = link.text()
-                thumbnail_url = card.selectFirst("div.cover-sm")?.extractBackgroundImage()
+        return relatedSectionTitles.flatMap { sectionTitle ->
+            document.select("h5")
+                .firstOrNull { it.text() == sectionTitle }
+                ?.parent()
+                ?.select("div.flex.gap-2.w-full")
+                .orEmpty()
+                .mapNotNull { card ->
+                    val link = card.selectFirst("a[href*=/truyen/]") ?: return@mapNotNull null
+                    SManga.create().apply {
+                        setUrlWithoutDomain(link.absUrl("href"))
+                        title = link.text()
+                        thumbnail_url = card.selectFirst("div.cover-sm")?.extractBackgroundImage()
+                    }
+                }
             }
-        }.distinctBy { it.url }
+            .filterNot { it.url == manga.url }
+            .distinctBy { it.url }
     }
 
     // ============================= Utilities ==============================
