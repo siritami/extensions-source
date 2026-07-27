@@ -116,8 +116,7 @@ abstract class ViHentai :
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        parseMangaPage(client.get("$baseUrl/tim-kiem?sort=-views&filter[status]=2,1&page=$page"))
+    override suspend fun getPopularManga(page: Int): MangasPage = parseMangaPage(client.get("$baseUrl/tim-kiem?sort=-views&filter[status]=2,1&page=$page"))
 
     private fun parseMangaPage(response: Response): MangasPage {
         val document = response.asJsoup()
@@ -137,8 +136,7 @@ abstract class ViHentai :
 
     // =============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        parseMangaPage(client.get("$baseUrl/tim-kiem?sort=-updated_at&filter[status]=2,1&page=$page"))
+    override suspend fun getLatestUpdates(page: Int): MangasPage = parseMangaPage(client.get("$baseUrl/tim-kiem?sort=-updated_at&filter[status]=2,1&page=$page"))
 
     // =============================== Search ===============================
 
@@ -213,19 +211,18 @@ abstract class ViHentai :
         )
     }
 
-    private fun parseChapterList(document: Document): List<SChapter> =
-        document.select("ul.overflow-y-auto a[href*=/truyen/]").mapNotNull { chapterElement ->
-            val chapterName = chapterElement.selectFirst("div.grow span.text-ellipsis, div.grow span.truncate")
-                ?.text()
-                .orEmpty()
-            if (chapterName.isEmpty()) return@mapNotNull null
+    private fun parseChapterList(document: Document): List<SChapter> = document.select("ul.overflow-y-auto a[href*=/truyen/]").mapNotNull { chapterElement ->
+        val chapterName = chapterElement.selectFirst("div.grow span.text-ellipsis, div.grow span.truncate")
+            ?.text()
+            .orEmpty()
+        if (chapterName.isEmpty()) return@mapNotNull null
 
-            SChapter.create().apply {
-                setUrlWithoutDomain(chapterElement.absUrl("href"))
-                name = chapterName
-                date_upload = parseDate(chapterElement.selectFirst("span.timeago[datetime]")?.attr("datetime"))
-            }
-        }.distinctBy { it.url }
+        SChapter.create().apply {
+            setUrlWithoutDomain(chapterElement.absUrl("href"))
+            name = chapterName
+            date_upload = parseDate(chapterElement.selectFirst("span.timeago[datetime]")?.attr("datetime"))
+        }
+    }.distinctBy { it.url }
 
     // =============================== Pages ================================
 
@@ -257,8 +254,7 @@ abstract class ViHentai :
         .distinctBy { it.id }
         .toJsonElement()
 
-    override fun getFilterList(data: JsonElement?): FilterList =
-        getFilters(data?.parseAs<List<GenreOption>>())
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
 
     // =============================== Related ==============================
 
@@ -283,8 +279,7 @@ abstract class ViHentai :
 
     // ============================= Utilities ==============================
 
-    private fun Element.extractBackgroundImage(): String? =
-        backgroundImageRegex.find(attr("style"))?.groupValues?.get(1)
+    private fun Element.extractBackgroundImage(): String? = backgroundImageRegex.find(attr("style"))?.groupValues?.get(1)
 
     private fun parseDate(date: String?): Long {
         if (date.isNullOrEmpty()) return 0L
