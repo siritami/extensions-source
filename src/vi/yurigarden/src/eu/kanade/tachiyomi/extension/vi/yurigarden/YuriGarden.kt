@@ -1,113 +1,155 @@
 package eu.kanade.tachiyomi.extension.vi.yurigarden
 
-import android.annotation.SuppressLint
-import android.app.Application
-import android.os.Handler
-import android.os.Looper
-import android.webkit.JavascriptInterface
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import keiyoushi.annotation.Source
 import keiyoushi.lib.cryptoaes.CryptoAES
+import keiyoushi.network.get
 import keiyoushi.network.rateLimit
+import keiyoushi.source.KeiSource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toJsonRequestBody
+import keiyoushi.utils.runWebView
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Headers
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
-import okhttp3.Request
+import okhttp3.OkHttpClient
 import okhttp3.Response
-import rx.Observable
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 import java.io.IOException
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class YuriGarden :
-    HttpSource(),
+    KeiSource(),
     ConfigurableSource {
-    private val apiUrlHost by lazy { apiUrl.toHttpUrl().host }
+    private val apiBaseUrl get() = baseUrl.replace("://", "://api.")
 
-    override val supportsLatest = true
+    private val apiUrl get() = "$apiBaseUrl/api"
 
-    private val apiUrl = baseUrl.replace("://", "://api.") + "/api"
+    private val baseHost get() = baseUrl.toHttpUrl().host
 
-    private val baseHost = baseUrl.toHttpUrl().host
+    private val apiHost get() = apiBaseUrl.toHttpUrl().host
 
-    private val apiHost = apiUrlHost
-
-    private val cdnUrl = baseUrl.replace("://", "://cdn.")
+    private val cdnUrl get() = baseUrl.replace("://", "://cdn.")
 
     private val preferences by getPreferencesLazy()
 
     private var cachedAuthToken: String? = null
 
+    private var authChecked = false
+
     private var cachedMangaToken: String? = null
 
     private var cachedMangaTokenServerFn: String? = null
 
-    // Strip "wv" from User-Agent so Google login works in this source.
-    // Google deny login when User-Agent contains the WebView token.
-    override fun headersBuilder() = super.headersBuilder()
-        .add("Referer", "$baseUrl/")
-        .add("Origin", baseUrl)
-        .apply {
-            build()["user-agent"]?.let { userAgent ->
-                set("user-agent", removeWebViewToken(userAgent))
-            }
-        }
+    private val mangaTokenMutex = Mutex()
 
-    private fun removeWebViewToken(userAgent: String): String = userAgent.replace(WEBVIEW_TOKEN_REGEX, ")")
+    private val mangaTokenServerFnMutex = Mutex()
 
-    override val client = network.client.newBuilder()
+    override fun OkHttpClient.Builder.configureClient() = apply {
+        addInterceptor(authInterceptor())
         .addInterceptor(loginRequiredInterceptor())
         .addInterceptor(ImageDescrambler())
-        .rateLimit(15, 1.minutes) { it.host == apiUrlHost }
-        .build()
+        .rateLimit(15, 1.minutes) { it.host == apiHost }
+    }
 
-    private fun apiHeadersBuilder() = headersBuilder()
-        .set("Referer", "$baseUrl/")
-        .add("x-app-origin", "https://yurigarden.com")
-        .add("x-custom-lang", "vi")
-        .add("Accept", "application/json")
+    private val apiHeaders: Headers
+        get() = headersBuilder()
+            .set("Referer", "$baseUrl/")
+            .add("x-app-origin", "https://yurigarden.com")
+            .add("x-custom-lang", "vi")
+            .add("Accept", "application/json")
+            .build()
 
-    private fun apiHeaders() = apiHeadersBuilder()
-        .apply {
-            authToken?.let { set("Authorization", "Bearer $it") }
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        SwitchPreferenceCompat(screen.context).apply {
+            key = PREF_SHOW_R18
+            title = "Hiển thị nội dung R18"
+            summary = "Bật để hiển thị truyện có nội dung người lớn (18+)"
+            setDefaultValue(PREF_SHOW_R18_DEFAULT)
+        }.also(screen::addPreference)
+    }
+
+    private val allowR18: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_R18, PREF_SHOW_R18_DEFAULT)
+
+    // ================================ Auth =================================
+
+    private fun authInterceptor() = Interceptor { chain ->
+        val request = chain.request().newBuilder().apply {
+            cachedAuthToken?.let { header("Authorization", "Bearer $it") }
+        }.build()
+        chain.proceed(request)
+    }
+
+    private fun loginRequiredInterceptor() = Interceptor { chain ->
+        val response = chain.proceed(chain.request())
+        val responseUrl = response.request.url
+        val isApiUnauthorized = response.code == 401 && responseUrl.host == apiHost
+        val isLoginPage = responseUrl.host == baseHost && responseUrl.encodedPath == "/login"
+
+        if (isApiUnauthorized || isLoginPage) {
+            cachedAuthToken = null
+            authChecked = false
+            response.close()
+            throw IOException(LOGIN_REQUIRED_MESSAGE)
         }
-        .build()
+        response
+    }
+
+    private suspend fun loadAuthToken() {
+        if (authChecked) return
+        authChecked = true
+        cachedAuthToken = runCatching { readApiAccessToken() }.getOrNull()
+    }
+
+    private suspend fun readApiAccessToken(): String? {
+        val pool = ('a'..'z') + ('A'..'Z')
+        val bridgeName = (1..(10..20).random())
+            .map { pool.random() }
+            .joinToString("")
+        val readAuthTokenScript = javaClass.getResource("/assets/read_auth_token.js")?.readText()
+            ?: throw IllegalStateException("read_auth_token.js not found in assets")
+        val script = readAuthTokenScript.replace(AUTH_BRIDGE_PLACEHOLDER, bridgeName)
+
+        return runWebView(timeout = 10.seconds) {
+            jsBridge(bridgeName) { value -> resolve(value.ifBlank { null }) }
+            onPageFinished {
+                evaluateJs(script)
+            }
+            loadData(baseUrl, "")
+        }
+    }
 
     // ============================== Popular ===============================
 
-    override fun popularMangaRequest(page: Int): Request {
+    override suspend fun getPopularManga(page: Int): MangasPage {
+        loadAuthToken()
         val url = "$apiUrl/comics/rank/trending".toHttpUrl().newBuilder()
             .addQueryParameter("viewType", "view")
             .addQueryParameter("trendingType", "day")
             .addQueryParameter("r18", allowR18.toString())
             .build()
 
-        return GET(url, apiHeaders())
-    }
-
-    override fun popularMangaParse(response: Response): MangasPage {
-        val result = response.parseAs<List<TrendingComic>>()
+        val result = client.get(url, apiHeaders).parseAs<List<TrendingComic>>()
 
         val mangaList = result.map { comic ->
             SManga.create().apply {
@@ -124,7 +166,8 @@ abstract class YuriGarden :
 
     // ============================== Latest ================================
 
-    override fun latestUpdatesRequest(page: Int): Request {
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        loadAuthToken()
         val url = "$apiUrl/comics".toHttpUrl().newBuilder()
             .addQueryParameter("page", page.toString())
             .addQueryParameter("limit", LIMIT.toString())
@@ -132,11 +175,7 @@ abstract class YuriGarden :
             .addQueryParameter("full", "true")
             .build()
 
-        return GET(url, apiHeaders())
-    }
-
-    override fun latestUpdatesParse(response: Response): MangasPage {
-        val result = response.parseAs<ComicsResponse>()
+        val result = client.get(url, apiHeaders).parseAs<ComicsResponse>()
 
         val mangaList = result.comics.map { comic ->
             SManga.create().apply {
@@ -146,39 +185,15 @@ abstract class YuriGarden :
             }
         }
 
-        val hasNextPage = result.totalPages > currentPage(response)
+        val hasNextPage = result.totalPages > page
 
         return MangasPage(mangaList, hasNextPage)
     }
 
     // ============================== Search ================================
 
-    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
-        if (query.startsWith("https://")) {
-            val url = query.toHttpUrlOrNull()
-            if (url != null && url.host == baseHost) {
-                val segments = url.pathSegments
-                val comicIndex = segments.indexOf("comic")
-                if (comicIndex != -1 && comicIndex + 1 < segments.size) {
-                    val id = segments[comicIndex + 1]
-                    val manga = SManga.create().apply {
-                        this.url = "/comic/$id"
-                        initialized = true
-                    }
-                    return fetchMangaDetails(manga)
-                        .map {
-                            it.url = manga.url
-                            it.initialized = true
-                            MangasPage(listOf(it), false)
-                        }
-                }
-                throw Exception("Unsupported URL")
-            }
-        }
-        return super.fetchSearchManga(page, query, filters)
-    }
-
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
+        loadAuthToken()
         val url = "$apiUrl/comics".toHttpUrl().newBuilder().apply {
             addQueryParameter("page", page.toString())
             addQueryParameter("limit", LIMIT.toString())
@@ -191,9 +206,7 @@ abstract class YuriGarden :
                 addQueryParameter("search", query)
             }
 
-            val filterList = filters.ifEmpty { getFilterList() }
-
-            filterList.forEach { filter ->
+            filters.forEach { filter ->
                 when (filter) {
                     is StatusFilter -> {
                         if (filter.slug.isNotEmpty()) {
@@ -224,56 +237,78 @@ abstract class YuriGarden :
             }
         }.build()
 
-        return GET(url.toString(), apiHeaders())
+        val result = client.get(url, apiHeaders).parseAs<ComicsResponse>()
+        val mangaList = result.comics.map { comic ->
+            SManga.create().apply {
+                url = "/comic/${comic.id}"
+                title = comic.title
+                thumbnail_url = comic.thumbnail?.toThumbnailUrl()
+            }
+        }
+        return MangasPage(mangaList, result.totalPages > page)
     }
-
-    override fun searchMangaParse(response: Response) = latestUpdatesParse(response)
-
-    // ============================== Filters ===============================
-
-    override fun getFilterList() = getFilters()
 
     // ============================== Details ===============================
 
-    private fun mangaId(manga: SManga): String = manga.url.substringAfterLast("/")
+    private fun mangaId(manga: SManga): String = manga.url.toHttpUrl(baseUrl).pathSegments.last()
 
-    override fun mangaDetailsRequest(manga: SManga): Request = GET("$apiUrl/comics/${mangaId(manga)}", apiHeaders())
-
-    override fun getMangaUrl(manga: SManga): String = "$baseUrl${manga.url}"
-
-    override fun mangaDetailsParse(response: Response): SManga {
-        val comic = response.parseAs<ComicDetail>()
-
-        return SManga.create().apply {
-            url = "/comic/${comic.id}"
-            title = comic.title
-            author = comic.authors.joinToString { it.name }
-            description = comic.description
-            genre = comic.genres.mapNotNull { genreMap[it] }.joinToString()
-            status = when (comic.status) {
-                "ongoing" -> SManga.ONGOING
-                "completed" -> SManga.COMPLETED
-                "hiatus" -> SManga.ON_HIATUS
-                "canceled" -> SManga.CANCELLED
-                else -> SManga.UNKNOWN
-            }
-            thumbnail_url = comic.thumbnail?.toThumbnailUrl()
-            initialized = true
+    private fun ComicDetail.toSManga() = SManga.create().apply {
+        url = "/comic/${this@toSManga.id}"
+        title = this@toSManga.title
+        author = authors.joinToString { it.name }
+        description = this@toSManga.description
+        genre = genres.joinToString()
+        status = when (this@toSManga.status) {
+            "ongoing" -> SManga.ONGOING
+            "completed" -> SManga.COMPLETED
+            "hiatus" -> SManga.ON_HIATUS
+            "canceled", "cancelled" -> SManga.CANCELLED
+            else -> SManga.UNKNOWN
         }
+        thumbnail_url = thumbnail?.toThumbnailUrl()
+        initialized = true
     }
 
-    // ============================== Chapters ==============================
+    override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
+        if (url.host != baseHost || url.pathSegments.firstOrNull() != "comic") return null
+        val comicId = url.pathSegments.getOrNull(1)?.takeIf(String::isNotBlank) ?: return null
+        loadAuthToken()
+        return client.get("$apiUrl/comics/$comicId", apiHeaders)
+            .parseAs<ComicDetail>()
+            .toSManga()
+    }
 
-    private fun chapterId(chapter: SChapter): String = chapter.url.substringAfterLast("/")
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate = coroutineScope {
+        loadAuthToken()
+        val comicId = mangaId(manga)
+        val details = if (fetchDetails) async {
+            client.get("$apiUrl/comics/$comicId", apiHeaders).parseAs<ComicDetail>().toSManga()
+        } else {
+            null
+        }
+        val chapterList = if (fetchChapters) async {
+            client.get("$apiUrl/chapters/comic/$comicId", apiHeaders)
+                .parseAs<List<ChapterData>>()
+                .toSChapters(comicId)
+        } else {
+            null
+        }
 
-    override fun chapterListRequest(manga: SManga): Request = GET("$apiUrl/chapters/comic/${mangaId(manga)}", apiHeaders())
+        SMangaUpdate(
+            manga = details?.await() ?: manga,
+            chapters = chapterList?.await() ?: chapters,
+        )
+    }
 
-    override fun chapterListParse(response: Response): List<SChapter> {
-        val chapters = response.parseAs<List<ChapterData>>()
+    private fun chapterId(chapter: SChapter): String = chapter.url.toHttpUrl(baseUrl).pathSegments.last()
 
-        val comicId = response.request.url.pathSegments.last()
-
-        return chapters
+    private fun List<ChapterData>.toSChapters(comicId: String): List<SChapter> =
+        this
             .sortedWith(
                 compareByDescending<ChapterData> { it.order }
                     .thenByDescending { it.id },
@@ -299,31 +334,11 @@ abstract class YuriGarden :
             }
     }
 
-    override fun getChapterUrl(chapter: SChapter): String = "$baseUrl${chapter.url}"
-
     // ============================== Pages =================================
 
-    override fun pageListRequest(chapter: SChapter): Request = GET("$apiUrl/chapters/pages/${chapterId(chapter)}", apiHeaders())
-
-    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> = Observable
-        .fromCallable { executePageListRequest(chapter) }
-        .map(::pageListParse)
-
-    private fun executePageListRequest(chapter: SChapter): Response {
-        val request = pageListRequest(chapter)
-        val response = client.newCall(request).execute()
-        if (response.isSuccessful) return response
-
-        response.close()
-
-        if (response.code == 401) {
-            throw Exception(LOGIN_REQUIRED_MESSAGE)
-        }
-
-        throw Exception("HTTP error ${response.code}")
-    }
-
-    override fun pageListParse(response: Response): List<Page> {
+    override suspend fun getPageList(chapter: SChapter): List<Page> {
+        loadAuthToken()
+        val response = client.get("$apiUrl/chapters/pages/${chapterId(chapter)}", apiHeaders)
         val result = decryptIfNeeded(response)
 
         return result.pages.mapIndexed { index, page ->
@@ -345,22 +360,22 @@ abstract class YuriGarden :
         }
     }
 
-    private fun decryptIfNeeded(response: Response): ChapterDetail {
-        val body = response.body.string()
+    private suspend fun decryptIfNeeded(response: Response): ChapterDetail {
+        val body = response.parseAs<JsonElement>()
 
-        return if (body.contains("\"encrypted\"")) {
+        return if ("encrypted" in body.jsonObject) {
             val encrypted = body.parseAs<EncryptedResponse>()
             if (encrypted.encrypted && !encrypted.data.isNullOrEmpty()) {
                 decryptChapterDetail(encrypted.data)
             } else {
-                body.parseAs<ChapterDetail>()
+                body.parseAs()
             }
         } else {
-            body.parseAs<ChapterDetail>()
+            body.parseAs()
         }
     }
 
-    private fun decryptChapterDetail(data: String): ChapterDetail {
+    private suspend fun decryptChapterDetail(data: String): ChapterDetail {
         val token = getMangaToken(forceRefresh = false)
         return runCatching {
             CryptoAES.decrypt(data, token).parseAs<ChapterDetail>()
@@ -371,11 +386,8 @@ abstract class YuriGarden :
         }
     }
 
-    @Synchronized
-    private fun getMangaToken(forceRefresh: Boolean): String {
-        if (!forceRefresh) {
-            cachedMangaToken?.let { return it }
-        }
+    private suspend fun getMangaToken(forceRefresh: Boolean): String = mangaTokenMutex.withLock {
+        if (!forceRefresh) cachedMangaToken?.let { return@withLock it }
 
         val headers = headersBuilder()
             .set("Referer", "$baseUrl/")
@@ -383,44 +395,25 @@ abstract class YuriGarden :
             .set("x-tsr-serverFn", "true")
             .build()
 
-        val token = client.newCall(GET("$baseUrl/_serverFn/${getMangaTokenServerFn()}", headers))
-            .execute()
-            .use { response ->
-                if (!response.isSuccessful) {
-                    throw IOException("HTTP error ${response.code}")
-                }
-                extractServerFnValue(response.parseAs<ServerFnNode>(), "token")
-            }
+        val token = client
+            .get("$baseUrl/_serverFn/${getMangaTokenServerFn()}", headers)
+            .parseAs<ServerFnNode>()
+            .let { extractServerFnValue(it, "token") }
             ?: throw IOException("Không lấy được khóa giải mã chương")
 
         cachedMangaToken = token
-        return token
+        token
     }
 
-    @Synchronized
-    private fun getMangaTokenServerFn(): String {
-        cachedMangaTokenServerFn?.let { return it }
+    private suspend fun getMangaTokenServerFn(): String = mangaTokenServerFnMutex.withLock {
+        cachedMangaTokenServerFn?.let { return@withLock it }
 
-        val html = client.newCall(GET(baseUrl, headers))
-            .execute()
-            .use { response ->
-                if (!response.isSuccessful) {
-                    throw IOException("HTTP error ${response.code}")
-                }
-                response.body.string()
-            }
+        val html = client.get(baseUrl, headers).use { it.body.string() }
 
         val mainScript = MAIN_SCRIPT_REGEX.find(html)?.groupValues?.get(1)
             ?: throw IOException("Không tìm thấy bundle chính")
         val mainScriptUrl = mainScript.toHttpUrlOrNull()?.toString() ?: "$baseUrl$mainScript"
-        val mainScriptBody = client.newCall(GET(mainScriptUrl, headers))
-            .execute()
-            .use { response ->
-                if (!response.isSuccessful) {
-                    throw IOException("HTTP error ${response.code}")
-                }
-                response.body.string()
-            }
+        val mainScriptBody = client.get(mainScriptUrl, headers).use { it.body.string() }
 
         val routeIndex = mainScriptBody.indexOf(CHAPTER_ROUTE_PATH)
         val searchBody = if (routeIndex > 0) {
@@ -435,7 +428,7 @@ abstract class YuriGarden :
             ?: throw IOException("Không tìm thấy khóa server function")
 
         cachedMangaTokenServerFn = serverFn
-        return serverFn
+        serverFn
     }
 
     private fun extractServerFnValue(node: ServerFnNode, key: String): String? {
@@ -448,31 +441,33 @@ abstract class YuriGarden :
         return props.v.firstNotNullOfOrNull { extractServerFnValue(it, key) }
     }
 
-    private fun loginRequiredInterceptor() = Interceptor { chain ->
-        val response = chain.proceed(chain.request())
-        val responseUrl = response.request.url
-        val isApiUnauthorized = response.code == 401 && responseUrl.host == apiHost
-        val isLoginPage = responseUrl.host == baseHost && responseUrl.encodedPath == "/login"
+    // ============================== Filters ===============================
 
-        if (isApiUnauthorized || isLoginPage) {
-            cachedAuthToken = null
-            response.close()
-            throw IOException(LOGIN_REQUIRED_MESSAGE)
-        }
-        response
+    override val supportsFilterFetching get() = true
+
+    override suspend fun fetchFilterData(): JsonElement = client
+        .get("$apiBaseUrl/resources/systems_vi.json", apiHeaders)
+        .parseAs()
+
+    override fun getFilterList(data: JsonElement?): FilterList {
+        val genres = data
+            ?.parseAs<SystemResources>()
+            ?.genres
+            ?.values
+            ?.map { it.name to it.slug }
+            .orEmpty()
+
+        return getFilters(genres)
     }
-
-    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
 
     // =============================== Related ================================
 
-    // disable suggested mangas on Komikku due to heavy rate limit
-    override val disableRelatedMangasBySearch = true
+    override val supportsRelatedMangas get() = true
 
-    override fun relatedMangaListRequest(manga: SManga) = GET("$apiUrl/comics/related/${mangaId(manga)}", apiHeaders())
-
-    override fun relatedMangaListParse(response: Response): List<SManga> {
-        val result = response.parseAs<List<Comic>>()
+    override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
+        loadAuthToken()
+        val result = client.get("$apiUrl/comics/related/${mangaId(manga)}", apiHeaders)
+            .parseAs<List<Comic>>()
 
         return result.map { comic ->
             SManga.create().apply {
@@ -483,118 +478,9 @@ abstract class YuriGarden :
         }
     }
 
-    // ============================== Helpers ================================
-
-    private fun currentPage(response: Response): Int {
-        val url = response.request.url
-        return url.queryParameter("page")?.toIntOrNull() ?: 1
-    }
-
-    private fun String.toThumbnailUrl(): String = if (startsWith("http")) this else "$cdnUrl/storage/v1/object/public/yuri-garden-store/${trimStart('/')}"
-
-    // ============================== Peferences ================================
-
-    override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_SHOW_R18
-            title = "Hiển thị nội dung R18"
-            summary = "Bật để hiển thị truyện có nội dung người lớn (18+)"
-            setDefaultValue(PREF_SHOW_R18_DEFAULT)
-        }.also(screen::addPreference)
-    }
-
-    private val allowR18: Boolean
-        get() = preferences.getBoolean(PREF_SHOW_R18, PREF_SHOW_R18_DEFAULT)
-
     // ============================= Utilities ==============================
 
-    private val authToken: String?
-        @Synchronized
-        get() = cachedAuthToken
-            ?: getTokenFromWebView()?.also { cachedAuthToken = it }
-
-    private fun getTokenFromWebView(): String? {
-        val authData = readWebViewAuthData() ?: return null
-        val firebaseToken = authData.stsTokenManager?.accessToken?.takeIf { it.isNotBlank() } ?: return null
-        val email = authData.email?.takeIf { it.isNotBlank() } ?: return null
-        val name = authData.displayName?.takeIf { it.isNotBlank() } ?: email.substringBefore("@")
-        val avatar = authData.photoURL.orEmpty()
-
-        val headers = apiHeadersBuilder().build()
-        val body = UserAuthRequest(
-            email = email,
-            name = name,
-            avatar = avatar,
-            token = firebaseToken,
-        ).toJsonRequestBody()
-
-        return runCatching {
-            client.newCall(POST("$apiUrl/users/auth", headers, body)).execute().use { response ->
-                if (!response.isSuccessful) return@use null
-                response.parseAs<UserAuthResponse>().accessToken.takeIf { it.isNotBlank() }
-            }
-        }.getOrNull()
-    }
-
-    @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
-    private fun readWebViewAuthData(): WebViewAuthData? {
-        val handler = Handler(Looper.getMainLooper())
-        val latch = CountDownLatch(1)
-        val bridge = WebViewAuthBridge(latch)
-        val interfaceName = randomJavascriptInterfaceName()
-        val script = buildWebViewAuthScript(interfaceName)
-        var webView: WebView? = null
-
-        handler.post {
-            webView = WebView(Injekt.get<Application>()).apply {
-                with(settings) {
-                    javaScriptEnabled = true
-                    domStorageEnabled = true
-                    blockNetworkImage = true
-                    userAgentString = removeWebViewToken(userAgentString)
-                }
-                addJavascriptInterface(bridge, interfaceName)
-                webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        view?.evaluateJavascript(script, null)
-                    }
-                }
-                loadDataWithBaseURL(baseUrl, " ", "text/html", "UTF-8", null)
-            }
-        }
-
-        latch.await(10, TimeUnit.SECONDS)
-
-        handler.post {
-            webView?.removeJavascriptInterface(interfaceName)
-            webView?.destroy()
-        }
-
-        return bridge.payload
-            ?.takeUnless { it == "null" }
-            ?.ifBlank { null }
-            ?.let { runCatching { it.parseAs<WebViewAuthData>() }.getOrNull() }
-    }
-
-    private fun randomJavascriptInterfaceName(): String {
-        val pool = ('a'..'z') + ('A'..'Z')
-        return (1..(10..20).random())
-            .map { pool.random() }
-            .joinToString("")
-    }
-
-    private class WebViewAuthBridge(
-        private val latch: CountDownLatch,
-    ) {
-        @Volatile
-        var payload: String? = null
-
-        @JavascriptInterface
-        fun onAuthData(value: String?) {
-            payload = value
-            latch.countDown()
-        }
-    }
+    private fun String.toThumbnailUrl(): String = if (startsWith("http")) this else "$cdnUrl/storage/v1/object/public/yuri-garden-store/${trimStart('/')}"
 
     companion object {
         private const val LIMIT = 15
@@ -602,49 +488,11 @@ abstract class YuriGarden :
         private const val LOGIN_REQUIRED_MESSAGE = "Nguồn này cần đăng nhập bằng webview để xem"
         private const val PREF_SHOW_R18 = "pref_show_r18"
         private const val PREF_SHOW_R18_DEFAULT = false
+        private const val AUTH_BRIDGE_PLACEHOLDER = "__AUTH_BRIDGE_NAME__"
 
         private val MAIN_SCRIPT_REGEX = Regex("""(?:src|href)="([^"]*/assets/main-[^"]+\.js)"""")
         private val SERVER_FN_REGEX = Regex(
             """(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*[A-Za-z_$][\w$]*\(\{method:"GET"\}\)\.handler\([A-Za-z_$][\w$]*\("([A-Za-z0-9]+)"\)\)""",
         )
-        private val WEBVIEW_TOKEN_REGEX = Regex(""";\s*wv\)""")
-
-        private fun buildWebViewAuthScript(interfaceName: String) = """
-            (() => {
-              const done = (value) => {
-                window.$interfaceName.onAuthData(value ? JSON.stringify(value) : "");
-              };
-              try {
-                const request = indexedDB.open("firebaseLocalStorageDb");
-                request.onerror = () => done(null);
-                request.onsuccess = () => {
-                  const db = request.result;
-                  if (!db.objectStoreNames.contains("firebaseLocalStorage")) {
-                    db.close();
-                    done(null);
-                    return;
-                  }
-                  const transaction = db.transaction("firebaseLocalStorage", "readonly");
-                  const store = transaction.objectStore("firebaseLocalStorage");
-                  const getAll = store.getAll();
-                  getAll.onerror = () => {
-                    db.close();
-                    done(null);
-                  };
-                  getAll.onsuccess = () => {
-                    const rows = getAll.result || [];
-                    const row = rows.find((item) => {
-                      const value = item && item.value;
-                      return value && value.stsTokenManager && value.stsTokenManager.accessToken;
-                    });
-                    db.close();
-                    done(row ? row.value : null);
-                  };
-                };
-              } catch (_err) {
-                done(null);
-              }
-            })();
-        """.trimIndent()
     }
 }
