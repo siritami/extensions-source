@@ -133,7 +133,8 @@ abstract class YuriGarden :
 
     private suspend fun authenticatedGet(url: HttpUrl): Response {
         loadAuthToken()
-        val staleToken = cachedAuthToken
+        val staleToken = cachedAuthToken?.takeIf(String::isNotBlank)
+            ?: throw IOException(loginRequiredMessage)
         val response = client.get(url, apiHeaders)
         if (response.code != 401) return response
 
