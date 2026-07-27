@@ -320,7 +320,7 @@ abstract class TruyenTVN : KeiSource() {
         val mangaList = document.select("main div.comic-card > a[href]")
             .map(::parseMangaElement)
             .distinctBy { it.url }
-        val hasNextPage = document.selectFirst("link[rel=next], a[title='Tiếp']") != null
+        val hasNextPage = document.selectFirst("link[rel=next], a[href*='paged=']:matchesOwn(^Tiếp$)") != null
         return MangasPage(mangaList, hasNextPage)
     }
 
