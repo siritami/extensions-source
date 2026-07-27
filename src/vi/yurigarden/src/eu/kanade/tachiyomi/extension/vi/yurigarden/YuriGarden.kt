@@ -81,15 +81,15 @@ abstract class YuriGarden :
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_SHOW_R18
+            key = prefShowR18
             title = "Hiển thị nội dung R18"
             summary = "Bật để hiển thị truyện có nội dung người lớn (18+)"
-            setDefaultValue(PREF_SHOW_R18_DEFAULT)
+            setDefaultValue(prefShowR18Default)
         }.also(screen::addPreference)
     }
 
     private val allowR18: Boolean
-        get() = preferences.getBoolean(PREF_SHOW_R18, PREF_SHOW_R18_DEFAULT)
+        get() = preferences.getBoolean(prefShowR18, prefShowR18Default)
 
     // ================================ Auth =================================
 
@@ -110,7 +110,7 @@ abstract class YuriGarden :
             cachedAuthToken = null
             authChecked = false
             response.close()
-            throw IOException(LOGIN_REQUIRED_MESSAGE)
+            throw IOException(loginRequiredMessage)
         }
         response
     }
@@ -170,7 +170,7 @@ abstract class YuriGarden :
         loadAuthToken()
         val url = "$apiUrl/comics".toHttpUrl().newBuilder()
             .addQueryParameter("page", page.toString())
-            .addQueryParameter("limit", LIMIT.toString())
+            .addQueryParameter("limit", limit.toString())
             .addQueryParameter("r18", allowR18.toString())
             .addQueryParameter("full", "true")
             .build()
@@ -196,7 +196,7 @@ abstract class YuriGarden :
         loadAuthToken()
         val url = "$apiUrl/comics".toHttpUrl().newBuilder().apply {
             addQueryParameter("page", page.toString())
-            addQueryParameter("limit", LIMIT.toString())
+            addQueryParameter("limit", limit.toString())
             addQueryParameter("allowR18", allowR18.toString())
             addQueryParameter("full", "true")
 
@@ -410,18 +410,18 @@ abstract class YuriGarden :
 
         val html = client.get(baseUrl, headers).use { it.body.string() }
 
-        val mainScript = MAIN_SCRIPT_REGEX.find(html)?.groupValues?.get(1)
+        val mainScript = mainScriptRegex.find(html)?.groupValues?.get(1)
             ?: throw IOException("Không tìm thấy bundle chính")
         val mainScriptUrl = mainScript.toHttpUrlOrNull()?.toString() ?: "$baseUrl$mainScript"
         val mainScriptBody = client.get(mainScriptUrl, headers).use { it.body.string() }
 
-        val routeIndex = mainScriptBody.indexOf(CHAPTER_ROUTE_PATH)
+        val routeIndex = mainScriptBody.indexOf(chapterRoutePath)
         val searchBody = if (routeIndex > 0) {
             mainScriptBody.substring(0, routeIndex).takeLast(20_000)
         } else {
             mainScriptBody
         }
-        val serverFn = SERVER_FN_REGEX.findAll(searchBody)
+        val serverFn = serverFnRegex.findAll(searchBody)
             .lastOrNull()
             ?.groupValues
             ?.get(1)
@@ -482,16 +482,14 @@ abstract class YuriGarden :
 
     private fun String.toThumbnailUrl(): String = if (startsWith("http")) this else "$cdnUrl/storage/v1/object/public/yuri-garden-store/${trimStart('/')}"
 
-    companion object {
-        private const val LIMIT = 15
-        private const val CHAPTER_ROUTE_PATH = "/comic/\$comicId/\$chapterId/"
-        private const val LOGIN_REQUIRED_MESSAGE = "Nguồn này cần đăng nhập bằng webview để xem"
-        private const val PREF_SHOW_R18 = "pref_show_r18"
-        private const val PREF_SHOW_R18_DEFAULT = false
+    private val limit = 15
+    private val chapterRoutePath = "/comic/\$comicId/\$chapterId/"
+    private val loginRequiredMessage = "Nguồn này cần đăng nhập bằng webview để xem"
+    private val prefShowR18 = "pref_show_r18"
+    private val prefShowR18Default = false
 
-        private val MAIN_SCRIPT_REGEX = Regex("""(?:src|href)="([^"]*/assets/main-[^"]+\.js)"""")
-        private val SERVER_FN_REGEX = Regex(
-            $$"""(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*[A-Za-z_$][\w$]*\(\{method:"GET"\}\)\.handler\([A-Za-z_$][\w$]*\("([A-Za-z0-9]+)"\)\)""",
-        )
-    }
+    private val mainScriptRegex = Regex("""(?:src|href)="([^"]*/assets/main-[^"]+\.js)""")
+    private val serverFnRegex = Regex(
+        """(?:const|let|var)\s+[A-Za-z_${'$'}][\w${'$'}]*\s*=\s*[A-Za-z_${'$'}][\w${'$'}]*\(\{method:"GET"\}\)\.handler\([A-Za-z_${'$'}][\w${'$'}]*\("([A-Za-z0-9]+)"\)\)""",
+    )
 }
