@@ -64,7 +64,8 @@ abstract class TruyenTVN : KeiSource() {
             return parseAjaxSearch(client.post("$baseUrl$ajaxPath", ajaxHeaders, buildSearchBody(query)))
         }
 
-        val url = "$baseUrl/advanced-search".toHttpUrl().newBuilder().apply {
+        val searchPath = if (page > 1) "/advanced-search/page/$page" else "/advanced-search"
+        val url = "$baseUrl$searchPath".toHttpUrl().newBuilder().apply {
             filters.forEach { filter ->
                 when (filter) {
                     is CountryFilter -> addFilter("country", filter.toUriPart())
@@ -82,7 +83,6 @@ abstract class TruyenTVN : KeiSource() {
                     else -> Unit
                 }
             }
-            if (page > 1) addQueryParameter("paged", page.toString())
         }.build()
 
         return parseMangaPage(client.get(url).asJsoup())
@@ -320,7 +320,8 @@ abstract class TruyenTVN : KeiSource() {
         val mangaList = document.select("main div.comic-card > a[href]")
             .map(::parseMangaElement)
             .distinctBy { it.url }
-        val hasNextPage = document.selectFirst("link[rel=next], a[href*='paged=']:has(i.fa-chevron-right)") != null
+        val hasNextPage = document.selectFirst("link[rel=next], a[href*='paged=']:has(i.fa-chevron-right)") != null ||
+            mangaList.size >= mangaPageSize
         return MangasPage(mangaList, hasNextPage)
     }
 
@@ -353,4 +354,5 @@ abstract class TruyenTVN : KeiSource() {
     private val popularPath = "/xem-nhieu-nhat"
     private val chapterOrderNewest = "newest_first"
     private val chaptersPerPage = 16
+    private val mangaPageSize = 24
 }
