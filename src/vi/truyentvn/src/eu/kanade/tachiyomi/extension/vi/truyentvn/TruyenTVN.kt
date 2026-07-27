@@ -43,8 +43,6 @@ abstract class TruyenTVN : KeiSource() {
 
     override fun OkHttpClient.Builder.configureClient() = rateLimit(5)
 
-    override fun Headers.Builder.configureHeaders() = add("Referer", "$baseUrl/")
-
     private val ajaxHeaders: Headers
         get() = headersBuilder()
             .add("X-Requested-With", "XMLHttpRequest")
