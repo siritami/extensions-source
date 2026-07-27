@@ -6,49 +6,59 @@ import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
 import keiyoushi.network.rateLimit
+import keiyoushi.source.KeiSource
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.tryParse
+import keiyoushi.utils.toJsonElement
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.JsonElement
+import okhttp3.Headers
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import rx.Observable
-import java.text.SimpleDateFormat
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
-import java.util.TimeZone
 
 @Source
-abstract class ZetTruyen : HttpSource() {
-    override val supportsLatest = true
-
-    override val client = network.client.newBuilder()
-        .rateLimit(3)
-        .build()
-
-    override fun headersBuilder() = super.headersBuilder()
-        .add("Referer", "$baseUrl/")
-
-    private val apiDateFormat by lazy {
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT).apply {
-            timeZone = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
-        }
+abstract class ZetTruyen : KeiSource() {
+    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
+        rateLimit(3)
     }
+
+    private val apiHeaders: Headers
+        get() = headersBuilder()
+            .set("Accept", "application/json")
+            .build()
+
+    private val imageHeaders: Headers
+        get() = headersBuilder()
+            .set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            .build()
 
     // ============================== Popular ===============================
-    override fun popularMangaRequest(page: Int) = searchMangaRequest(page, "", FilterList(SortFilter().apply { state = 1 }))
+    override suspend fun getPopularManga(page: Int): MangasPage = getSearchMangaList(
+        page,
+        "",
+        FilterList(SortFilter().apply { state = 1 }),
+    )
 
-    override fun popularMangaParse(response: Response): MangasPage {
+    private fun parseMangaPage(response: Response): MangasPage {
         val document = response.asJsoup()
-        val mangas = document.select(mangaListSelector()).map(::mangaFromElement)
+        val mangas = document.select("div.grid a[href*=/truyen-tranh/]").map(::mangaFromElement)
         return MangasPage(mangas, mangas.isNotEmpty())
     }
-
-    private fun mangaListSelector() = "div.grid a[href*=/truyen-tranh/]"
 
     private fun mangaFromElement(element: Element) = SManga.create().apply {
         setUrlWithoutDomain(element.absUrl("href"))
@@ -57,14 +67,20 @@ abstract class ZetTruyen : HttpSource() {
     }
 
     // ============================== Latest ================================
-    override fun latestUpdatesRequest(page: Int) = searchMangaRequest(page, "", FilterList(SortFilter().apply { state = 0 }))
-
-    override fun latestUpdatesParse(response: Response) = popularMangaParse(response)
+    override suspend fun getLatestUpdates(page: Int): MangasPage = getSearchMangaList(
+        page,
+        "",
+        FilterList(SortFilter().apply { state = 0 }),
+    )
 
     // ============================== Search ================================
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
+    override suspend fun getSearchMangaList(
+        page: Int,
+        query: String,
+        filters: FilterList,
+    ): MangasPage {
         val url = "$baseUrl/tim-kiem-nang-cao".toHttpUrl().newBuilder().apply {
-            if (query.isNotBlank()) addQueryParameter("name", query)
+            if (query.isNotEmpty()) addQueryParameter("name", query)
             addQueryParameter("page", page.toString())
 
             filters.forEach { filter ->
@@ -84,19 +100,40 @@ abstract class ZetTruyen : HttpSource() {
             }
         }.build()
 
-        return GET(url, headers)
+        return parseMangaPage(client.get(url))
     }
-
-    override fun searchMangaParse(response: Response) = popularMangaParse(response)
-
-    // ============================== Filters ===============================
-    override fun getFilterList() = getFilters()
 
     // ============================== Details ===============================
 
-    override fun mangaDetailsParse(response: Response): SManga {
-        val document = response.asJsoup()
+    override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
+        if (url.host != baseUrl.toHttpUrl().host || url.pathSegments.firstOrNull() != "truyen-tranh") return null
+
+        val slug = url.pathSegments.getOrNull(1) ?: return null
+        val manga = SManga.create().apply {
+            setUrlWithoutDomain("/truyen-tranh/$slug")
+        }
+        return fetchMangaUpdate(manga, emptyList(), true, false).manga
+    }
+
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate = coroutineScope {
+        val detailsDeferred = if (fetchDetails) async { getMangaDetails(manga) } else null
+        val chaptersDeferred = if (fetchChapters) async { getChapterList(manga) } else null
+
+        SMangaUpdate(
+            manga = detailsDeferred?.await() ?: manga,
+            chapters = chaptersDeferred?.await() ?: chapters,
+        )
+    }
+
+    private suspend fun getMangaDetails(manga: SManga): SManga {
+        val document = client.get(getMangaUrl(manga)).asJsoup()
         return SManga.create().apply {
+            setUrlWithoutDomain(manga.url)
             title = document.selectFirst("h1")!!.text()
             thumbnail_url = document.selectFirst("img[src*=/thumb/]")?.absUrl("src")
             author = document.getInfoValue("Tác giả")
@@ -123,70 +160,64 @@ abstract class ZetTruyen : HttpSource() {
 
     private fun parseStatus(status: String?): Int = when {
         status == null -> SManga.UNKNOWN
-        status.contains("Đang tiến hành", ignoreCase = true) -> SManga.ONGOING
-        status.contains("Hoàn Thành", ignoreCase = true) -> SManga.COMPLETED
+        "đang tiến hành" in status.lowercase() -> SManga.ONGOING
+        "hoàn thành" in status.lowercase() -> SManga.COMPLETED
         else -> SManga.UNKNOWN
     }
 
     // ============================== Chapters ==============================
-    override fun fetchChapterList(manga: SManga): Observable<List<SChapter>> = Observable.fromCallable {
-        val allChapters = mutableListOf<SChapter>()
-        var currentPage = 1
-        var lastPage: Int
+    private suspend fun getChapterList(manga: SManga): List<SChapter> = coroutineScope {
+        val firstPage = client.get(chapterListUrl(manga, 1), apiHeaders).parseAs<ChapterListResponse>()
+        val lastPage = firstPage.data?.lastPage ?: 1
+        val remainingPages = (2..lastPage)
+            .map { page ->
+                async {
+                    client.get(chapterListUrl(manga, page), apiHeaders).parseAs<ChapterListResponse>()
+                }
+            }
+            .awaitAll()
 
-        do {
-            val response = client.newCall(chapterListRequest(manga, currentPage)).execute()
-            val result = response.parseAs<ChapterListResponse>()
-
-            allChapters.addAll(chapterListParse(response, result))
-            lastPage = result.data?.lastPage ?: 1
-            currentPage++
-        } while (currentPage <= lastPage)
-
-        allChapters
+        listOf(firstPage, *remainingPages.toTypedArray())
+            .flatMap { parseChapterList(manga, it) }
     }
 
-    override fun chapterListRequest(manga: SManga) = chapterListRequest(manga, 1)
-
-    private fun chapterListRequest(manga: SManga, page: Int): Request {
-        val slug = manga.url.substringAfterLast("/")
-        val apiUrl = "$baseUrl/api/comics/$slug/chapters".toHttpUrl().newBuilder()
+    private fun chapterListUrl(manga: SManga, page: Int): HttpUrl {
+        val slug = getMangaUrl(manga).toHttpUrl().pathSegments.last()
+        return "$baseUrl/api/comics/$slug/chapters".toHttpUrl().newBuilder()
             .addQueryParameter("page", page.toString())
             .addQueryParameter("per_page", "100")
             .addQueryParameter("order", "desc")
             .build()
-        val apiHeaders = headers.newBuilder()
-            .add("Accept", "application/json")
-            .build()
-
-        return GET(apiUrl, apiHeaders)
     }
 
-    override fun chapterListParse(response: Response): List<SChapter> {
-        val result = response.parseAs<ChapterListResponse>()
-        return chapterListParse(response, result)
-    }
-
-    private fun chapterListParse(response: Response, result: ChapterListResponse): List<SChapter> {
+    private fun parseChapterList(manga: SManga, result: ChapterListResponse): List<SChapter> {
         val data = result.data ?: return emptyList()
-        val slug = response.request.url.pathSegments.let { it[it.size - 2] }
+        val slug = getMangaUrl(manga).toHttpUrl().pathSegments.last()
 
         return data.chapters.map { chapter ->
             val chapterSlug = chapter.chapterSlug.replace("chapter-", "chuong-")
             SChapter.create().apply {
                 url = "/truyen-tranh/$slug/$chapterSlug"
                 name = chapter.chapterName
-                date_upload = chapter.updatedAt?.substringBefore(".")
-                    ?.let { apiDateFormat.tryParse(it) }
-                    ?: 0L
+                date_upload = parseChapterDate(chapter.updatedAt)
             }
         }
     }
 
+    private fun parseChapterDate(date: String?): Long {
+        if (date == null) return 0L
+        return runCatching {
+            LocalDateTime.parse(date.substringBefore("."), apiDateFormat)
+                .atZone(apiDateZone)
+                .toInstant()
+                .toEpochMilli()
+        }.getOrDefault(0L)
+    }
+
     // ============================== Pages =================================
 
-    override fun pageListParse(response: Response): List<Page> {
-        val document = response.asJsoup()
+    override suspend fun getPageList(chapter: SChapter): List<Page> {
+        val document = client.get(getChapterUrl(chapter)).asJsoup()
         return document.select("div.center img").mapIndexed { index, element ->
             Page(index, imageUrl = element.absUrl("src"))
         }.ifEmpty {
@@ -196,12 +227,26 @@ abstract class ZetTruyen : HttpSource() {
         }
     }
 
-    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
-
     override fun imageRequest(page: Page): Request {
-        val imageHeaders = headers.newBuilder()
-            .set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
-            .build()
         return GET(page.imageUrl!!, imageHeaders)
     }
+
+    // ============================== Filters ===============================
+
+    override val supportsFilterFetching get() = true
+
+    override suspend fun fetchFilterData(): JsonElement = client.get("$baseUrl/tim-kiem-nang-cao").asJsoup()
+        .select("input[name='genres[]']")
+        .mapNotNull { input ->
+            val id = input.attr("value").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            val name = input.parent()?.text()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            GenreOption(name, id)
+        }
+        .distinctBy { it.id }
+        .toJsonElement()
+
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreOption>>())
+
+    private val apiDateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT)
+    private val apiDateZone = ZoneId.of("Asia/Ho_Chi_Minh")
 }

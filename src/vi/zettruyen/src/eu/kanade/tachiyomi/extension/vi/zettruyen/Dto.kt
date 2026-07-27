@@ -5,7 +5,6 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 class ChapterListResponse(
-    val success: Boolean = false,
     val data: ChapterData? = null,
 )
 
@@ -14,8 +13,6 @@ class ChapterData(
     val chapters: List<ChapterDto> = emptyList(),
     @SerialName("last_page")
     val lastPage: Int = 1,
-    @SerialName("current_page")
-    val currentPage: Int = 1,
 )
 
 @Serializable
