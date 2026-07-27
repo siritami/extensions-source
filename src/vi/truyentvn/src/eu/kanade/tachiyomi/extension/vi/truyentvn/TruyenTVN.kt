@@ -81,6 +81,7 @@ abstract class TruyenTVN : KeiSource() {
                             Filter.TriState.STATE_EXCLUDE -> addQueryParameter("exclude_genres[]", genre.slug)
                         }
                     }
+                    else -> Unit
                 }
             }
             if (page > 1) addQueryParameter("paged", page.toString())
@@ -139,8 +140,8 @@ abstract class TruyenTVN : KeiSource() {
     ): SMangaUpdate {
         val document = client.get(getMangaUrl(manga)).asJsoup()
         val mangaId = document.selectFirst("input#post_manga_id")?.attr("value")
-        val updatedManga = if (fetchDetails) parseMangaDetails(document, manga, mangaId) else null
-        val updatedChapters = if (fetchChapters && mangaId != null) fetchChapterList(mangaId) else null
+        val updatedManga = if (fetchDetails) parseMangaDetails(document, manga, mangaId) else manga
+        val updatedChapters = if (fetchChapters && mangaId != null) fetchChapterList(mangaId) else chapters
         return SMangaUpdate(updatedManga, updatedChapters)
     }
 
