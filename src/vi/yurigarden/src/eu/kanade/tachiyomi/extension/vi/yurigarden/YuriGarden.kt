@@ -66,9 +66,9 @@ abstract class YuriGarden :
 
     override fun OkHttpClient.Builder.configureClient() = apply {
         addInterceptor(authInterceptor())
-        .addInterceptor(loginRequiredInterceptor())
-        .addInterceptor(ImageDescrambler())
-        .rateLimit(15, 1.minutes) { it.host == apiHost }
+            .addInterceptor(loginRequiredInterceptor())
+            .addInterceptor(ImageDescrambler())
+            .rateLimit(15, 1.minutes) { it.host == apiHost }
     }
 
     private val apiHeaders: Headers
@@ -286,15 +286,19 @@ abstract class YuriGarden :
     ): SMangaUpdate = coroutineScope {
         loadAuthToken()
         val comicId = mangaId(manga)
-        val details = if (fetchDetails) async {
-            client.get("$apiUrl/comics/$comicId", apiHeaders).parseAs<ComicDetail>().toSManga()
+        val details = if (fetchDetails) {
+            async {
+                client.get("$apiUrl/comics/$comicId", apiHeaders).parseAs<ComicDetail>().toSManga()
+            }
         } else {
             null
         }
-        val chapterList = if (fetchChapters) async {
-            client.get("$apiUrl/chapters/comic/$comicId", apiHeaders)
-                .parseAs<List<ChapterData>>()
-                .toSChapters(comicId)
+        val chapterList = if (fetchChapters) {
+            async {
+                client.get("$apiUrl/chapters/comic/$comicId", apiHeaders)
+                    .parseAs<List<ChapterData>>()
+                    .toSChapters(comicId)
+            }
         } else {
             null
         }
@@ -307,31 +311,30 @@ abstract class YuriGarden :
 
     private fun chapterId(chapter: SChapter): String = chapter.url.toHttpUrl(baseUrl).pathSegments.last()
 
-    private fun List<ChapterData>.toSChapters(comicId: String): List<SChapter> =
-        this
-            .sortedWith(
-                compareByDescending<ChapterData> { it.order }
-                    .thenByDescending { it.id },
-            )
-            .map { chapter ->
-                SChapter.create().apply {
-                    url = "/comic/$comicId/${chapter.id}"
-                    name = buildString {
-                        if (chapter.volume != null) {
-                            append("Vol.${chapter.volume.toBigDecimal().stripTrailingZeros().toPlainString()} ")
-                        }
-                        if (chapter.order < 0) {
-                            append("Oneshot")
-                        } else {
-                            append("Ch.${chapter.order.toBigDecimal().stripTrailingZeros().toPlainString()}")
-                        }
-                        if (chapter.name.isNotEmpty()) append(": ${chapter.name}")
+    private fun List<ChapterData>.toSChapters(comicId: String): List<SChapter> = this
+        .sortedWith(
+            compareByDescending<ChapterData> { it.order }
+                .thenByDescending { it.id },
+        )
+        .map { chapter ->
+            SChapter.create().apply {
+                url = "/comic/$comicId/${chapter.id}"
+                name = buildString {
+                    if (chapter.volume != null) {
+                        append("Vol.${chapter.volume.toBigDecimal().stripTrailingZeros().toPlainString()} ")
                     }
-                    date_upload = chapter.publishedAt
-                    chapter_number = chapter.order.toFloat()
-                    scanlator = chapter.team?.name ?: "Unknown"
+                    if (chapter.order < 0) {
+                        append("Oneshot")
+                    } else {
+                        append("Ch.${chapter.order.toBigDecimal().stripTrailingZeros().toPlainString()}")
+                    }
+                    if (chapter.name.isNotEmpty()) append(": ${chapter.name}")
                 }
+                date_upload = chapter.publishedAt
+                chapter_number = chapter.order.toFloat()
+                scanlator = chapter.team?.name ?: "Unknown"
             }
+        }
 
     // ============================== Pages =================================
 
@@ -489,6 +492,6 @@ abstract class YuriGarden :
 
     private val mainScriptRegex = Regex("""(?:src|href)="([^"]*/assets/main-[^"]+\.js)"""")
     private val serverFnRegex = Regex(
-            """(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*[A-Za-z_$][\w$]*\(\{method:"GET"\}\)\.handler\([A-Za-z_$][\w$]*\("([A-Za-z0-9]+)"\)\)""",
+        """(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*[A-Za-z_$][\w$]*\(\{method:"GET"\}\)\.handler\([A-Za-z_$][\w$]*\("([A-Za-z0-9]+)"\)\)""",
     )
 }
