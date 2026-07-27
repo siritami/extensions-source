@@ -15,16 +15,15 @@ import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.obj
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.runWebView
+import keiyoushi.utils.stringOrNull
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -410,7 +409,7 @@ abstract class YuriGarden :
     private suspend fun decryptIfNeeded(response: Response): ChapterDetail {
         val body = response.parseAs<JsonElement>()
 
-        return if ("encrypted" in body.jsonObject) {
+        return if ("encrypted" in body.obj) {
             val encrypted = body.parseAs<EncryptedResponse>()
             if (encrypted.encrypted && !encrypted.data.isNullOrEmpty()) {
                 decryptChapterDetail(encrypted.data)
@@ -482,7 +481,7 @@ abstract class YuriGarden :
         val props = node.p ?: return null
         val index = props.k.indexOf(key)
         if (index >= 0) {
-            props.v.getOrNull(index)?.s?.jsonPrimitive?.contentOrNull?.let { return it }
+            props.v.getOrNull(index)?.s?.stringOrNull?.let { return it }
         }
 
         return props.v.firstNotNullOfOrNull { extractServerFnValue(it, key) }
