@@ -332,7 +332,6 @@ abstract class YuriGarden :
                     scanlator = chapter.team?.name ?: "Unknown"
                 }
             }
-    }
 
     // ============================== Pages =================================
 
@@ -488,8 +487,8 @@ abstract class YuriGarden :
     private val prefShowR18 = "pref_show_r18"
     private val prefShowR18Default = false
 
-    private val mainScriptRegex = Regex("""(?:src|href)="([^"]*/assets/main-[^"]+\.js)""")
+    private val mainScriptRegex = Regex("""(?:src|href)="([^"]*/assets/main-[^"]+\.js)"""")
     private val serverFnRegex = Regex(
-        """(?:const|let|var)\s+[A-Za-z_\x24][\w\x24]*\s*=\s*[A-Za-z_\x24][\w\x24]*\(\{method:"GET"\}\)\.handler\([A-Za-z_\x24][\w\x24]*\("([A-Za-z0-9]+)"\)\)""",
+            """(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*[A-Za-z_$][\w$]*\(\{method:"GET"\}\)\.handler\([A-Za-z_$][\w$]*\("([A-Za-z0-9]+)"\)\)""",
     )
 }
