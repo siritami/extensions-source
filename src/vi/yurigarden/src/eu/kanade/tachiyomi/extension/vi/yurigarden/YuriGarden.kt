@@ -128,7 +128,7 @@ abstract class YuriGarden :
             .joinToString("")
         val readAuthTokenScript = javaClass.getResource("/assets/read_auth_token.js")?.readText()
             ?: throw IllegalStateException("read_auth_token.js not found in assets")
-        val script = readAuthTokenScript.replace(AUTH_BRIDGE_PLACEHOLDER, bridgeName)
+        val script = readAuthTokenScript.replace("__AUTH_BRIDGE_NAME__", bridgeName)
 
         return runWebView(timeout = 10.seconds) {
             jsBridge(bridgeName) { value -> resolve(value.ifBlank { null }) }
@@ -488,11 +488,10 @@ abstract class YuriGarden :
         private const val LOGIN_REQUIRED_MESSAGE = "Nguồn này cần đăng nhập bằng webview để xem"
         private const val PREF_SHOW_R18 = "pref_show_r18"
         private const val PREF_SHOW_R18_DEFAULT = false
-        private const val AUTH_BRIDGE_PLACEHOLDER = "__AUTH_BRIDGE_NAME__"
 
         private val MAIN_SCRIPT_REGEX = Regex("""(?:src|href)="([^"]*/assets/main-[^"]+\.js)"""")
         private val SERVER_FN_REGEX = Regex(
-            """(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*[A-Za-z_$][\w$]*\(\{method:"GET"\}\)\.handler\([A-Za-z_$][\w$]*\("([A-Za-z0-9]+)"\)\)""",
+            $$"""(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*[A-Za-z_$][\w$]*\(\{method:"GET"\}\)\.handler\([A-Za-z_$][\w$]*\("([A-Za-z0-9]+)"\)\)""",
         )
     }
 }
