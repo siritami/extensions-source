@@ -169,9 +169,9 @@ abstract class ViHentai :
         author = document.selectFirst("a[href*=/tac-gia/]")?.text()
         genre = document.select("div.mt-2.flex.flex-wrap.gap-1 a[href*=/the-loai/]").joinToString { it.text() }
         thumbnail_url = document.selectFirst("div.cover-frame div.cover, div.cover-frame")?.extractBackgroundImage()
-        description = document.selectFirst("div.mg-plot")?.select("p")
-            ?.drop(1)
-            ?.joinToString("\n") { it.text() }
+        description = document.selectFirst("div.mg-plot [x-ref=content]")
+            ?.wholeText()
+            ?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?: document.selectFirst("meta[property=og:description]")?.attr("content")
                 ?.substringBefore(" - Việt Hentai")
