@@ -18,11 +18,6 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.toJsonRequestBody
 import kotlinx.serialization.json.JsonElement
-import kotlin.time.Clock
-import kotlin.time.Duration.Companion.days
-import kotlin.time.Duration.Companion.hours
-import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -41,6 +36,11 @@ import java.time.format.DateTimeFormatter
 import java.util.Collections
 import java.util.LinkedHashMap
 import java.util.Locale
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class TuiTruyen : KeiSource() {
@@ -219,23 +219,22 @@ abstract class TuiTruyen : KeiSource() {
         return chapters
     }
 
-    private fun parseChapterList(document: Document): List<SChapter> =
-        document.select("ul.chapter-list li.chapter a.chapter-link").map { element ->
-            SChapter.create().apply {
-                setUrlWithoutDomain(element.absUrl("href"))
-                name = element.selectFirst(".chapter-num")!!.text()
+    private fun parseChapterList(document: Document): List<SChapter> = document.select("ul.chapter-list li.chapter a.chapter-link").map { element ->
+        SChapter.create().apply {
+            setUrlWithoutDomain(element.absUrl("href"))
+            name = element.selectFirst(".chapter-num")!!.text()
 
-                val chapterTime = element.selectFirst(".chapter-time")
-                val relativeDate = chapterTime?.text()
-                val absoluteDate = chapterTime?.attr("title")
-                    ?.substringAfter("Cập nhật", missingDelimiterValue = "")
-                    ?.trim()
-                    ?.ifEmpty { null }
+            val chapterTime = element.selectFirst(".chapter-time")
+            val relativeDate = chapterTime?.text()
+            val absoluteDate = chapterTime?.attr("title")
+                ?.substringAfter("Cập nhật", missingDelimiterValue = "")
+                ?.trim()
+                ?.ifEmpty { null }
 
-                date_upload = parseRelativeDate(relativeDate).takeIf { it != 0L }
-                    ?: parseAbsoluteDate(absoluteDate)
-            }
+            date_upload = parseRelativeDate(relativeDate).takeIf { it != 0L }
+                ?: parseAbsoluteDate(absoluteDate)
         }
+    }
 
     private fun parseRelativeDate(dateStr: String?): Long {
         if (dateStr.isNullOrBlank()) return 0L
@@ -375,8 +374,7 @@ abstract class TuiTruyen : KeiSource() {
         return bytes.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
 
-    private fun ByteArray.base64UrlNoPadding(): String =
-        Base64.encodeToString(this, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+    private fun ByteArray.base64UrlNoPadding(): String = Base64.encodeToString(this, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
 
     private fun imgxInterceptor() = Interceptor { chain ->
         val request = chain.request()
@@ -404,8 +402,7 @@ abstract class TuiTruyen : KeiSource() {
     private val imgxGrantCacheSize = 500
     private val imgxGrants = Collections.synchronizedMap(
         object : LinkedHashMap<String, PageAccessEntry>(imgxGrantCacheSize, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, PageAccessEntry>?): Boolean =
-                size > imgxGrantCacheSize
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, PageAccessEntry>?): Boolean = size > imgxGrantCacheSize
         },
     )
 
