@@ -353,6 +353,25 @@ while (hasMorePages) {
 - `awaitAll()` returns results in the same order as the deferred list, preserving pagination order.
 - If the API provides a reliable total count, calculate the exact page range and fetch those pages concurrently instead.
 
+### Avoid Fixed Page Sizes for Source Pagination
+
+For popular, latest, text search, and filtered search, avoid determining
+`MangasPage.hasNextPage` from a hardcoded result count such as
+`mangas.size >= 24` whenever possible. A site may change its page size, return
+fewer entries because of removed content, or use a different size for filters.
+
+Prefer a reliable server-provided signal, such as a next-page link, cursor,
+total page count, or explicit `hasNextPage` field. If the site provides no
+reliable signal, continue while the current response contains results:
+
+```kotlin
+return MangasPage(mangas, mangas.isNotEmpty())
+```
+
+This fallback may request one empty page before stopping. Use it only when the
+server returns an empty result beyond the final page; do not use it when the
+server repeats the last page for out-of-range requests.
+
 ## Deeplink Configuration
 
 Configure deeplinks in `build.gradle.kts` to match only the site's routes that can resolve to manga entries. Prefer the narrowest pattern that covers both manga details and chapter URLs:
