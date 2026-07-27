@@ -227,9 +227,7 @@ abstract class ZetTruyen : KeiSource() {
         }
     }
 
-    override fun imageRequest(page: Page): Request {
-        return GET(page.imageUrl!!, imageHeaders)
-    }
+    override fun imageRequest(page: Page): Request = GET(page.imageUrl!!, imageHeaders)
 
     // ============================== Filters ===============================
 
