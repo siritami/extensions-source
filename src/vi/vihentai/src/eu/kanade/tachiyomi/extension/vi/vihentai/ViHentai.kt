@@ -277,7 +277,7 @@ abstract class ViHentai :
                         thumbnail_url = card.selectFirst("div.cover-sm")?.extractBackgroundImage()
                     }
                 }
-            }
+        }
             .filterNot { it.url == manga.url }
             .distinctBy { it.url }
     }
