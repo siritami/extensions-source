@@ -259,12 +259,12 @@ abstract class YuriNeko : KeiSource() {
 
     // ============================== Chapters ==============================
     private suspend fun fetchAllChapters(mangaId: String): List<SChapter> = fetchChaptersFromChapterApi(mangaId).map { chapter ->
-            SChapter.create().apply {
-                setUrlWithoutDomain("/manga/$mangaId/${chapter.id}")
-                name = chapterName(chapter)
-                date_upload = parseChapterDate(chapter.publishedAt ?: chapter.createdAt)
-            }
+        SChapter.create().apply {
+            setUrlWithoutDomain("/manga/$mangaId/${chapter.id}")
+            name = chapterName(chapter)
+            date_upload = parseChapterDate(chapter.publishedAt ?: chapter.createdAt)
         }
+    }
 
     private suspend fun fetchChaptersFromChapterApi(mangaId: String): List<ChapterDto> = coroutineScope {
         val chapters = linkedMapOf<String, ChapterDto>()
