@@ -95,7 +95,7 @@ class SlugCategoryItemDto(
     val id: String,
     val name: String,
     val slug: String,
-}
+)
 
 @Serializable
 class CategoryMetaDto(

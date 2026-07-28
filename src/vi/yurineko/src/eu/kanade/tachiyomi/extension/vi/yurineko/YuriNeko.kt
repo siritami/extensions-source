@@ -293,7 +293,7 @@ abstract class YuriNeko : KeiSource() {
 
     private fun chapterSortValue(chapter: ChapterDto): Double {
         chapter.order?.let { return it }
-        return CHAPTER_NUMBER_REGEX.find(chapter.chapterNumber)?.value?.toDoubleOrNull()
+        return chapterNumberRegex.find(chapter.chapterNumber)?.value?.toDoubleOrNull()
             ?: Double.NEGATIVE_INFINITY
     }
 
@@ -335,7 +335,7 @@ abstract class YuriNeko : KeiSource() {
     private fun parsePageUrlsFromChapterData(document: Document): List<String> {
         val scriptText = document.select("script").joinToString("\n") { it.data() }
 
-        return CHAPTER_PAGE_URL_REGEX.findAll(scriptText)
+        return chapterPageUrlRegex.findAll(scriptText)
             .map { it.value }
             .mapNotNull(::normalizeChapterImageUrl)
             .distinct()
@@ -400,7 +400,7 @@ abstract class YuriNeko : KeiSource() {
 
         return when {
             resolved.startsWith("http://") || resolved.startsWith("https://") -> {
-                resolved.takeIf { CHAPTER_IMAGE_PATH_REGEX.containsMatchIn(it) }
+                resolved.takeIf { chapterImagePathRegex.containsMatchIn(it) }
             }
             resolved.startsWith("/chapters/") || resolved.startsWith("chapters/") -> {
                 cdnImageUrl(resolved)
@@ -438,8 +438,8 @@ abstract class YuriNeko : KeiSource() {
         val mangaId = if (mangaIndex != -1) pathSegments.getOrNull(mangaIndex + 1) else null
 
         return mangaId
-            ?.takeIf(UUID_REGEX::matches)
-            ?: pathSegments.firstOrNull(UUID_REGEX::matches)
+            ?.takeIf(uuidRegex::matches)
+            ?: pathSegments.firstOrNull(uuidRegex::matches)
     }
 
     // =============================== Related ================================
@@ -461,11 +461,11 @@ abstract class YuriNeko : KeiSource() {
     private val chapterListLimit = 50
     private val filterLimit = 100
 
-    private val UUID_REGEX = Regex(
+    private val uuidRegex = Regex(
         "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
         RegexOption.IGNORE_CASE,
     )
-    private val CHAPTER_NUMBER_REGEX = Regex("""\d+(?:\.\d+)?""")
-    private val CHAPTER_PAGE_URL_REGEX = Regex("""(?:/api/img\?[^"'\s]+|/?chapters/[^"'\\\s]+)""")
-    private val CHAPTER_IMAGE_PATH_REGEX = Regex("""(?:^|/)chapters/""")
+    private val chapterNumberRegex = Regex("""\d+(?:\.\d+)?""")
+    private val chapterPageUrlRegex = Regex("""(?:/api/img\?[^"'\s]+|/?chapters/[^"'\\\s]+)""")
+    private val chapterImagePathRegex = Regex("""(?:^|/)chapters/""")
 }
