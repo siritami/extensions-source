@@ -26,8 +26,6 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.runWebView
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -36,6 +34,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okio.Buffer
 import org.jsoup.nodes.Document
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class Comix :
@@ -69,7 +69,7 @@ abstract class Comix :
             }
             lastResponse
         }
-        .rateLimit(5)
+            .rateLimit(5)
     }
 
     override fun Headers.Builder.configureHeaders() = add("Accept", "*/*")
@@ -342,8 +342,7 @@ abstract class Comix :
         return url
     }
 
-    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage =
-        fetchMangaListFromBrowse(searchMangaUrl(page, query, filters))
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage = fetchMangaListFromBrowse(searchMangaUrl(page, query, filters))
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         val host = url.host.removePrefix("www.")
@@ -360,7 +359,7 @@ abstract class Comix :
      * Apply every content-related source-level preference (rating, types,
      * demographics, blocked genres) in one go. Used by popular/latest
      * where there's no search filter sheet to override anything.
-    * `searchMangaUrl` calls each helper individually so the search
+        * `searchMangaUrl` calls each helper individually so the search
      * filter can short-circuit per-field.
      */
     private fun HttpUrl.Builder.applyBrowseContentPreferences() {
@@ -437,7 +436,7 @@ abstract class Comix :
             .build()
 
         return runCatching {
-                client.get(url).parseAs<TagSearchResponse>().result.map { it.id.toString() }
+            client.get(url).parseAs<TagSearchResponse>().result.map { it.id.toString() }
         }.getOrDefault(emptyList())
     }
 
