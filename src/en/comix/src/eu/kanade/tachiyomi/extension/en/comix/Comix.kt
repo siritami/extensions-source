@@ -359,7 +359,7 @@ abstract class Comix :
      * Apply every content-related source-level preference (rating, types,
      * demographics, blocked genres) in one go. Used by popular/latest
      * where there's no search filter sheet to override anything.
-        * `searchMangaUrl` calls each helper individually so the search
+     * `searchMangaUrl` calls each helper individually so the search
      * filter can short-circuit per-field.
      */
     private fun HttpUrl.Builder.applyBrowseContentPreferences() {
