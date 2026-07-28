@@ -5,10 +5,10 @@ import eu.kanade.tachiyomi.source.model.FilterList
 
 fun getFilters(data: FilterData?): FilterList {
     val filters = mutableListOf<Filter<*>>()
-    data?.doujins?.takeIf { it.isNotEmpty() }?.let { filters += DoujinFilter(it) }
+    data?.tags?.takeIf { it.isNotEmpty() }?.let { filters += TagFilter(it) }
     data?.authors?.takeIf { it.isNotEmpty() }?.let { filters += AuthorFilter(it) }
     data?.artists?.takeIf { it.isNotEmpty() }?.let { filters += ArtistFilter(it) }
-    data?.tags?.takeIf { it.isNotEmpty() }?.let { filters += TagFilter(it) }
+    data?.doujins?.takeIf { it.isNotEmpty() }?.let { filters += DoujinFilter(it) }
     data?.groups?.takeIf { it.isNotEmpty() }?.let { filters += GroupFilter(it) }
     data?.couples?.takeIf { it.isNotEmpty() }?.let { filters += CoupleFilter(it) }
     filters += SortFilter()
@@ -31,7 +31,7 @@ class AuthorFilter(options: List<FilterOption>) : UriPartFilter("Tác giả", op
 
 class ArtistFilter(options: List<FilterOption>) : UriPartFilter("Họa sĩ", options)
 
-class TagFilter(options: List<FilterOption>) : UriPartFilter("Thẻ", options)
+class TagFilter(options: List<FilterOption>) : UriPartFilter("Thể loại", options)
 
 class GroupFilter(options: List<FilterOption>) : UriPartFilter("Nhóm dịch", options)
 
