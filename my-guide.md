@@ -777,6 +777,7 @@ Import them to avoid verbose `jsonObject`/`jsonArray`/`jsonPrimitive` chains.
 
 ```kotlin
 import keiyoushi.utils.get     // operator fun JsonElement?.get(key: String): JsonElement?
+import keiyoushi.utils.obj     // val JsonElement.obj: JsonObject
 import keiyoushi.utils.array   // val JsonElement.array: JsonArray
 import keiyoushi.utils.int     // val JsonElement.int: Int
 import keiyoushi.utils.long    // val JsonElement.long: Long
@@ -804,6 +805,17 @@ val slug = element.getStringOrNull("slug")
 
 // JsonElement?
 val slug = data["slug"]?.stringOrNull
+```
+
+For whole-object checks and optional primitive values, use the shared accessors
+instead of importing `jsonObject`, `jsonPrimitive`, and `contentOrNull`:
+
+```kotlin
+if ("encrypted" in body.obj) {
+    // Parse the encrypted response.
+}
+
+val value = node.s?.stringOrNull
 ```
 
 Keep the `kotlinx.serialization.json.JsonObject` import when it is required for
