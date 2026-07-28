@@ -456,8 +456,7 @@ abstract class YuriNeko : KeiSource() {
             ?: pathSegments.firstOrNull(uuidRegex::matches)
     }
 
-    private fun JsonObject.withMangaId(mangaId: String): JsonObject =
-        JsonObject(this + ("mangaId" to mangaId.toJsonElement()))
+    private fun JsonObject.withMangaId(mangaId: String): JsonObject = JsonObject(this + ("mangaId" to mangaId.toJsonElement()))
 
     // =============================== Related ================================
 
