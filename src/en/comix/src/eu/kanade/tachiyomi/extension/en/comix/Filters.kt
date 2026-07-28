@@ -230,7 +230,7 @@ class Filters {
     private class FormatFilter(formats: Array<Pair<String, String>>) : TermGroupFilter("Formats", formats)
 
     // Tags accept arbitrary names — the catalogue has hundreds, so we don't
-    // try to enumerate them. Comix.searchMangaRequest resolves each name to an
+    // try to enumerate them. Comix.searchMangaUrl resolves each name to an
     // ID through /api/v1/tags/search and adds the corresponding `genres_in[]`.
     class TagsFilter : Filter.Text("Tags")
 
@@ -270,7 +270,7 @@ class Filters {
     }
 
     // Author/Artist accept names; the site filters by ID, so the request
-    // builder doesn't add anything here. Comix.searchMangaRequest resolves
+    // builder doesn't add anything here. Comix.searchMangaUrl resolves
     // the name to one or more IDs via /api/v1/tags/search and appends the
     // `authors[]` / `artists[]` parameters there.
     class AuthorFilter : Filter.Text("Author")

@@ -1,69 +1,54 @@
 package eu.kanade.tachiyomi.extension.en.comix
 
-import android.annotation.SuppressLint
 import android.content.SharedPreferences
-import android.os.Handler
-import android.os.Looper
-import android.view.View
-import android.view.ViewGroup
-import android.webkit.CookieManager
-import android.webkit.JavascriptInterface
-import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
 import keiyoushi.network.rateLimit
-import keiyoushi.utils.applicationContext
+import keiyoushi.source.KeiSource
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
-import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonObject
+import keiyoushi.utils.runWebView
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response
 import okio.Buffer
-import org.json.JSONObject
 import org.jsoup.nodes.Document
-import rx.Observable
-import java.util.concurrent.Semaphore
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 @Source
 abstract class Comix :
-    HttpSource(),
+    KeiSource(),
     ConfigurableSource {
 
     private val apiUrl get() = "$baseUrl/api/v1"
-    override val supportsLatest = true
-    override val supportsRelatedMangas = false
-    override val disableRelatedMangasBySearch = true
 
     private val preferences: SharedPreferences by getPreferencesLazy()
 
-    override val client = network.client.newBuilder()
-        .addInterceptor(Descrambler.interceptor)
-        .addInterceptor { chain ->
+    override fun OkHttpClient.Builder.configureClient() = apply {
+        addInterceptor(Descrambler.interceptor)
+        addInterceptor { chain ->
             val request = chain.request()
 
             val response = chain.proceed(request)
@@ -85,23 +70,22 @@ abstract class Comix :
             lastResponse
         }
         .rateLimit(5)
-        .build()
+    }
 
-    override fun headersBuilder() = super.headersBuilder()
-        .add("Referer", "$baseUrl/")
-        .add("Origin", baseUrl)
-        .add("Accept", "*/*")
-
-    override fun imageUrlParse(response: Response) = throw UnsupportedOperationException()
+    override fun Headers.Builder.configureHeaders() = add("Accept", "*/*")
 
     // V3 grid-scramble pages must NOT send Origin — the server withholds X-Scramble-Seed when
     // Origin is present. Legacy byte-XOR pages need Origin to receive X-Enc-Seed.
     override fun imageRequest(page: Page): Request {
         val imageUrl = page.imageUrl ?: return super.imageRequest(page)
-        val urlWithoutFragment = imageUrl.substringBefore('#')
-        val imageHost = urlWithoutFragment.toHttpUrlOrNull()?.host.orEmpty()
-        val isScrambled = imageUrl.contains("#scrambled")
-        val isV3 = urlWithoutFragment.toHttpUrlOrNull()?.queryParameterNames?.contains("v3") == true
+        val imageHttpUrl = imageUrl.toHttpUrlOrNull()
+        val urlWithoutFragment = imageHttpUrl?.newBuilder()
+            ?.fragment(null)
+            ?.build()
+            ?: return super.imageRequest(page)
+        val imageHost = urlWithoutFragment.host
+        val isScrambled = imageHttpUrl.fragment == "scrambled"
+        val isV3 = "v3" in urlWithoutFragment.queryParameterNames
         val isLegacyScramble = isScrambled && !isV3
         val baseUrlHost = baseUrl.toHttpUrl().host
         val requestHeaders = if (
@@ -119,7 +103,7 @@ abstract class Comix :
     }
 
     // ============================== Popular ==============================
-    override fun popularMangaRequest(page: Int): Request {
+    private fun popularMangaUrl(page: Int): HttpUrl {
         val url = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("browse")
             addQueryParameter("order[score]", "desc")
@@ -127,29 +111,23 @@ abstract class Comix :
             applyBrowseContentPreferences()
         }.build()
 
-        return GET(url, headers)
+        return url
     }
 
-    override fun popularMangaParse(response: Response) = throw UnsupportedOperationException()
+    override suspend fun getPopularManga(page: Int): MangasPage = fetchMangaListFromBrowse(popularMangaUrl(page))
 
-    override fun fetchPopularManga(page: Int): Observable<MangasPage> = fetchMangaListFromBrowse(
-        popularMangaRequest(page),
-    )
-
-    private fun fetchMangaListFromBrowse(request: Request): Observable<MangasPage> = Observable.fromCallable {
-        val document = runBlocking {
-            client.newCall(request).awaitSuccess().asJsoup()
-        }
-        val contentRating = request.url.queryParameter("content_rating")
+    private suspend fun fetchMangaListFromBrowse(url: HttpUrl): MangasPage {
+        val document = client.get(url).asJsoup()
+        val contentRating = url.queryParameter("content_rating")
             ?: preferences.contentRating()
         val effectiveContentRating = contentRating
             .split(',')
             .lastOrNull { it.isNotBlank() }
             .orEmpty()
             .ifEmpty { "pornographic" }
-        val expectedKeyword = JSONObject.quote(
-            request.url.queryParameter("q") ?: request.url.queryParameter("keyword").orEmpty(),
-        )
+        val expectedKeyword = JsonPrimitive(
+            url.queryParameter("q") ?: url.queryParameter("keyword").orEmpty(),
+        ).toString()
         val searchResponse = document.extractBrowseResponse() ?: runInWebView(
             document = document,
             initializationScript = """
@@ -184,7 +162,7 @@ abstract class Comix :
                                     (allowEmpty || parsed.result.items.length > 0)
                                 ) {
                                     window[payloadKey] = JSON.stringify(parsed);
-                                    window.$interfaceName.passPayload(window[payloadKey]);
+                                    window.$interfaceName.post(window[payloadKey]);
                                     return true;
                                 }
                             } catch (e) {}
@@ -270,14 +248,14 @@ abstract class Comix :
         val mangaList = searchResponse.result.items.map {
             it.toBasicSManga(preferences.posterQuality())
         }
-        MangasPage(mangaList, searchResponse.result.hasNextPage())
+        return MangasPage(mangaList, searchResponse.result.hasNextPage())
     }
 
     private fun Document.extractBrowseResponse(): SearchResponse? {
         val initialData = selectFirst("script#initial-data")?.data() ?: return null
-        val queries = runCatching {
-            initialData.parseAs<JsonObject>()["queries"] as? JsonObject
-        }.getOrNull() ?: return null
+        val queries = runCatching { initialData.parseAs<InitialData>().queries }
+            .getOrNull()
+            ?: return null
 
         return queries.values.firstNotNullOfOrNull { value ->
             runCatching { value.parseAs<SearchResponse>() }
@@ -287,7 +265,7 @@ abstract class Comix :
     }
 
     // ============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int): Request {
+    private fun latestUpdatesUrl(page: Int): HttpUrl {
         val url = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("browse")
             addQueryParameter("order[chapter_updated_at]", "desc")
@@ -295,17 +273,13 @@ abstract class Comix :
             applyBrowseContentPreferences()
         }.build()
 
-        return GET(url, headers)
+        return url
     }
 
-    override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
-
-    override fun fetchLatestUpdates(page: Int): Observable<MangasPage> = fetchMangaListFromBrowse(
-        latestUpdatesRequest(page),
-    )
+    override suspend fun getLatestUpdates(page: Int): MangasPage = fetchMangaListFromBrowse(latestUpdatesUrl(page))
 
     // ============================== Search ===============================
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
+    private suspend fun searchMangaUrl(page: Int, query: String, filters: FilterList): HttpUrl {
         val withFilters = baseUrl.toHttpUrl().newBuilder()
             .addPathSegment("browse")
             .apply {
@@ -365,39 +339,28 @@ abstract class Comix :
             addQueryParameter("page", page.toString())
         }.build()
 
-        return GET(url, headers)
+        return url
     }
 
-    override fun searchMangaParse(response: Response) = throw UnsupportedOperationException()
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage =
+        fetchMangaListFromBrowse(searchMangaUrl(page, query, filters))
 
-    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
-        titlePathFromQuery(query)?.let { titlePath ->
-            return fetchMangaDetails(SManga.create().apply { url = titlePath })
-                .map { MangasPage(listOf(it), false) }
-        }
-
-        return fetchMangaListFromBrowse(searchMangaRequest(page, query, filters))
-    }
-
-    private fun titlePathFromQuery(query: String): String? {
-        val queryUrl = query.trim()
-            .takeIf { it.isNotEmpty() }
-            ?.toHttpUrlOrNull()
-            ?: return null
-
-        val host = queryUrl.host.removePrefix("www.")
+    override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
+        val host = url.host.removePrefix("www.")
         if (host != baseUrl.toHttpUrl().host.removePrefix("www.")) return null
-        if (queryUrl.pathSegments.size < 2 || queryUrl.pathSegments[0] != "title") return null
+        if (url.pathSegments.size < 2 || url.pathSegments[0] != "title") return null
 
-        val mangaId = queryUrl.pathSegments[1].substringBefore("-")
-        return mangaId.takeIf { it.isNotBlank() }?.let { "/$it" }
+        val mangaId = url.pathSegments[1].substringBefore("-").takeIf { it.isNotBlank() }
+            ?: return null
+        val manga = SManga.create().apply { this.url = "/$mangaId" }
+        return fetchMangaUpdate(manga, emptyList(), fetchDetails = true, fetchChapters = false).manga
     }
 
     /**
      * Apply every content-related source-level preference (rating, types,
      * demographics, blocked genres) in one go. Used by popular/latest
      * where there's no search filter sheet to override anything.
-     * `searchMangaRequest` calls each helper individually so the search
+    * `searchMangaUrl` calls each helper individually so the search
      * filter can short-circuit per-field.
      */
     private fun HttpUrl.Builder.applyBrowseContentPreferences() {
@@ -458,13 +421,14 @@ abstract class Comix :
      * parameters. Each name is looked up via `/tags/search`; names that match
      * nothing simply contribute no IDs.
      */
-    private fun resolveTagIdsForNames(type: String, raw: String): List<String> = raw
-        .split(',')
-        .map { it.trim() }
-        .filter { it.isNotEmpty() }
-        .flatMap { resolveTagIds(type, it) }
+    private suspend fun resolveTagIdsForNames(type: String, raw: String): List<String> = buildList {
+        raw.split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .forEach { addAll(resolveTagIds(type, it)) }
+    }
 
-    private fun resolveTagIds(type: String, name: String): List<String> {
+    private suspend fun resolveTagIds(type: String, name: String): List<String> {
         val url = apiUrl.toHttpUrl().newBuilder()
             .addPathSegment("tags")
             .addPathSegment("search")
@@ -473,35 +437,20 @@ abstract class Comix :
             .build()
 
         return runCatching {
-            client.newCall(GET(url, headers)).execute().use { response ->
-                response.parseAs<TagSearchResponse>().result.map { it.id.toString() }
-            }
+                client.get(url).parseAs<TagSearchResponse>().result.map { it.id.toString() }
         }.getOrDefault(emptyList())
     }
 
-    // ============================== Filters ==============================
-    override fun getFilterList() = Filters().getFilterList()
-
     // ============================== Details ==============================
-    override fun mangaDetailsRequest(manga: SManga): Request = GET(getMangaUrl(manga), headers)
-
-    override fun mangaDetailsParse(response: Response) = throw UnsupportedOperationException()
-
-    override fun fetchMangaDetails(manga: SManga): Observable<SManga> = Observable.fromCallable {
-        val document = runBlocking {
-            client.newCall(GET(getMangaUrl(manga), headers)).awaitSuccess().asJsoup()
-        }
-
+    private fun parseMangaDetails(document: Document): SManga {
         val initialData = document.selectFirst("script#initial-data")?.data()
             ?: throw Exception("Could not find manga data in page")
-        val root = initialData.parseAs<JsonObject>()
-        val queries = root["queries"] as? JsonObject
-            ?: throw Exception("Could not find queries in manga data")
+        val queries = initialData.parseAs<InitialData>().queries
         val detail = queries.entries.firstOrNull { (key, _) -> key.contains("\"detail\"") }
             ?.value
             ?: throw Exception("Could not find manga detail in queries")
 
-        detail.parseAs<Manga>().toSManga(
+        return detail.parseAs<Manga>().toSManga(
             preferences.posterQuality(),
             preferences.alternativeNamesInDescription(),
             preferences.scorePosition(),
@@ -515,14 +464,23 @@ abstract class Comix :
     // ============================= Chapters ==============================
     override fun getChapterUrl(chapter: SChapter) = "$baseUrl/${chapter.url}"
 
-    override fun fetchChapterList(manga: SManga): Observable<List<SChapter>> = Observable.fromCallable {
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate {
+        val document = client.get(getMangaUrl(manga)).asJsoup()
+        return SMangaUpdate(
+            manga = if (fetchDetails) parseMangaDetails(document) else manga,
+            chapters = if (fetchChapters) parseChapterList(document, manga) else chapters,
+        )
+    }
+
+    private suspend fun parseChapterList(document: Document, manga: SManga): List<SChapter> {
         val deduplicate = preferences.deduplicateChapters()
         val blacklist = preferences.scanlatorBlacklist()
         val mangaSlug = manga.url.removePrefix("/")
-
-        val document = runBlocking {
-            client.newCall(GET(getMangaUrl(manga), headers)).awaitSuccess().asJsoup()
-        }
         val payload = runInWebView(
             document = document,
             buildScript = { interfaceName ->
@@ -541,7 +499,7 @@ abstract class Comix :
                         const submit = () => {
                             if (state.submitted) return;
                             state.submitted = true;
-                            window.$$interfaceName.passPayload(JSON.stringify(state.items));
+                            window.$$interfaceName.post(JSON.stringify(state.items));
                         };
                         const findNextButton = page => {
                             const buttons = [...document.querySelectorAll('.mchap-foot button')]
@@ -577,7 +535,6 @@ abstract class Comix :
                                 state.items.push(...items);
                                 if (hasNext && !state.nextClicks.has(page)) {
                                     state.nextClicks.add(page);
-                                    window.$$interfaceName.resetTimer();
                                     let tries = 0;
                                     const interval = setInterval(() => {
                                         const button = findNextButton(page);
@@ -647,12 +604,8 @@ abstract class Comix :
             filteredChapters
         }
 
-        finalChapters.map { it.toSChapter(mangaSlug) }
+        return finalChapters.map { it.toSChapter(mangaSlug) }
     }
-
-    override fun chapterListRequest(manga: SManga): Request = throw UnsupportedOperationException()
-
-    override fun chapterListParse(response: Response): List<SChapter> = throw UnsupportedOperationException()
 
     private fun deduplicateChapters(
         chapterMap: LinkedHashMap<Number, Chapter>,
@@ -686,11 +639,8 @@ abstract class Comix :
     }
 
     // =============================== Pages ===============================
-    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> = Observable.fromCallable {
-        val request = GET(getChapterUrl(chapter), headers)
-        val document = runBlocking {
-            client.newCall(request).awaitSuccess().asJsoup()
-        }
+    override suspend fun getPageList(chapter: SChapter): List<Page> {
+        val document = client.get(getChapterUrl(chapter)).asJsoup()
         val payload = runInWebView(
             document = document,
             buildScript = { interfaceName ->
@@ -701,7 +651,7 @@ abstract class Comix :
                         try {
                             if (parsed && parsed.result && parsed.result.pages) {
                                 window[payloadKey] = JSON.stringify(parsed);
-                                window.$interfaceName.passPayload(window[payloadKey]);
+                                window.$interfaceName.post(window[payloadKey]);
                                 return true;
                             }
                         } catch (e) {}
@@ -737,7 +687,7 @@ abstract class Comix :
         val pages = payload.parseAs<ChapterResponse>().result.pages
         val base = pages.baseUrl.trimEnd('/')
 
-        pages.items.mapIndexed { index, img ->
+        return pages.items.mapIndexed { index, img ->
             val full = if (img.url.startsWith("http")) img.url else "$base/${img.url.trimStart('/')}"
             // V3 pages need the query flag so the server returns grid-scramble headers.
             // Legacy byte-XOR pages: add #scrambled so imageRequest keeps Origin for x-enc-seed
@@ -756,185 +706,56 @@ abstract class Comix :
         }
     }
 
-    override fun pageListRequest(chapter: SChapter): Request = throw UnsupportedOperationException()
+    // ============================== Filters ==============================
+    override fun getFilterList(data: JsonElement?) = Filters().getFilterList()
 
-    override fun pageListParse(response: Response): List<Page> = throw UnsupportedOperationException()
-
-    @SuppressLint("SetJavaScriptEnabled")
-    @Synchronized
-    private fun runInWebView(
+    // ============================= Utilities =============================
+    private suspend fun runInWebView(
         document: Document,
         initializationScript: String? = null,
         buildScript: (interfaceName: String) -> String,
     ): String {
-        val handler = Handler(Looper.getMainLooper())
-        val payloadResult = WebViewPayloadResult()
         val pool = ('a'..'z') + ('A'..'Z')
         val interfaceName = (1..(10..20).random())
             .map { pool.random() }
             .joinToString("")
         val script = buildScript(interfaceName)
         val emptyResponse = WebResourceResponse("text/plain", "utf-8", Buffer().inputStream())
-        val active = AtomicBoolean(true)
-        val started = Semaphore(0)
-        val startupError = AtomicReference<Throwable?>()
-
-        var webView: WebView? = null
-        var injectScript: Runnable? = null
-        var lastUrl = document.location()
-        handler.post {
-            try {
-                if (!active.get()) return@post
-
-                val view = WebView(applicationContext)
-                webView = view
-
-                // Some WebView implementations do not support manual layout.
-                runCatching {
-                    view.layoutParams = ViewGroup.LayoutParams(WEBVIEW_WIDTH, WEBVIEW_HEIGHT)
-                    view.measure(
-                        View.MeasureSpec.makeMeasureSpec(WEBVIEW_WIDTH, View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(WEBVIEW_HEIGHT, View.MeasureSpec.EXACTLY),
-                    )
-                    view.layout(0, 0, WEBVIEW_WIDTH, WEBVIEW_HEIGHT)
-                }
-
-                with(view.settings) {
-                    javaScriptEnabled = true
-                    domStorageEnabled = true
-                    databaseEnabled = true
-                    loadWithOverviewMode = true
-                    useWideViewPort = true
-                    blockNetworkImage = false
-                    userAgentString = headers["User-Agent"]
-                }
-
-                CookieManager.getInstance().apply {
-                    setAcceptCookie(true)
-                    setAcceptThirdPartyCookies(view, true)
-                }
-
-                view.addJavascriptInterface(payloadResult, interfaceName)
-
-                view.webViewClient = object : WebViewClient() {
-                    override fun shouldInterceptRequest(
-                        view: WebView,
-                        request: WebResourceRequest,
-                    ): WebResourceResponse? {
-                        val requestUrl = request.url?.toString()?.toHttpUrlOrNull()
-                            ?: return super.shouldInterceptRequest(view, request)
-
-                        val baseUrlHost = baseUrl.toHttpUrl().host
-                        val allowedHost = requestUrl.host.endsWith(baseUrlHost) ||
-                            requestUrl.host.endsWith(".comix.to") ||
-                            requestUrl.host == "comix.to" ||
-                            requestUrl.host == "comix.ws" ||
-                            requestUrl.host == "challenges.cloudflare.com"
-                        if (!allowedHost) return emptyResponse
-                        return super.shouldInterceptRequest(view, request)
-                    }
-
-                    override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
-                        super.onPageStarted(view, url, favicon)
-                        if (url != null) lastUrl = url
-                        if (active.get() && payloadResult.payload == null) {
-                            runCatching { view.evaluateJavascript(script, null) }
-                        }
-                    }
-
-                    override fun onPageFinished(view: WebView, url: String?) {
-                        super.onPageFinished(view, url)
-                        if (url != null) lastUrl = url
-                        if (active.get() && payloadResult.payload == null) {
-                            runCatching { view.evaluateJavascript(script, null) }
-                        }
-                    }
-                }
-
-                val retry = object : Runnable {
-                    override fun run() {
-                        if (!active.get() || payloadResult.payload != null) return
-                        runCatching { view.evaluateJavascript(script, null) }
-                        if (active.get() && payloadResult.payload == null) {
-                            handler.postDelayed(this, SCRIPT_RETRY_INTERVAL_MS)
-                        }
-                    }
-                }
-                injectScript = retry
-
-                val html = document.clone().apply {
-                    initializationScript?.let {
-                        head().prependElement("script").append(it)
-                    }
-                }.outerHtml()
-
-                view.loadDataWithBaseURL(
-                    document.location(),
-                    html,
-                    "text/html",
-                    "utf-8",
-                    null,
-                )
-                handler.post(retry)
-            } catch (error: Throwable) {
-                startupError.set(error)
-            } finally {
-                started.release()
+        val html = document.clone().apply {
+            initializationScript?.let {
+                head().prependElement("script").append(it)
             }
-        }
+        }.outerHtml()
 
-        val completed = try {
-            if (!started.tryAcquire(WEBVIEW_START_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                throw Exception("Timed out starting WebView (url=$lastUrl)")
+        return runWebView(timeout = WEBVIEW_TIMEOUT) {
+            loadWithOverviewMode = true
+            useWideViewPort = true
+            headers["User-Agent"]?.let { userAgent = it }
+
+            jsBridge(interfaceName) { payload ->
+                resolve(payload)
             }
-            startupError.get()?.let {
-                throw Exception("Failed to start WebView (url=$lastUrl)", it)
+            interceptRequest { request ->
+                val requestUrl = request.url?.toString()?.toHttpUrlOrNull()
+                    ?: return@interceptRequest null
+                val baseUrlHost = baseUrl.toHttpUrl().host
+                val allowedHost = requestUrl.host.endsWith(baseUrlHost) ||
+                    requestUrl.host.endsWith(".comix.to") ||
+                    requestUrl.host == "comix.to" ||
+                    requestUrl.host == "comix.ws" ||
+                    requestUrl.host == "challenges.cloudflare.com"
+                if (allowedHost) null else emptyResponse
             }
-            payloadResult.await(WEBVIEW_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        } finally {
-            active.set(false)
-            handler.post {
-                injectScript?.let(handler::removeCallbacks)
-                val view = webView
-                webView = null
-                runCatching { view?.stopLoading() }
-                runCatching { view?.destroy() }
+            onPageStarted {
+                evaluateJs(script)
             }
-        }
-
-        if (!completed) {
-            throw Exception("Timed out waiting for WebView payload (url=$lastUrl)")
-        }
-        return payloadResult.payload ?: throw Exception("Failed to capture WebView payload")
-    }
-
-    private class WebViewPayloadResult {
-        private val signal = Semaphore(0)
-
-        @Volatile
-        var payload: String? = null
-            private set
-
-        @JavascriptInterface
-        @Suppress("UNUSED")
-        fun passPayload(data: String) {
-            if (payload == null) {
-                payload = data
-                signal.release()
+            onPageFinished {
+                evaluateJs(script)
             }
-        }
-
-        @JavascriptInterface
-        @Suppress("UNUSED")
-        fun resetTimer() {
-            signal.release()
-        }
-
-        fun await(timeout: Long, unit: TimeUnit): Boolean {
-            while (payload == null) {
-                if (!signal.tryAcquire(timeout, unit)) return false
+            poll(SCRIPT_RETRY_INTERVAL) {
+                evaluateJs(script)
             }
-            return true
+            loadData(document.location(), html)
         }
     }
 
@@ -1109,15 +930,8 @@ abstract class Comix :
         private const val PREF_SCORE_POSITION = "pref_score_position"
 
         private const val DEFAULT_CONTENT_RATING = "suggestive"
-        private const val WEBVIEW_START_TIMEOUT_SECONDS = 120L
-        private const val WEBVIEW_TIMEOUT_SECONDS = 90L
-        private const val SCRIPT_RETRY_INTERVAL_MS = 100L
-        private const val WEBVIEW_WIDTH = 1080
-        private const val WEBVIEW_HEIGHT = 1920
+        private val WEBVIEW_TIMEOUT = 90.seconds
+        private val SCRIPT_RETRY_INTERVAL = 100.milliseconds
         private val SCRAMBLE_PATH_FALLBACK_REGEX = Regex("/(?:i5|s?i+)/")
-        private val CHAPTER_NUM_REGEX = Regex("""Ch\.([\d.]+)""")
-        private val GROUP_ID_REGEX = Regex("""/groups/(\d+)""")
-        private val CHAPTER_ID_REGEX = Regex("""/(\d+)-""")
-        private val CHAPTER_PAGINATION_REGEX = Regex("""Showing\s+\d+\s+to\s+(\d+)\s+of\s+(\d+)""")
     }
 }

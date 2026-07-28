@@ -4,9 +4,20 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlin.time.Clock
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.util.Calendar
+
+@Serializable
+class InitialData(
+    val queries: Map<String, JsonElement>,
+)
 
 @Serializable
 class Term(
@@ -294,17 +305,17 @@ class Chapter(
         val amount = match.groupValues[1].toIntOrNull() ?: return 0L
         val unit = match.groupValues[2]
 
-        val calendar = Calendar.getInstance()
-        when (unit) {
-            "s", "sec", "secs" -> calendar.add(Calendar.SECOND, -amount)
-            "m", "min", "mins" -> calendar.add(Calendar.MINUTE, -amount)
-            "h", "hr", "hrs" -> calendar.add(Calendar.HOUR_OF_DAY, -amount)
-            "d", "day", "days" -> calendar.add(Calendar.DAY_OF_YEAR, -amount)
-            "w", "week", "weeks" -> calendar.add(Calendar.WEEK_OF_YEAR, -amount)
-            "mo", "mos", "month", "months" -> calendar.add(Calendar.MONTH, -amount)
-            "y", "yr", "yrs", "year", "years" -> calendar.add(Calendar.YEAR, -amount)
+        val duration: Duration = when (unit) {
+            "s", "sec", "secs" -> amount.seconds
+            "m", "min", "mins" -> amount.minutes
+            "h", "hr", "hrs" -> amount.hours
+            "d", "day", "days" -> amount.days
+            "w", "week", "weeks" -> (amount * 7).days
+            "mo", "mos", "month", "months" -> (amount * 30).days
+            "y", "yr", "yrs", "year", "years" -> (amount * 365).days
+            else -> return 0L
         }
-        return calendar.timeInMillis
+        return (Clock.System.now() - duration).toEpochMilliseconds()
     }
 }
 
