@@ -844,6 +844,10 @@ in `SManga.memo` and reuse it instead of fetching the details page only to recov
 the same identifier. Prefer the shared JSON helpers from `keiyoushi.utils` for
 reading and encoding memo values:
 
+Store the canonical manga ID in `SManga.memo` even when new entries also include
+that ID in `SManga.url`; memo provides a stable lookup for old, slug-based, or
+deeplink-derived URLs and avoids reparsing or refetching the page during updates.
+
 ```kotlin
 import keiyoushi.utils.stringOrNull
 import keiyoushi.utils.toJsonElement
