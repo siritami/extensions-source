@@ -8,6 +8,7 @@ import okhttp3.ResponseBody.Companion.asResponseBody
 import okio.Buffer
 import okio.Source
 import okio.Timeout
+import okio.buffer
 import java.util.Base64
 
 object ImageDecryptor {
@@ -31,7 +32,7 @@ object ImageDecryptor {
         val decrypted = xorSource(encrypted, keyBytes)
 
         return response.newBuilder()
-            .body(decrypted.asResponseBody(contentType.toMediaType(), response.body.contentLength()))
+            .body(decrypted.buffer().asResponseBody(contentType.toMediaType(), response.body.contentLength()))
             .build()
     }
 
