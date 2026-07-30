@@ -91,27 +91,26 @@ abstract class SangChanhTeam : KeiSource() {
         return parseMangaPage(client.get(url))
     }
 
-    private fun filterUrl(page: Int, filters: FilterList, defaultSort: String = "updated"): HttpUrl =
-        baseUrl.toHttpUrl().newBuilder().apply {
-            addPathSegment("bo-loc-nang-cao")
-            if (page > 1) {
-                addPathSegment("page")
-                addPathSegment(page.toString())
-            }
-            addPathSegment("")
+    private fun filterUrl(page: Int, filters: FilterList, defaultSort: String = "updated"): HttpUrl = baseUrl.toHttpUrl().newBuilder().apply {
+        addPathSegment("bo-loc-nang-cao")
+        if (page > 1) {
+            addPathSegment("page")
+            addPathSegment(page.toString())
+        }
+        addPathSegment("")
 
-            addQueryParameter("type", filters.firstInstanceOrNull<TypeFilter>()?.toUriPart().orEmpty())
-            addQueryParameter("status", filters.firstInstanceOrNull<StatusFilter>()?.toUriPart().orEmpty())
-            addQueryParameter("age_rating", filters.firstInstanceOrNull<AgeRatingFilter>()?.toUriPart().orEmpty())
-            filters.firstInstanceOrNull<GenreFilter>()
-                ?.state
-                ?.filter { it.state }
-                ?.forEach { addQueryParameter("genre[]", it.slug) }
-            addQueryParameter("team", "")
-            addQueryParameter("rating_min", "0")
-            addQueryParameter("rating_max", "6")
-            addQueryParameter("sort", filters.firstInstanceOrNull<SortFilter>()?.toUriPart() ?: defaultSort)
-        }.build()
+        addQueryParameter("type", filters.firstInstanceOrNull<TypeFilter>()?.toUriPart().orEmpty())
+        addQueryParameter("status", filters.firstInstanceOrNull<StatusFilter>()?.toUriPart().orEmpty())
+        addQueryParameter("age_rating", filters.firstInstanceOrNull<AgeRatingFilter>()?.toUriPart().orEmpty())
+        filters.firstInstanceOrNull<GenreFilter>()
+            ?.state
+            ?.filter { it.state }
+            ?.forEach { addQueryParameter("genre[]", it.slug) }
+        addQueryParameter("team", "")
+        addQueryParameter("rating_min", "0")
+        addQueryParameter("rating_max", "6")
+        addQueryParameter("sort", filters.firstInstanceOrNull<SortFilter>()?.toUriPart() ?: defaultSort)
+    }.build()
 
     private fun parseMangaPage(response: Response): MangasPage {
         val document = response.asJsoup()
