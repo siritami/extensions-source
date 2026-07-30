@@ -178,8 +178,8 @@ abstract class SangChanhTeam : KeiSource() {
         setUrlWithoutDomain(manga.url)
         title = document.selectFirst("main h1")!!.text()
         author = null
-        thumbnail_url = document.selectFirst("meta[property=og:image]")?.attr("content")
-            ?: document.selectFirst("img[alt^='Ảnh bìa của']")?.extractImageUrl()
+        thumbnail_url = document.selectFirst("img[alt^='Ảnh bìa của']")?.extractImageUrl()
+            ?: document.selectFirst("meta[property=og:image]")?.attr("content")
         genre = document.select(".manga-block a[href*='/the-loai/']")
             .joinToString { it.text() }
             .ifEmpty { null }
