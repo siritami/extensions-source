@@ -171,12 +171,10 @@ abstract class SpringBlossoms :
         chapters: List<SChapter>,
         fetchDetails: Boolean,
         fetchChapters: Boolean,
-    ): SMangaUpdate {
-        return SMangaUpdate(
-            manga = if (fetchDetails) getMangaDetails(manga) else manga,
-            chapters = if (fetchChapters) getChapterList(manga) else chapters,
-        )
-    }
+    ): SMangaUpdate = SMangaUpdate(
+        manga = if (fetchDetails) getMangaDetails(manga) else manga,
+        chapters = if (fetchChapters) getChapterList(manga) else chapters,
+    )
 
     // ============================== Chapters ==============================
 
@@ -299,12 +297,11 @@ abstract class SpringBlossoms :
         )
     }
 
-    private suspend fun refreshSupabaseConfig(staleKey: String): SupabaseConfig =
-        supabaseConfigMutex.withLock {
-            preferences.getSupabaseConfig()
-                ?.takeIf { it.anonKey != staleKey }
-                ?: discoverSupabaseConfig()
-        }
+    private suspend fun refreshSupabaseConfig(staleKey: String): SupabaseConfig = supabaseConfigMutex.withLock {
+        preferences.getSupabaseConfig()
+            ?.takeIf { it.anonKey != staleKey }
+            ?: discoverSupabaseConfig()
+    }
 
     private suspend fun discoverSupabaseConfig(): SupabaseConfig {
         val mainScriptUrl = client.get(baseUrl, headers).asJsoup()

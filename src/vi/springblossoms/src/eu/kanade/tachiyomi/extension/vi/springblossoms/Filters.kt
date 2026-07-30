@@ -8,17 +8,17 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-class GenreFilter(genres: List<Pair<String, String>>) :
-    Filter.Select<String>("Thể loại", genres.map { it.first }.toTypedArray()) {
+class GenreFilter(genres: List<Pair<String, String>>) : Filter.Select<String>("Thể loại", genres.map { it.first }.toTypedArray()) {
     private val genreValues = genres.map { it.second }
 
     val selected get() = genreValues[state].takeIf(String::isNotEmpty)
 }
 
-class StatusFilter : Filter.Select<String>(
-    "Trạng thái",
-    arrayOf("Tất cả", "Đang thực hiện", "Đã hoàn thành", "Tạm ngưng", "Sắp ra mắt"),
-) {
+class StatusFilter :
+    Filter.Select<String>(
+        "Trạng thái",
+        arrayOf("Tất cả", "Đang thực hiện", "Đã hoàn thành", "Tạm ngưng", "Sắp ra mắt"),
+    ) {
     val selected get() = when (state) {
         1 -> "Ongoing"
         2 -> "Completed"
@@ -28,10 +28,11 @@ class StatusFilter : Filter.Select<String>(
     }
 }
 
-class SortFilter : Filter.Select<String>(
-    "Sắp xếp",
-    arrayOf("Cập nhật mới", "Phổ biến nhất", "Đánh giá cao", "A-Z"),
-) {
+class SortFilter :
+    Filter.Select<String>(
+        "Sắp xếp",
+        arrayOf("Cập nhật mới", "Phổ biến nhất", "Đánh giá cao", "A-Z"),
+    ) {
     val selected get() = when (state) {
         0 -> "updated_at.desc"
         1 -> "view_count.desc"
@@ -41,10 +42,11 @@ class SortFilter : Filter.Select<String>(
     }
 }
 
-class AdultFilter : Filter.Select<String>(
-    "Nội dung 18+",
-    arrayOf("Tất cả", "Chỉ 18+", "Không 18+"),
-) {
+class AdultFilter :
+    Filter.Select<String>(
+        "Nội dung 18+",
+        arrayOf("Tất cả", "Chỉ 18+", "Không 18+"),
+    ) {
     val selected get() = when (state) {
         1 -> true
         2 -> false
