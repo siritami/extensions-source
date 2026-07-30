@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.springblossoms
 
 import android.content.SharedPreferences
-import android.text.InputType
 import android.util.Base64
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
@@ -63,9 +62,6 @@ abstract class SpringBlossoms :
             title = "Supabase anon key"
             summary = "Tự động lấy lại khi API từ chối khóa đã lưu"
             dialogTitle = title
-            setOnBindEditTextListener {
-                it.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            }
         }.also(screen::addPreference)
     }
 
@@ -183,7 +179,6 @@ abstract class SpringBlossoms :
         val url = config.restUrl("chapters")
             .addQueryParameter("select", "id,chapter_number,title,created_at,publish_date")
             .addQueryParameter("manga_id", "eq.$mangaId")
-            .addQueryParameter("is_published", "eq.true")
             .addQueryParameter("order", "chapter_number.desc")
             .build()
         return client.get(url, config.headers()).parseAs<List<ChapterDto>>()
