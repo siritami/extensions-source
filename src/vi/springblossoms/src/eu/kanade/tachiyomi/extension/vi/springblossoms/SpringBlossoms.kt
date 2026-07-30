@@ -38,6 +38,7 @@ import kotlin.time.Duration.Companion.seconds
 abstract class SpringBlossoms :
     KeiSource(),
     ConfigurableSource {
+
     private val preferences by getPreferencesLazy()
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
