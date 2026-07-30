@@ -123,7 +123,8 @@ inside `ResponseBody.use` so the original response body is closed.
 
 When overriding `fetchMangaUpdate`, check the `fetchChapters` parameter before
 calling `fetchChapterList`. Omitting this check causes unnecessary network calls
-when the client only requests manga details.
+when the client only requests manga details. When `fetchChapters` is `false`,
+return the `chapters` argument so the existing chapter list is preserved.
 
 ```kotlin
 override suspend fun fetchMangaUpdate(
@@ -135,7 +136,7 @@ override suspend fun fetchMangaUpdate(
     val document = client.get(getMangaUrl(manga)).asJsoup()
     return SMangaUpdate(
         manga = parseMangaDetails(document, manga),
-        chapters = if (fetchChapters) fetchChapterList(document) else emptyList(),
+        chapters = if (fetchChapters) fetchChapterList(document) else chapters,
     )
 }
 ```
