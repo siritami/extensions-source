@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.sangchanhteam
 
+import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -20,6 +21,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import org.jsoup.Jsoup
@@ -36,7 +39,25 @@ import kotlin.time.Instant
 @Source
 abstract class SangChanhTeam : KeiSource() {
 
-    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = rateLimit(3)
+    private val thumbnailFallbackInterceptor = Interceptor { chain ->
+        val request = chain.request()
+        val response = chain.proceed(request)
+        val fallbackUrl = request.url.fragment
+            ?.toHttpUrlOrNull()
+            ?: return@Interceptor response
+
+        if (response.code != 401 && response.code != 404) {
+            return@Interceptor response
+        }
+
+        response.close()
+        chain.proceed(GET(fallbackUrl, request.headers))
+    }
+
+    override fun OkHttpClient.Builder.configureClient() = apply {
+        addInterceptor(thumbnailFallbackInterceptor)
+        rateLimit(3)
+    }
 
     // ============================== Popular ===============================
 
@@ -307,7 +328,18 @@ abstract class SangChanhTeam : KeiSource() {
         .ifEmpty { absUrl("src") }
         .ifEmpty { null }
 
-    private fun String.fullImageUrl(): String = replace(thumbnailSizeRegex, "$1")
+    private fun String.fullImageUrl(): String {
+        val originalUrl = this
+        val fullSizeUrl = replace(thumbnailSizeRegex, "$1")
+        if (fullSizeUrl == originalUrl) return originalUrl
+
+        return fullSizeUrl.toHttpUrlOrNull()
+            ?.newBuilder()
+            ?.fragment(originalUrl)
+            ?.build()
+            ?.toString()
+            ?: originalUrl
+    }
 
     private val mangaCardSelector = "main .uk-grid-small:has(> .uk-width-1-3):has(h2 a[href*='/truyen/'])"
     private val chapterNumberRegex = Regex("""^chap-(\d+(?:\.\d+)?)$""")
