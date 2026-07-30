@@ -15,6 +15,7 @@ keiyoushi {
         baseUrl {
             custom("https://owibusb.com")
         }
+        id = 4413681066613655891L
     }
 
     deeplink {
