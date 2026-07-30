@@ -34,7 +34,7 @@ class MangaIdDto(val id: String)
 @Serializable
 class ChapterDto(
     private val id: String,
-    @SerialName("chapter_number") private val chapterNumber: Double,
+    @SerialName("chapter_number") private val chapterNumber: Float,
     private val title: String? = null,
     @SerialName("created_at") private val createdAt: String? = null,
     @SerialName("publish_date") private val publishDate: String? = null,
@@ -59,6 +59,5 @@ private fun parseStatus(status: String?) = when (status) {
     "Ongoing" -> SManga.ONGOING
     "Completed" -> SManga.COMPLETED
     "Hiatus" -> SManga.ON_HIATUS
-    "Upcoming" -> SManga.UPCOMING
     else -> SManga.UNKNOWN
 }

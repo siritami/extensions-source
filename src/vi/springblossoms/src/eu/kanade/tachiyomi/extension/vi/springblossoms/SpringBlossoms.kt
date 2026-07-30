@@ -33,7 +33,7 @@ import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class SpringBlossoms :
@@ -43,7 +43,7 @@ abstract class SpringBlossoms :
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         addInterceptor(supabaseConfigInterceptor())
-        rateLimit(2, 1, TimeUnit.SECONDS)
+        rateLimit(2, 1.seconds)
     }
 
     override fun Headers.Builder.configureHeaders(): Headers.Builder = apply {
@@ -51,12 +51,10 @@ abstract class SpringBlossoms :
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        super.setupPreferenceScreen(screen)
-
         EditTextPreference(screen.context).apply {
             key = supabaseUrlPref
             title = "Supabase URL"
-            summaryProvider = EditTextPreference.SimpleSummaryProvider.getInstance()
+            summary = "Tự động lấy lại nếu để trống"
             dialogTitle = title
         }.also(screen::addPreference)
 
@@ -152,7 +150,7 @@ abstract class SpringBlossoms :
 
     // ============================== Details ===============================
 
-    override suspend fun getMangaDetails(manga: SManga): SManga {
+    private suspend fun getMangaDetails(manga: SManga): SManga {
         val serialId = manga.url.substringAfterLast("/")
         return getManga(serialId)?.toSManga() ?: manga
     }
@@ -178,7 +176,7 @@ abstract class SpringBlossoms :
 
     // ============================== Chapters ==============================
 
-    override suspend fun getChapterList(manga: SManga): List<SChapter> {
+    private suspend fun getChapterList(manga: SManga): List<SChapter> {
         val serialId = manga.url.substringAfterLast("/")
         val mangaId = getMangaId(serialId) ?: return emptyList()
         val config = getSupabaseConfig()
@@ -289,7 +287,7 @@ abstract class SpringBlossoms :
             .host(refreshedConfig.url.host)
             .port(refreshedConfig.url.port)
             .build()
-        chain.proceed(
+        return chain.proceed(
             request.newBuilder()
                 .url(refreshedUrl)
                 .header("apikey", refreshedConfig.anonKey)
@@ -323,7 +321,7 @@ abstract class SpringBlossoms :
             .firstOrNull { it.isSupabaseAnonKey(projectRef) }
             ?: throw Exception("Không tìm thấy Supabase anon key")
 
-        return SupabaseConfig(url, anonKey).also(preferences::putSupabaseConfig)
+        return SupabaseConfig(url, anonKey).also { preferences.putSupabaseConfig(it) }
     }
 
     private fun String.isSupabaseAnonKey(projectRef: String): Boolean = runCatching {
@@ -354,7 +352,7 @@ abstract class SpringBlossoms :
     private fun SharedPreferences.getSupabaseConfig(): SupabaseConfig? {
         val url = getString(supabaseUrlPref, null)
             ?.takeIf(String::isNotBlank)
-            ?.runCatching(String::toHttpUrl)
+            ?.let { runCatching { it.toHttpUrl() } }
             ?.getOrNull()
             ?: return null
         val anonKey = getString(supabaseAnonKeyPref, null)
