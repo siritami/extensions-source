@@ -119,6 +119,27 @@ Do not read `source.buffer` after requesting only a small signature prefix. The
 buffer may contain only that prefix and produce truncated data. Keep the read
 inside `ResponseBody.use` so the original response body is closed.
 
+## Respect `fetchChapters` in `fetchMangaUpdate`
+
+When overriding `fetchMangaUpdate`, check the `fetchChapters` parameter before
+calling `fetchChapterList`. Omitting this check causes unnecessary network calls
+when the client only requests manga details.
+
+```kotlin
+override suspend fun fetchMangaUpdate(
+    manga: SManga,
+    chapters: List<SChapter>,
+    fetchDetails: Boolean,
+    fetchChapters: Boolean,
+): SMangaUpdate {
+    val document = client.get(getMangaUrl(manga)).asJsoup()
+    return SMangaUpdate(
+        manga = parseMangaDetails(document, manga),
+        chapters = if (fetchChapters) fetchChapterList(document) else emptyList(),
+    )
+}
+```
+
 ## Store Thumbnail Fallback URLs in Fragments
 
 When each thumbnail has its own fallback URL, store the fallback in the primary
