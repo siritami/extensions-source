@@ -9,7 +9,7 @@ class TagOption(val name: String, val id: Int)
 
 class TagFilter(tags: List<TagOption>) :
     Filter.Group<Filter.CheckBox>(
-        "Thẻ phổ biến",
+        "Thể loại",
         tags.map { TagCheckBox(it.name, it.id) },
     ) {
     fun selectedIds(): List<Int> = state.filter { it.state }.map { it.id }
