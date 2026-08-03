@@ -94,7 +94,7 @@ abstract class CuuTruyen :
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         if (url.host != baseUrl.toHttpUrl().host || url.pathSegments.firstOrNull() != "mangas") return null
         val mangaId = url.pathSegments.getOrNull(1)?.toIntOrNull() ?: return null
-        val manga = SManga.create().apply { this.url = mangaId.toString() }
+        val manga = SManga.create().apply { this.url = "/mangas/$mangaId" }
         return fetchMangaUpdate(manga, emptyList(), true, false).manga
     }
 
@@ -104,7 +104,7 @@ abstract class CuuTruyen :
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate = coroutineScope {
-        val mangaId = manga.url
+        val mangaId = manga.url.substringAfterLast('/')
         val updatedManga = async {
             if (fetchDetails) {
                 client.get("$baseUrl/api/v2/mangas/$mangaId")
@@ -128,17 +128,23 @@ abstract class CuuTruyen :
         SMangaUpdate(updatedManga.await(), updatedChapters.await())
     }
 
-    override fun getMangaUrl(manga: SManga): String = "$baseUrl/mangas/${manga.url}"
+    override fun getMangaUrl(manga: SManga): String = "$baseUrl/mangas/${manga.url.substringAfterLast('/')}"
 
     override fun getChapterUrl(chapter: SChapter): String {
-        val (mangaId, chapterId) = chapter.url.split('/', limit = 2)
+        val segments = chapter.url.trim('/').split('/')
+        val chapterId = segments.last()
+        val mangaId = if (segments.firstOrNull() == "mangas") {
+            segments.getOrElse(1) { "" }
+        } else {
+            segments.first()
+        }
         return "$baseUrl/mangas/$mangaId/chapters/$chapterId"
     }
 
     // =============================== Pages ================================
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
-        val chapterId = chapter.url.substringAfter('/')
+        val chapterId = chapter.url.substringAfterLast('/')
         return client.get("$baseUrl/api/v2/chapters/$chapterId")
             .parseAs<ChapterReaderResponse>()
             .data

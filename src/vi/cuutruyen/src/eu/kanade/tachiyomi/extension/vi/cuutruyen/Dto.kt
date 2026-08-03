@@ -23,7 +23,7 @@ class MangaListItem(
     @SerialName("cover_mobile_url") private val coverMobileUrl: String? = null,
 ) {
     fun toSManga(useMobileCover: Boolean): SManga = SManga.create().apply {
-        url = id.toString()
+        url = "/mangas/$id"
         title = name
         thumbnail_url = (if (useMobileCover) coverMobileUrl ?: coverUrl else coverUrl).normalizeStorageUrl()
     }
@@ -43,7 +43,7 @@ class MangaDetailDto(
     private val tags: List<MangaTagDto>,
 ) {
     fun toSManga(useMobileCover: Boolean): SManga = SManga.create().apply {
-        url = id.toString()
+        url = "/mangas/$id"
         title = name
         thumbnail_url = (if (useMobileCover) coverMobileUrl ?: coverUrl else coverUrl).normalizeStorageUrl()
         author = this@MangaDetailDto.author?.name
@@ -79,7 +79,7 @@ class ChapterDto(
     @SerialName("created_at") private val createdAt: String? = null,
 ) {
     fun toSChapter(mangaId: String): SChapter = SChapter.create().apply {
-        url = "$mangaId/$id"
+        url = "/mangas/$mangaId/chapters/$id"
         name = buildString {
             append("Chương ")
             append(number)
