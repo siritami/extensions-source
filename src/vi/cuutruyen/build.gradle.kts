@@ -5,20 +5,20 @@ plugins {
 }
 
 keiyoushi {
-    name = "SpringBlossoms"
+    name = "CuuTruyen"
     versionCode = 1
-    contentWarning = ContentWarning.NSFW
+    contentWarning = ContentWarning.MIXED
     libVersion = "1.6"
 
     source {
         lang = "vi"
         baseUrl {
-            custom("https://owibusb.com")
+            custom("https://cuutruyen.net")
         }
-        id = 4413681066613655891L
+        id = 4989357807406366033
     }
 
     deeplink {
-        path("/manga/..*")
+        path("/mangas/.*")
     }
 }
