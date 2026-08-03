@@ -104,7 +104,7 @@ class ChapterPageDto(
     @SerialName("image_url") private val imageUrl: String,
     @SerialName("drm_data") private val drmData: String? = null,
 ) {
-    fun imageUrlWithDrm(): String = imageUrl.toHttpUrl().newBuilder()
+    fun imageUrlWithDrm(): String = imageUrl.normalizeStorageUrl().toHttpUrl().newBuilder()
         .apply {
             drmData?.takeIf(String::isNotBlank)?.let {
                 fragment("drm_data=$it")
