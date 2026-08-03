@@ -15,7 +15,7 @@ class TagFilter(tags: List<TagOption>) :
     fun selectedIds(): List<Int> = state.filter { it.state }.map { it.id }
 }
 
-private class TagCheckBox(name: String, val id: Int) : Filter.CheckBox(name)
+class TagCheckBox(name: String, val id: Int) : Filter.CheckBox(name)
 
 fun getFilters(tags: List<TagOption>?): FilterList = if (tags.isNullOrEmpty()) {
     FilterList()
