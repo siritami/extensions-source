@@ -77,7 +77,7 @@ abstract class CuuTruyen :
         filters: FilterList,
     ): MangasPage {
         val tagQuery = filters.firstInstanceOrNull<TagFilter>()
-            ?.selectedSlugs()
+            ?.selectedNames()
             .orEmpty()
             .joinToString(" AND ") { "\"$it\"" }
         val url = "$baseUrl/api/v2/mangas/search".toHttpUrl().newBuilder()

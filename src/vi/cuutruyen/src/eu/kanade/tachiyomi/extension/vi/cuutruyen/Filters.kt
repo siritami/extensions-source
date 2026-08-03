@@ -10,12 +10,12 @@ class TagOption(val name: String, val slug: String)
 class TagFilter(tags: List<TagOption>) :
     Filter.Group<TagCheckBox>(
         "Thể loại",
-        tags.map { TagCheckBox(it.name, it.slug) },
+        tags.map { TagCheckBox(it.name, it.name) },
     ) {
-    fun selectedSlugs(): List<String> = state.filter { it.state }.map { it.slug }
+    fun selectedNames(): List<String> = state.filter { it.state }.map { it.tagName }
 }
 
-class TagCheckBox(name: String, val slug: String) : Filter.CheckBox(name)
+class TagCheckBox(name: String, val tagName: String) : Filter.CheckBox(name)
 
 fun getFilters(tags: List<TagOption>?): FilterList = if (tags.isNullOrEmpty()) {
     FilterList()
