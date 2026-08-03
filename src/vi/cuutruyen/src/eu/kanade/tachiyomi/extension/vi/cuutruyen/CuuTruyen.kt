@@ -76,13 +76,13 @@ abstract class CuuTruyen :
         query: String,
         filters: FilterList,
     ): MangasPage {
-        val tagIds = filters.firstInstanceOrNull<TagFilter>()
-            ?.selectedIds()
+        val tagQuery = filters.firstInstanceOrNull<TagFilter>()
+            ?.selectedSlugs()
             .orEmpty()
-            .joinToString(",")
+            .joinToString(" AND ") { "\"$it\"" }
         val url = "$baseUrl/api/v2/mangas/search".toHttpUrl().newBuilder()
             .addQueryParameter("q", query)
-            .addQueryParameter("tags", tagIds)
+            .addQueryParameter("tags", tagQuery)
             .addQueryParameter("page", page.toString())
             .addQueryParameter("per_page", pageSize.toString())
             .build()

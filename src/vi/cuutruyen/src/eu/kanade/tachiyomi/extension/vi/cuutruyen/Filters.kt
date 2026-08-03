@@ -5,17 +5,17 @@ import eu.kanade.tachiyomi.source.model.FilterList
 import kotlinx.serialization.Serializable
 
 @Serializable
-class TagOption(val name: String, val id: Int)
+class TagOption(val name: String, val slug: String)
 
 class TagFilter(tags: List<TagOption>) :
     Filter.Group<TagCheckBox>(
         "Thể loại",
-        tags.map { TagCheckBox(it.name, it.id) },
+        tags.map { TagCheckBox(it.name, it.slug) },
     ) {
-    fun selectedIds(): List<Int> = state.filter { it.state }.map { it.id }
+    fun selectedSlugs(): List<String> = state.filter { it.state }.map { it.slug }
 }
 
-class TagCheckBox(name: String, val id: Int) : Filter.CheckBox(name)
+class TagCheckBox(name: String, val slug: String) : Filter.CheckBox(name)
 
 fun getFilters(tags: List<TagOption>?): FilterList = if (tags.isNullOrEmpty()) {
     FilterList()

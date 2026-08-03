@@ -124,14 +124,15 @@ class TagGroupsDto(
     @SerialName("normal_tags") private val normalTags: List<TagDto>,
 ) {
     fun allTags(): List<TagOption> = (commonTags + warningTags + normalTags)
-        .distinctBy { it.id }
-        .map { TagOption(it.name, it.id) }
+        .distinctBy { it.slug }
+        .map { TagOption(it.name, it.slug) }
 }
 
 @Serializable
 class TagDto(
     val id: Int,
     val name: String,
+    val slug: String,
 )
 
 internal fun String?.toPlainText(): String? = this
