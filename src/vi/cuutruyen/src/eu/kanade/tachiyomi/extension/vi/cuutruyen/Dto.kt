@@ -12,7 +12,13 @@ import kotlin.time.Instant
 @Serializable
 class MangaListResponse(
     val data: List<MangaListItem>,
-    @SerialName("next_cursor") val nextCursor: String? = null,
+    @SerialName("_metadata") val metadata: PaginationMetadata,
+)
+
+@Serializable
+class PaginationMetadata(
+    @SerialName("current_page") val currentPage: Int,
+    @SerialName("total_pages") val totalPages: Int,
 )
 
 @Serializable

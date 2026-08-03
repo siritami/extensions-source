@@ -171,7 +171,7 @@ abstract class CuuTruyen :
 
     private fun MangaListResponse.toMangasPage(): MangasPage = MangasPage(
         mangas = data.map { it.toSManga(useMobileCover) },
-        hasNextPage = nextCursor != null,
+        hasNextPage = metadata.currentPage < metadata.totalPages,
     )
 
     private val pageSize = 24
