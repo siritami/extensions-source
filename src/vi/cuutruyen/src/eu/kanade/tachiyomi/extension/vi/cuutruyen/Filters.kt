@@ -8,7 +8,7 @@ import kotlinx.serialization.Serializable
 class TagOption(val name: String, val id: Int)
 
 class TagFilter(tags: List<TagOption>) :
-    Filter.Group<Filter.CheckBox>(
+    Filter.Group<TagCheckBox>(
         "Thể loại",
         tags.map { TagCheckBox(it.name, it.id) },
     ) {
