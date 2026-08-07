@@ -9,23 +9,28 @@ import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
 import keiyoushi.network.get
+import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.OkHttpClient
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 @Source
 abstract class LxMangaOrg : KeiSource() {
+
+    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
+        rateLimit(5)
+    }
 
     // ============================== Popular ===============================
 
@@ -161,10 +166,10 @@ abstract class LxMangaOrg : KeiSource() {
     override val supportsFilterFetching: Boolean get() = true
 
     override suspend fun fetchFilterData(): JsonElement = coroutineScope {
-        val classifications = async { fetchClassifications() }
-        val genres = async { fetchDirectory("/the-loai", "/genre/") }
-        val doujinshi = async { fetchDirectory("/doujinshi", "/doujinshi/") }
-        val authors = async { fetchDirectory("/tac-gia", "/artist/") }
+        val classifications = async { runCatching { fetchClassifications() }.getOrDefault(emptyList()) }
+        val genres = async { runCatching { fetchSitemapOptions("/genre-sitemap.xml", "/genre/") }.getOrDefault(emptyList()) }
+        val doujinshi = async { runCatching { fetchSitemapOptions("/doujinshi-sitemap.xml", "/doujinshi/") }.getOrDefault(emptyList()) }
+        val authors = async { runCatching { fetchDirectoryPage("/tac-gia", "/artist/") }.getOrDefault(emptyList()) }
 
         FilterData(
             classifications = classifications.await(),
@@ -201,31 +206,23 @@ abstract class LxMangaOrg : KeiSource() {
         }
         .distinctBy { it.path }
 
-    private suspend fun fetchDirectory(directoryPath: String, optionPath: String): List<FilterOption> = coroutineScope {
-        val firstDocument = client.get("$baseUrl$directoryPath").asJsoup()
-        val lastPage = firstDocument.select("a.page-link[data-page]")
-            .mapNotNull { it.attr("data-page").toIntOrNull() }
-            .maxOrNull()
-            ?: 1
-        val firstPageOptions = parseDirectoryOptions(firstDocument, optionPath)
-        val remainingOptions = buildList {
-            for (pageBatch in (2..lastPage).chunked(FILTER_PAGE_BATCH_SIZE)) {
-                addAll(
-                    pageBatch.map { page ->
-                        async {
-                            parseDirectoryOptions(
-                                client.get("$baseUrl$directoryPath/page/$page").asJsoup(),
-                                optionPath,
-                            )
-                        }
-                    }.awaitAll().flatten(),
-                )
-            }
-        }
+    private suspend fun fetchSitemapOptions(sitemapPath: String, optionPath: String): List<FilterOption> = client
+        .get("$baseUrl$sitemapPath")
+        .asJsoup()
+        .select("loc")
+        .mapNotNull { element ->
+            val url = element.text().toHttpUrlOrNull() ?: return@mapNotNull null
+            if (!url.encodedPath.startsWith(optionPath)) return@mapNotNull null
 
-        (firstPageOptions + remainingOptions)
-            .distinctBy { it.path }
-    }
+            val name = url.pathSegments.last()
+                .replace('-', ' ')
+                .replaceFirstChar { it.titlecase() }
+            FilterOption(name, url.encodedPath)
+        }
+        .distinctBy { it.path }
+
+    private suspend fun fetchDirectoryPage(directoryPath: String, optionPath: String): List<FilterOption> =
+        parseDirectoryOptions(client.get("$baseUrl$directoryPath").asJsoup(), optionPath)
 
     private fun parseDirectoryOptions(document: Document, optionPath: String): List<FilterOption> = document
         .select("div.channel-item__name_details a[href*=$optionPath]")
@@ -245,7 +242,4 @@ abstract class LxMangaOrg : KeiSource() {
             .build()
     }
 
-    private companion object {
-        const val FILTER_PAGE_BATCH_SIZE = 10
-    }
 }
