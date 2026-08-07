@@ -168,11 +168,11 @@ abstract class LxMangaOrg : KeiSource() {
             .data
             .chapters
             .map { chapter ->
-            SChapter.create().apply {
-                name = chapter.title
-                setUrlWithoutDomain(chapter.link)
+                SChapter.create().apply {
+                    name = chapter.title
+                    setUrlWithoutDomain(chapter.link)
+                }
             }
-        }
     }
 
     // =============================== Pages ================================
