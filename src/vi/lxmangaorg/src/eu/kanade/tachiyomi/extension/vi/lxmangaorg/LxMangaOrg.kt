@@ -147,7 +147,7 @@ abstract class LxMangaOrg : KeiSource() {
     private suspend fun fetchChapterList(document: Document, mangaUrl: String): List<SChapter> {
         val mangaId = document.selectFirst("meta[name=post-id]")?.attr("content")
             ?: document.selectFirst("script:containsData(post_id)")?.data()
-                ?.let { POST_ID_REGEX.find(it)?.groupValues?.get(1) }
+                ?.let { postIdRegex.find(it)?.groupValues?.get(1) }
             ?: return emptyList()
         val nonce = document.selectFirst("#chapters_list_nonce")?.attr("value")
             ?: return emptyList()
@@ -190,10 +190,10 @@ abstract class LxMangaOrg : KeiSource() {
     override val supportsFilterFetching: Boolean get() = true
 
     override suspend fun fetchFilterData(): JsonElement = coroutineScope {
-        val classifications = async { runCatching { fetchClassifications() }.getOrDefault(emptyList()) }
-        val genres = async { runCatching { fetchSitemapOptions("/genre-sitemap.xml", "/genre/") }.getOrDefault(emptyList()) }
-        val doujinshi = async { runCatching { fetchSitemapOptions("/doujinshi-sitemap.xml", "/doujinshi/") }.getOrDefault(emptyList()) }
-        val authors = async { runCatching { fetchDirectoryPage("/tac-gia", "/artist/") }.getOrDefault(emptyList()) }
+        val classifications = async { fetchClassifications() }
+        val genres = async { fetchSitemapOptions("/genre-sitemap.xml", "/genre/") }
+        val doujinshi = async { fetchSitemapOptions("/doujinshi-sitemap.xml", "/doujinshi/") }
+        val authors = async { fetchDirectoryPage("/tac-gia", "/artist/") }
 
         FilterData(
             classifications = classifications.await(),
@@ -265,7 +265,5 @@ abstract class LxMangaOrg : KeiSource() {
             .build()
     }
 
-    private companion object {
-        val POST_ID_REGEX = Regex("""post_id["']?\s*:\s*["'](\d+)["']""")
-    }
+    private val postIdRegex = Regex("""post_id["']?\s*:\s*["'](\d+)["']""")
 }
