@@ -221,8 +221,7 @@ abstract class LxMangaOrg : KeiSource() {
         }
         .distinctBy { it.path }
 
-    private suspend fun fetchDirectoryPage(directoryPath: String, optionPath: String): List<FilterOption> =
-        parseDirectoryOptions(client.get("$baseUrl$directoryPath").asJsoup(), optionPath)
+    private suspend fun fetchDirectoryPage(directoryPath: String, optionPath: String): List<FilterOption> = parseDirectoryOptions(client.get("$baseUrl$directoryPath").asJsoup(), optionPath)
 
     private fun parseDirectoryOptions(document: Document, optionPath: String): List<FilterOption> = document
         .select("div.channel-item__name_details a[href*=$optionPath]")
@@ -241,5 +240,4 @@ abstract class LxMangaOrg : KeiSource() {
             .encodedPath("${url.encodedPath.trimEnd('/')}/page/$page")
             .build()
     }
-
 }
