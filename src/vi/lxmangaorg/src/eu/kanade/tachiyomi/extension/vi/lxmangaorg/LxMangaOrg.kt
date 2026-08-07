@@ -9,7 +9,6 @@ import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
 import keiyoushi.network.get
-import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
@@ -21,17 +20,12 @@ import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.OkHttpClient
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 @Source
 abstract class LxMangaOrg : KeiSource() {
-
-    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
-        rateLimit(5)
-    }
 
     // ============================== Popular ===============================
 
@@ -214,16 +208,22 @@ abstract class LxMangaOrg : KeiSource() {
             .maxOrNull()
             ?: 1
         val firstPageOptions = parseDirectoryOptions(firstDocument, optionPath)
-        val remainingOptions = (2..lastPage).map { page ->
-            async {
-                parseDirectoryOptions(
-                    client.get("$baseUrl$directoryPath/page/$page").asJsoup(),
-                    optionPath,
+        val remainingOptions = buildList {
+            for (pageBatch in (2..lastPage).chunked(FILTER_PAGE_BATCH_SIZE)) {
+                addAll(
+                    pageBatch.map { page ->
+                        async {
+                            parseDirectoryOptions(
+                                client.get("$baseUrl$directoryPath/page/$page").asJsoup(),
+                                optionPath,
+                            )
+                        }
+                    }.awaitAll().flatten(),
                 )
             }
-        }.awaitAll()
+        }
 
-        (firstPageOptions + remainingOptions.flatten())
+        (firstPageOptions + remainingOptions)
             .distinctBy { it.path }
     }
 
@@ -243,5 +243,9 @@ abstract class LxMangaOrg : KeiSource() {
         return url.newBuilder()
             .encodedPath("${url.encodedPath.trimEnd('/')}/page/$page")
             .build()
+    }
+
+    private companion object {
+        const val FILTER_PAGE_BATCH_SIZE = 10
     }
 }
