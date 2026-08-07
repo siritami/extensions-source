@@ -264,12 +264,8 @@ abstract class LxMangaOrg : KeiSource() {
             .encodedPath("${url.encodedPath.trimEnd('/')}/page/$page")
             .build()
     }
-<<<<<<< Updated upstream
-=======
 
     private companion object {
         val POST_ID_REGEX = Regex("""post_id["']?\s*:\s*["'](\d+)["']""")
     }
-
->>>>>>> Stashed changes
 }
