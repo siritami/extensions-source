@@ -140,8 +140,12 @@ abstract class LxMangaOrg : KeiSource() {
     }
 
     private fun Document.detailLinks(label: String): List<Element> = select("div.comic-details__item")
-        .firstOrNull { it.selectFirst("div.comic-details__label")?.text() == label }
-        ?.select("div.comic-details__item_links a")
+        .firstOrNull { item ->
+            item.children().firstOrNull { it.hasClass("comic-details__label") }?.text() == label
+        }
+        ?.children()
+        ?.firstOrNull { it.hasClass("comic-details__item_links") }
+        ?.select("a")
         .orEmpty()
 
     private suspend fun fetchChapterList(document: Document, mangaUrl: String): List<SChapter> {
