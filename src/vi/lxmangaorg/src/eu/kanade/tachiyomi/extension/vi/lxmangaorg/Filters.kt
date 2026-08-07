@@ -13,8 +13,7 @@ internal fun getFilters(data: FilterData): FilterList = FilterList(
     },
 )
 
-internal open class UriPartFilter(name: String, options: List<FilterOption>) :
-    Filter.Select<FilterOption>(name, listOf(FilterOption("Tất cả", ""), *options.toTypedArray()).toTypedArray()) {
+internal open class UriPartFilter(name: String, options: List<FilterOption>) : Filter.Select<FilterOption>(name, listOf(FilterOption("Tất cả", ""), *options.toTypedArray()).toTypedArray()) {
 
     fun selectedPath(): String? = values[state].path.ifBlank { null }
 }
