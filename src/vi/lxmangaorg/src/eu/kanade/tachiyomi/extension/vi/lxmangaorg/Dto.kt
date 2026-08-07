@@ -17,3 +17,19 @@ internal class FilterOption(
 ) {
     override fun toString(): String = name
 }
+
+@Serializable
+internal class ChapterListResponse(
+    val data: ChapterListData,
+)
+
+@Serializable
+internal class ChapterListData(
+    val chapters: List<ChapterDto>,
+)
+
+@Serializable
+internal class ChapterDto(
+    val title: String,
+    val link: String,
+)

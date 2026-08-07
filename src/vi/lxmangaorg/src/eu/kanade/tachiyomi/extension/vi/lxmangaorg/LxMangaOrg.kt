@@ -9,6 +9,7 @@ import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
 import keiyoushi.network.get
+import keiyoushi.network.post
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.firstInstanceOrNull
@@ -17,6 +18,7 @@ import keiyoushi.utils.toJsonElement
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
+import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -113,8 +115,8 @@ abstract class LxMangaOrg : KeiSource() {
     ): SMangaUpdate {
         val document = client.get("$baseUrl${manga.url}").asJsoup()
         return SMangaUpdate(
-            manga = parseMangaDetails(document, manga),
-            chapters = parseChapterList(document),
+            manga = if (fetchDetails) parseMangaDetails(document, manga) else manga,
+            chapters = if (fetchChapters) fetchChapterList(document, manga.url) else chapters,
         )
     }
 
@@ -142,14 +144,36 @@ abstract class LxMangaOrg : KeiSource() {
         ?.select("div.comic-details__item_links a")
         .orEmpty()
 
-    private fun parseChapterList(document: Document): List<SChapter> = document
-        .select("ul.chapter-list a[href$=.html]")
-        .map { element ->
+    private suspend fun fetchChapterList(document: Document, mangaUrl: String): List<SChapter> {
+        val mangaId = document.selectFirst("meta[name=post-id]")?.attr("content")
+            ?: document.selectFirst("script:containsData(post_id)")?.data()
+                ?.let { POST_ID_REGEX.find(it)?.groupValues?.get(1) }
+            ?: return emptyList()
+        val nonce = document.selectFirst("#chapters_list_nonce")?.attr("value")
+            ?: return emptyList()
+        val body = FormBody.Builder()
+            .add("action", "baka_ajax")
+            .add("type", "get_chapters_list")
+            .add("id", mangaId)
+            .add("chap", "0")
+            .add("chapters_list_nonce", nonce)
+            .build()
+        val ajaxHeaders = headersBuilder()
+            .set("Referer", "$baseUrl$mangaUrl")
+            .set("X-Requested-With", "XMLHttpRequest")
+            .build()
+
+        return client.post("$baseUrl/wp-admin/admin-ajax.php", ajaxHeaders, body)
+            .parseAs<ChapterListResponse>()
+            .data
+            .chapters
+            .map { chapter ->
             SChapter.create().apply {
-                name = element.text()
-                setUrlWithoutDomain(element.absUrl("href"))
+                name = chapter.title
+                setUrlWithoutDomain(chapter.link)
             }
         }
+    }
 
     // =============================== Pages ================================
 
@@ -240,4 +264,12 @@ abstract class LxMangaOrg : KeiSource() {
             .encodedPath("${url.encodedPath.trimEnd('/')}/page/$page")
             .build()
     }
+<<<<<<< Updated upstream
+=======
+
+    private companion object {
+        val POST_ID_REGEX = Regex("""post_id["']?\s*:\s*["'](\d+)["']""")
+    }
+
+>>>>>>> Stashed changes
 }
