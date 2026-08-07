@@ -206,7 +206,7 @@ abstract class HentaiCB : Madara() {
         }
 
         imageUrls.distinct().mapIndexed { i, imageUrl ->
-            Page(i, imageUrl = imageUrl)
+            Page(i, chapterUrl, imageUrl)
         }
     }
 
