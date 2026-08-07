@@ -197,6 +197,7 @@ abstract class KhoManhwa : KeiSource() {
     }
 
     // ============================== Related ===============================
+
     override val supportsRelatedMangas: Boolean = true
 
     override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
