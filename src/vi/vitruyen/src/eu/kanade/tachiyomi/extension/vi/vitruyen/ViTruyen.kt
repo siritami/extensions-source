@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.model.SMangaUpdate
+import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.network.rateLimit
@@ -183,12 +184,10 @@ abstract class ViTruyen : KeiSource() {
             .orEmpty()
     }
 
-    private suspend fun fetchPageUrlsFromPage(chapter: SChapter): List<String> {
-        val body = client.get(getChapterUrl(chapter)).use { it.body.string() }
-        val content = chapterContentRegex.find(body)?.groupValues?.get(1) ?: return emptyList()
-
-        return imageUrlRegex.findAll(content).map { it.value }.toList()
-    }
+    private suspend fun fetchPageUrlsFromPage(chapter: SChapter): List<String> =
+        client.get(getChapterUrl(chapter)).asJsoup()
+            .select("img.v2-reader-page-image[src]")
+            .map { it.absUrl("src") }
 
     // =============================== Filters ==============================
 
@@ -218,11 +217,6 @@ abstract class ViTruyen : KeiSource() {
     companion object {
         private const val LOCKED_CHAPTER_MESSAGE =
             "Vui lòng đăng nhập vào tài khoản phù hợp bằng Webview để xem chương này"
-
-        private val chapterContentRegex =
-            Regex(""""currentChapterContent\\":\{.*?\\"content\\":\[(.*?)]""", RegexOption.DOT_MATCHES_ALL)
-
-        private val imageUrlRegex = Regex("""https:[^\\"]+""")
 
         private val RESERVED_PATHS = setOf(
             "the-loai",
