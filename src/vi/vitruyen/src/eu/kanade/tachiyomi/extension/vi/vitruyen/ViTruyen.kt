@@ -38,9 +38,18 @@ abstract class ViTruyen : KeiSource() {
     private suspend fun loadAuthToken() {
         if (authChecked) return
         authChecked = true
-        cachedAuthToken = getLocalStorage(baseUrl, "auth_token")
-            ?.takeIf { it.isNotBlank() }
+        cachedAuthToken = readAuthToken()
     }
+
+    private suspend fun refreshAuthToken(): Boolean {
+        val staleToken = cachedAuthToken
+        cachedAuthToken = readAuthToken()
+
+        return cachedAuthToken != null && cachedAuthToken != staleToken
+    }
+
+    private suspend fun readAuthToken(): String? = getLocalStorage(baseUrl, "auth_token")
+        ?.takeIf { it.isNotBlank() }
 
     private fun authInterceptor() = Interceptor { chain ->
         val original = chain.request()
@@ -157,10 +166,7 @@ abstract class ViTruyen : KeiSource() {
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         loadAuthToken()
 
-        val imageUrls = when (cachedAuthToken) {
-            null -> fetchPageUrlsFromPage(chapter)
-            else -> fetchPageUrlsFromApi(chapter)
-        }
+        val imageUrls = fetchPageUrls(chapter)
 
         if (imageUrls.isEmpty()) {
             throw Exception(LOCKED_CHAPTER_MESSAGE)
@@ -169,11 +175,22 @@ abstract class ViTruyen : KeiSource() {
         return imageUrls.mapIndexed { index, imageUrl -> Page(index, imageUrl = imageUrl) }
     }
 
+    private suspend fun fetchPageUrls(chapter: SChapter): List<String> {
+        if (cachedAuthToken == null) return fetchPageUrlsFromPage(chapter)
+
+        // Missing content means a rejected token; empty means a locked chapter.
+        fetchPageUrlsFromApi(chapter)?.let { return it }
+
+        if (!refreshAuthToken()) return fetchPageUrlsFromPage(chapter)
+
+        return fetchPageUrlsFromApi(chapter) ?: fetchPageUrlsFromPage(chapter)
+    }
+
     /**
      * The API returns content only while logged in.
      * Guests instead read the image list embedded in the reader page.
      */
-    private suspend fun fetchPageUrlsFromApi(chapter: SChapter): List<String> {
+    private suspend fun fetchPageUrlsFromApi(chapter: SChapter): List<String>? {
         val pathSegments = getChapterUrl(chapter).toHttpUrl().pathSegments
         val chapterId = pathSegments[1].substringAfterLast("-")
 
@@ -181,7 +198,6 @@ abstract class ViTruyen : KeiSource() {
             .parseAs<MangaDetails>()
             .currentChapterContent
             ?.content
-            .orEmpty()
     }
 
     private suspend fun fetchPageUrlsFromPage(chapter: SChapter): List<String> = client.get(getChapterUrl(chapter)).asJsoup()
