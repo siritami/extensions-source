@@ -184,10 +184,9 @@ abstract class ViTruyen : KeiSource() {
             .orEmpty()
     }
 
-    private suspend fun fetchPageUrlsFromPage(chapter: SChapter): List<String> =
-        client.get(getChapterUrl(chapter)).asJsoup()
-            .select("img.v2-reader-page-image[src]")
-            .map { it.absUrl("src") }
+    private suspend fun fetchPageUrlsFromPage(chapter: SChapter): List<String> = client.get(getChapterUrl(chapter)).asJsoup()
+        .select("img.v2-reader-page-image[src]")
+        .map { it.absUrl("src") }
 
     // =============================== Filters ==============================
 
