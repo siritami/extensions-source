@@ -20,13 +20,14 @@ class SortFilter : Filter.Select<String>("Sắp xếp", arrayOf("Mới nhất", 
     fun toUriPart(): String = sorts[state]
 }
 
-class StatusFilter : UriPartFilter(
-    "Trạng thái",
-    listOf(
-        Option("Đang ra", "ongoing"),
-        Option("Hoàn thành", "completed"),
-    ),
-)
+class StatusFilter :
+    UriPartFilter(
+        "Trạng thái",
+        listOf(
+            Option("Đang ra", "ongoing"),
+            Option("Hoàn thành", "completed"),
+        ),
+    )
 
 class GenreFilter(options: List<Option>) : UriPartFilter("Thể loại", options)
 
