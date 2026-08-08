@@ -6,17 +6,18 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.model.SMangaUpdate
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.firstInstanceOrNull
+import keiyoushi.utils.getLocalStorage
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import kotlin.time.Instant
 
@@ -25,7 +26,30 @@ abstract class ViTruyen : KeiSource() {
 
     private val apiUrl get() = "https://api.${baseUrl.toHttpUrl().host}/api/next"
 
-    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = rateLimit(3)
+    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = addInterceptor(authInterceptor())
+        .rateLimit(3)
+
+    // ================================ Auth ================================
+
+    private var cachedAuthToken: String? = null
+    private var authChecked = false
+
+    private suspend fun loadAuthToken() {
+        if (authChecked) return
+        authChecked = true
+        cachedAuthToken = getLocalStorage(baseUrl, "auth_token")
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun authInterceptor() = Interceptor { chain ->
+        val original = chain.request()
+        val request = original.newBuilder().apply {
+            if (original.url.host == apiUrl.toHttpUrl().host) {
+                cachedAuthToken?.let { header("Authorization", "Bearer $it") }
+            }
+        }.build()
+        chain.proceed(request)
+    }
 
     // ============================== Popular ===============================
 
@@ -130,14 +154,40 @@ abstract class ViTruyen : KeiSource() {
     // ================================ Pages ===============================
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
-        val document = client.get(getChapterUrl(chapter)).asJsoup()
+        loadAuthToken()
 
-        if (document.selectFirst(".v2-reader-lock-panel") != null) {
+        val imageUrls = when (cachedAuthToken) {
+            null -> fetchPageUrlsFromPage(chapter)
+            else -> fetchPageUrlsFromApi(chapter)
+        }
+
+        if (imageUrls.isEmpty()) {
             throw Exception(LOCKED_CHAPTER_MESSAGE)
         }
 
-        return document.select("img.v2-reader-page-image[src]")
-            .mapIndexed { index, image -> Page(index, imageUrl = image.absUrl("src")) }
+        return imageUrls.mapIndexed { index, imageUrl -> Page(index, imageUrl = imageUrl) }
+    }
+
+    /**
+     * The API returns content only while logged in.
+     * Guests instead read the image list embedded in the reader page.
+     */
+    private suspend fun fetchPageUrlsFromApi(chapter: SChapter): List<String> {
+        val pathSegments = getChapterUrl(chapter).toHttpUrl().pathSegments
+        val chapterId = pathSegments[1].substringAfterLast("-")
+
+        return client.get("$apiUrl/manga/${pathSegments[0]}/chapter/$chapterId")
+            .parseAs<MangaDetails>()
+            .currentChapterContent
+            ?.content
+            .orEmpty()
+    }
+
+    private suspend fun fetchPageUrlsFromPage(chapter: SChapter): List<String> {
+        val body = client.get(getChapterUrl(chapter)).use { it.body.string() }
+        val content = chapterContentRegex.find(body)?.groupValues?.get(1) ?: return emptyList()
+
+        return imageUrlRegex.findAll(content).map { it.value }.toList()
     }
 
     // =============================== Filters ==============================
@@ -168,6 +218,11 @@ abstract class ViTruyen : KeiSource() {
     companion object {
         private const val LOCKED_CHAPTER_MESSAGE =
             "Vui lòng đăng nhập vào tài khoản phù hợp bằng Webview để xem chương này"
+
+        private val chapterContentRegex =
+            Regex(""""currentChapterContent\\":\{.*?\\"content\\":\[(.*?)]""", RegexOption.DOT_MATCHES_ALL)
+
+        private val imageUrlRegex = Regex("""https:[^\\"]+""")
 
         private val RESERVED_PATHS = setOf(
             "the-loai",

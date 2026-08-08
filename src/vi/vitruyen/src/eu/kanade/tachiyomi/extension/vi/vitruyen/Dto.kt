@@ -58,6 +58,7 @@ class MangaDetails(
     private val categories: List<Option> = emptyList(),
     val related: List<BrowseItem> = emptyList(),
     val chapters: List<ChapterItem> = emptyList(),
+    val currentChapterContent: ChapterContent? = null,
 ) {
     fun toSManga() = SManga.create().apply {
         url = slug
@@ -78,6 +79,11 @@ class ChapterItem(
     val name: String,
     val readUrl: String,
     val publishedAt: String? = null,
+)
+
+@Serializable
+class ChapterContent(
+    val content: List<String> = emptyList(),
 )
 
 private fun String.parseHtmlText(): String = Jsoup.parse(this, "", Parser.htmlParser()).wholeText()
