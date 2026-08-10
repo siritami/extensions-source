@@ -183,12 +183,14 @@ abstract class HV2TComics : KeiSource() {
         loadAuthToken()
         val pageUrl = "$baseUrl/truyen/${chapter.url}"
         val imageUrls = try {
-            runWebView<List<String>>(timeout = 60.seconds) {
+            runWebView<List<String>>(timeout = 30.seconds) {
                 loadWithOverviewMode = true
                 useWideViewPort = true
                 userAgent = headers["User-Agent"]!!
 
                 val capturedUrls = java.util.concurrent.CopyOnWriteArrayList<String>()
+                var lastCount = 0
+                var stablePolls = 0
 
                 interceptRequest { request ->
                     val url = request.url.toString()
@@ -211,8 +213,17 @@ abstract class HV2TComics : KeiSource() {
                         })()
                         """.trimIndent(),
                     )
-                    if (capturedUrls.isNotEmpty()) {
-                        resolve(capturedUrls.distinct())
+                    val currentCount = capturedUrls.size
+                    if (currentCount > 0) {
+                        if (currentCount == lastCount) {
+                            stablePolls++
+                        } else {
+                            lastCount = currentCount
+                            stablePolls = 0
+                        }
+                        if (stablePolls >= 3) {
+                            resolve(capturedUrls.distinct())
+                        }
                     }
                 }
                 loadUrl(pageUrl)
