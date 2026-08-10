@@ -58,7 +58,7 @@ abstract class ThoHamNgu : KeiSource() {
         val mangas = document.select(".col-md-3.col-xs-6.comic-item")
             .filter { element ->
                 val href = element.selectFirst("a")?.absUrl("href").orEmpty()
-                href.contains("/truyen-tranh/")
+                href.contains("/truyen/")
             }
             .map { element ->
                 SManga.create().apply {
@@ -95,7 +95,7 @@ abstract class ThoHamNgu : KeiSource() {
         val searchResponse = response.parseAs<SearchResponse>()
 
         val mangas = searchResponse.data
-            .filter { it.link.contains("/truyen-tranh/") }
+            .filter { it.link.contains("/truyen/") }
             .map { result ->
                 SManga.create().apply {
                     title = result.title
@@ -128,10 +128,10 @@ abstract class ThoHamNgu : KeiSource() {
         if (url.host != baseUrl.toHttpUrl().host) return null
 
         val document = client.get(url).asJsoup()
-        val mangaUrl = if (url.pathSegments.firstOrNull() == "truyen-tranh") {
+        val mangaUrl = if (url.pathSegments.firstOrNull() == "truyen") {
             url
         } else {
-            document.selectFirst(".breadcrumb a[href*=/truyen-tranh/]")
+            document.selectFirst(".breadcrumb a[href*=/truyen/]")
                 ?.absUrl("href")
                 ?.toHttpUrl()
                 ?: return null
@@ -273,7 +273,7 @@ abstract class ThoHamNgu : KeiSource() {
             ?: return emptyList()
 
         return relatedSection.select(".comic-item-box").mapNotNull { element ->
-            val link = element.selectFirst("a[href*=/truyen-tranh/]") ?: return@mapNotNull null
+            val link = element.selectFirst("a[href*=/truyen/]") ?: return@mapNotNull null
             val title = link.attr("title").takeIf { it.isNotEmpty() }
                 ?: element.selectFirst(".comic-title")?.text()?.takeIf { it.isNotEmpty() }
                 ?: return@mapNotNull null
