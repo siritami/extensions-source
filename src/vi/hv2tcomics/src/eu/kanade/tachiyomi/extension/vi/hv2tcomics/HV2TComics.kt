@@ -30,28 +30,7 @@ abstract class HV2TComics : KeiSource() {
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         addInterceptor(authInterceptor())
-        addInterceptor(imageInterceptor())
         rateLimit(3)
-    }
-
-    // ============================== Image Interceptor ==============================
-
-    private fun imageInterceptor() = Interceptor { chain ->
-        val request = chain.request()
-        val host = request.url.host
-        if (host == "cdn.hv2tcomics.net" || host == "cdn.hv2t.com") {
-            val newRequest = request.newBuilder().apply {
-                header("Accept", "image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5")
-                header("Referer", "$baseUrl/")
-                header("Origin", baseUrl)
-                header("Sec-Fetch-Dest", "image")
-                header("Sec-Fetch-Mode", "no-cors")
-                header("Sec-Fetch-Site", "same-site")
-            }.build()
-            chain.proceed(newRequest)
-        } else {
-            chain.proceed(request)
-        }
     }
 
     // ================================ Auth ================================

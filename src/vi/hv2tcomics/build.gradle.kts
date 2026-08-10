@@ -5,7 +5,7 @@ plugins {
 }
 
 keiyoushi {
-    name = "HV2TComics"
+    name = "Học Viện 2Ten"
     versionCode = 1
     contentWarning = ContentWarning.NSFW
     libVersion = "1.6"
