@@ -10,6 +10,7 @@ import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
+import keiyoushi.utils.WebViewTimeoutException
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getLocalStorage
 import keiyoushi.utils.parseAs
@@ -160,34 +161,38 @@ abstract class HV2TComics : KeiSource() {
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         loadAuthToken()
         val pageUrl = "$baseUrl/truyen/${chapter.url}"
-        val imageUrls = runWebView<List<String>>(timeout = 60.seconds) {
-            var previousUrls = emptyList<String>()
-            var stablePolls = 0
+        val imageUrls = try {
+            runWebView<List<String>>(timeout = 60.seconds) {
+                var previousUrls = emptyList<String>()
+                var stablePolls = 0
 
-            poll(1.seconds) {
-                evaluateJs(
-                    """
-                    (function() {
-                        return Array.from(document.querySelectorAll('img[alt^="Page"]'))
-                            .map(function(img) { return img.currentSrc || img.src || ''; })
-                            .filter(function(src) { return /^https?:\\/\\//.test(src); });
-                    })()
-                    """.trimIndent(),
-                ) { value ->
-                    val urls = runCatching { value.parseAs<List<String>>() }
-                        .getOrDefault(emptyList())
-                        .distinct()
-                    if (urls.isEmpty()) return@evaluateJs
-                    if (urls == previousUrls) {
-                        stablePolls++
-                    } else {
-                        previousUrls = urls
-                        stablePolls = 0
+                poll(1.seconds) {
+                    evaluateJs(
+                        """
+                        (function() {
+                            return Array.from(document.querySelectorAll('img[alt^="Page"]'))
+                                .map(function(img) { return img.currentSrc || img.src || ''; })
+                                .filter(function(src) { return /^https?:\\/\\//.test(src); });
+                        })()
+                        """.trimIndent(),
+                    ) { value ->
+                        val urls = runCatching { value.parseAs<List<String>>() }
+                            .getOrDefault(emptyList())
+                            .distinct()
+                        if (urls.isEmpty()) return@evaluateJs
+                        if (urls == previousUrls) {
+                            stablePolls++
+                        } else {
+                            previousUrls = urls
+                            stablePolls = 0
+                        }
+                        if (stablePolls >= 2) resolve(urls)
                     }
-                    if (stablePolls >= 2) resolve(urls)
                 }
+                loadUrl(pageUrl)
             }
-            loadUrl(pageUrl)
+        } catch (_: WebViewTimeoutException) {
+            emptyList()
         }
         return imageUrls.mapIndexed { index, imageUrl ->
             Page(index, pageUrl, imageUrl)
