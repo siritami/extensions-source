@@ -108,6 +108,7 @@ fun ComicDetailDto.toSManga(): SManga = SManga.create().apply {
 fun ChapterDto.toSChapter(mangaSlug: String): SChapter = SChapter.create().apply {
     url = "$mangaSlug/$slug"
     name = buildString {
+        if (price > 0) append("🔒 ")
         append("Chương ")
         append(chapterNumber.toString().removeSuffix(".0"))
         this@toSChapter.title?.takeIf { it.isNotEmpty() }?.let {
