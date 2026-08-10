@@ -605,31 +605,56 @@ an independent request or other meaningful extra work.
 
 ---
 
-# ISO Date Parsing with `kotlin.time.Instant`
+# Shared Date Parsing Utilities
 
-## Why
+The helpers in `core/src/main/kotlin/keiyoushi/utils/Date.kt` convert nullable date
+strings directly to epoch milliseconds for `SChapter.date_upload`. They return `0L`
+when the input is null or cannot be parsed. Prefer them over source-local
+`runCatching` wrappers and the deprecated `SimpleDateFormat.tryParse` helper.
 
-# ISO Date Parsing with `kotlin.time.Instant`
+Choose the helper based on what information the source provides:
 
-## Why
-
-`SimpleDateFormat` requires manually specifying the format string and time zone. `kotlin.time.Instant.parseOrNull()` automatically parses ISO 8601 date strings including the embedded time zone offset.
-
-## Code
+- `Instant.tryParse(date)` parses a complete ISO 8601 instant whose `Z` or offset
+    determines the result, such as `2025-01-15T10:30:00Z` or
+    `2025-01-15T10:30:00+07:00`.
+- `DateTimeFormatter.tryParseDate(date, zone)` parses a date without a time, such as
+    `2025-01-15` or `Aug 06, 2026`, and resolves it to the start of that day in `zone`.
+- `DateTimeFormatter.tryParseDateTime(date, zone)` parses a local date and time whose
+    result must use the supplied site zone.
+- `DateTimeFormatter.tryParseZonedDateTime(date)` parses a value whose formatter
+    includes a trustworthy offset or zone. Do not pass a separate zone for this case.
 
 ```kotlin
+import keiyoushi.utils.tryParse
+import keiyoushi.utils.tryParseDate
+import keiyoushi.utils.tryParseDateTime
+import keiyoushi.utils.tryParseZonedDateTime
 import kotlin.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
-// Parse ISO date string → epoch millis (Long)
-val epochMillis = Instant.parseOrNull("2025-01-15T10:30:00.000Z")?.toEpochMilliseconds() ?: 0L
+private val siteZone = ZoneId.of("Asia/Ho_Chi_Minh")
+private val chapterDateFormat = DateTimeFormatter.ofPattern("MMM dd, uuuu", Locale.ENGLISH)
+private val localDateTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT)
+private val zonedDateTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT)
+
+val isoDate = Instant.tryParse("2025-01-15T10:30:00Z")
+val chapterDate = chapterDateFormat.tryParseDate("Aug 06, 2026", siteZone)
+val localDateTime = localDateTimeFormat.tryParseDateTime("2025-01-15 10:30:00", siteZone)
+val zonedDateTime = zonedDateTimeFormat.tryParseZonedDateTime("2025-01-15T10:30:00+07:00")
 ```
 
-## Notes
-
-- `Instant.parseOrNull()` returns `null` on invalid input instead of throwing
-- `toEpochMilliseconds()` returns epoch millis in UTC — suitable for `SChapter.date_upload`
-- Works with all ISO 8601 offsets (`Z`, `+07:00`, etc.)
-- Replaces `SimpleDateFormat` + manual `TimeZone` setup
+- Always pass the source site's known `ZoneId` to `tryParseDate` and
+    `tryParseDateTime`; their default is the device timezone and should only be used when
+    that behavior is intentional.
+- Use `Locale.ENGLISH` when the pattern parses English textual fields such as `MMM`,
+    `MMMM`, `EEE`, or `EEEE`. Use the site's matching locale for text in another
+    language. Use `Locale.ROOT` for numeric-only patterns.
+- `tryParseDate` and `tryParseDateTime` deliberately use the supplied zone even if the
+    input contains offset or zone fields. Use `tryParseZonedDateTime` when the input's own
+    offset or zone must decide the instant.
+- Keep reusable `DateTimeFormatter` and `ZoneId` values at class or file level.
 
 ## Relative timestamps with `Clock.System.now()`
 
@@ -671,37 +696,6 @@ private val relativeDateRegex = Regex("""(\d+)""")
   approximate relative labels, document and use a consistent approximation
   such as 30 days per month and 365 days per year. Use calendar-aware date
   APIs instead when exact month or year boundaries matter.
-
-## Site-local timestamps without an offset
-
-For a fixed numeric format such as `yyyy-MM-dd HH:mm:ss`, use the thread-safe
-`java.time` API. Parse it as `LocalDateTime`, apply the site's known zone, and
-then convert it to epoch milliseconds:
-
-```kotlin
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-
-private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT)
-private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
-
-private fun parseDate(date: String?): Long {
-    if (date == null) return 0L
-    return runCatching {
-        LocalDateTime.parse(date, dateFormat)
-            .atZone(dateZone)
-            .toInstant()
-            .toEpochMilli()
-    }.getOrDefault(0L)
-}
-```
-
-- Keep `DateTimeFormatter` and `ZoneId` at class or file level.
-- `DateTimeFormatter` is immutable and thread-safe, unlike `SimpleDateFormat`.
-- Use `LocalDateTime` only when the input has no offset or zone information.
-- Apply the source site's zone explicitly; never rely on the device default zone.
 
 ---
 
