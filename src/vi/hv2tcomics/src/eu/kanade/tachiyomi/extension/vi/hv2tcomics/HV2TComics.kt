@@ -219,14 +219,17 @@ abstract class HV2TComics : KeiSource() {
 
     override fun imageRequest(page: Page): Request {
         val imageUrl = page.imageUrl ?: throw Exception("Không tìm thấy URL ảnh")
-        return GET(imageUrl, headersBuilder()
-            .add("Referer", "$baseUrl/")
-            .add("Origin", baseUrl)
-            .add("Accept", "image/avif,image/jxl,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5")
-            .add("Sec-Fetch-Dest", "image")
-            .add("Sec-Fetch-Mode", "no-cors")
-            .add("Sec-Fetch-Site", "same-site")
-            .build())
+        return GET(
+            imageUrl,
+            headersBuilder()
+                .add("Referer", "$baseUrl/")
+                .add("Origin", baseUrl)
+                .add("Accept", "image/avif,image/jxl,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5")
+                .add("Sec-Fetch-Dest", "image")
+                .add("Sec-Fetch-Mode", "no-cors")
+                .add("Sec-Fetch-Site", "same-site")
+                .build(),
+        )
     }
 
     // ============================== Filters ================================
