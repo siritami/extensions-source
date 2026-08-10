@@ -188,32 +188,40 @@ abstract class HV2TComics : KeiSource() {
                 useWideViewPort = true
                 userAgent = headers["User-Agent"]!!
 
-                val capturedUrls = java.util.concurrent.CopyOnWriteArrayList<String>()
+                var lastCount = 0
+                var stableCount = 0
 
-                interceptRequest { request ->
-                    val url = request.url.toString()
-                    if (url.contains("/media/") && (url.endsWith(".webp") || url.endsWith(".jpg") || url.endsWith(".png"))) {
-                        capturedUrls.add(url)
-                    }
-                    null
-                }
-
-                poll(2.seconds) {
+                poll(1.seconds) {
                     evaluateJs(
                         """
                         (function() {
-                            return Array.from(document.querySelectorAll('img[alt^="Page"]'))
-                                .map(function(img) { return img.currentSrc || img.src || ''; })
-                                .filter(function(src) { return /^https?:\\/\\//.test(src); });
+                            var images = Array.prototype.slice.call(document.querySelectorAll('img[alt^="Page"]'));
+                            images.forEach(function(img) {
+                                img.loading = 'eager';
+                                img.removeAttribute('loading');
+                            });
+                            window.scrollTo(0, document.body.scrollHeight);
+                            return Array.from(new Set(images.map(function(img) {
+                                return img.currentSrc || img.src || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('data-original') || '';
+                            }).filter(function(src) {
+                                return /^https?:\\/\\//.test(src);
+                            })));
                         })()
                         """.trimIndent(),
                     ) { value ->
                         val urls = runCatching { value.parseAs<List<String>>() }
                             .getOrDefault(emptyList())
-                        if (urls.isNotEmpty()) {
+                        if (urls.isEmpty()) return@evaluateJs
+
+                        if (urls.size == lastCount) {
+                            stableCount++
+                        } else {
+                            lastCount = urls.size
+                            stableCount = 0
+                        }
+
+                        if (stableCount >= 3) {
                             resolve(urls)
-                        } else if (capturedUrls.isNotEmpty()) {
-                            resolve(capturedUrls.distinct())
                         }
                     }
                 }
