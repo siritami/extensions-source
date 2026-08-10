@@ -41,7 +41,7 @@ abstract class HV2TComics : KeiSource() {
         val host = request.url.host
         if (host == "cdn.hv2tcomics.net" || host == "cdn.hv2t.com") {
             val newRequest = request.newBuilder().apply {
-                header("Accept", "image/avif,image/jxl,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5")
+                header("Accept", "image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5")
                 header("Referer", "$baseUrl/")
                 header("Origin", baseUrl)
                 header("Sec-Fetch-Dest", "image")
@@ -188,21 +188,32 @@ abstract class HV2TComics : KeiSource() {
                 useWideViewPort = true
                 userAgent = headers["User-Agent"]!!
 
-                onPageFinished {
-                    poll(1.seconds) {
-                        evaluateJs(
-                            """
-                            (function() {
-                                return Array.from(document.querySelectorAll('img[alt^="Page"]'))
-                                    .map(function(img) { return img.currentSrc || img.src || ''; })
-                                    .filter(function(src) { return /^https?:\\/\\//.test(src); });
-                            })()
-                            """.trimIndent(),
-                        ) { value ->
-                            val urls = runCatching { value.parseAs<List<String>>() }
-                                .getOrDefault(emptyList())
-                                .distinct()
-                            if (urls.isNotEmpty()) resolve(urls)
+                val capturedUrls = java.util.concurrent.CopyOnWriteArrayList<String>()
+
+                interceptRequest { request ->
+                    val url = request.url.toString()
+                    if (url.contains("/media/") && (url.endsWith(".webp") || url.endsWith(".jpg") || url.endsWith(".png"))) {
+                        capturedUrls.add(url)
+                    }
+                    null
+                }
+
+                poll(2.seconds) {
+                    evaluateJs(
+                        """
+                        (function() {
+                            return Array.from(document.querySelectorAll('img[alt^="Page"]'))
+                                .map(function(img) { return img.currentSrc || img.src || ''; })
+                                .filter(function(src) { return /^https?:\\/\\//.test(src); });
+                        })()
+                        """.trimIndent(),
+                    ) { value ->
+                        val urls = runCatching { value.parseAs<List<String>>() }
+                            .getOrDefault(emptyList())
+                        if (urls.isNotEmpty()) {
+                            resolve(urls)
+                        } else if (capturedUrls.isNotEmpty()) {
+                            resolve(capturedUrls.distinct())
                         }
                     }
                 }
