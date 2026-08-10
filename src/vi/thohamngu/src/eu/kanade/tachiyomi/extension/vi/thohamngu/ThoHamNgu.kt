@@ -30,8 +30,9 @@ import java.util.Locale
 
 @Source
 abstract class ThoHamNgu : KeiSource() {
-    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = rateLimit(3)
-
+    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
+        rateLimit(3)
+    }
     // ============================== Popular ===============================
 
     override suspend fun getPopularManga(page: Int): MangasPage {
