@@ -23,7 +23,6 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import kotlin.time.Duration.Companion.seconds
 
 @Source
