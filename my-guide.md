@@ -75,6 +75,58 @@ This way the strings are created on demand and garbage-collected after `getPageL
 
 # General Extension Development Notes
 
+## Pass the Document Directly
+
+When a helper function needs to extract data from HTML, pass the parsed `Document` directly instead of passing `html` string and re-parsing with `Jsoup.parse`. Re-parsing is wasteful since `asJsoup()` already parsed the response.
+
+```kotlin
+// ❌ Don't — re-parses the HTML
+override suspend fun getPageList(chapter: SChapter): List<Page> {
+    val document = client.get(getChapterUrl(chapter)).asJsoup()
+    val imageUrls = extractImageUrls(document.html(), baseUrl)
+    return imageUrls.mapIndexed { idx, url -> Page(idx, imageUrl = url) }
+}
+
+private fun extractImageUrls(html: String, baseUrl: String): List<String> {
+    val doc = org.jsoup.Jsoup.parse(html, baseUrl)
+    // ...
+}
+
+// ✅ Do — reuse the already-parsed Document
+override suspend fun getPageList(chapter: SChapter): List<Page> {
+    val document = client.get(getChapterUrl(chapter)).asJsoup()
+    val imageUrls = extractImageUrls(document)
+    return imageUrls.mapIndexed { idx, url -> Page(idx, imageUrl = url) }
+}
+
+private fun extractImageUrls(document: Document): List<String> {
+    val viewChapter = document.selectFirst("#view-chapter") ?: document
+    // ...
+}
+```
+
+## Throw `HttpException` for HTTP Errors
+
+When handling non-successful HTTP responses, throw `HttpException` instead of a generic `Exception`. It provides a standardized error message and carries the status code.
+
+```kotlin
+import eu.kanade.tachiyomi.network.HttpException
+
+// ❌ Don't
+if (!response.isSuccessful) {
+    throw Exception("HTTP error ${response.code}")
+}
+
+// ✅ Do
+if (!response.isSuccessful) {
+    val code = response.code
+    response.close()
+    throw HttpException(code)
+}
+```
+
+`HttpException` is defined in `eu.kanade.tachiyomi.network` and extends `IllegalStateException` with a `code` property. Use it when you need to inspect the status code (e.g. to show a custom message for 403) before throwing.
+
 ## Close Unused Responses Directly
 
 When a request is made only to verify that an endpoint succeeds and its response
@@ -198,6 +250,36 @@ if (document.selectFirst("form.post-password-form") != null) {
 Preserve this behavior when all of the following are true:
 
 - The condition is detected explicitly, such as a password, login, or access form.
+
+## Use the New Date Helpers
+
+When parsing date strings from a source, prefer the helpers in `keiyoushi.utils.Date.kt` over manual `LocalDate.parse` + `atStartOfDay` chains. They handle null inputs, parse errors, and zone resolution consistently.
+
+```kotlin
+import keiyoushi.utils.tryParseDate
+import keiyoushi.utils.tryParseDateTime
+import keiyoushi.utils.tryParseZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.ZoneId
+
+// Date only (e.g. "23/08/26" → start of day in zone)
+private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yy", Locale.ROOT)
+private fun parseChapterDate(dateStr: String): Long = dateFormat.tryParseDate(dateStr, ZoneId.of("Asia/Ho_Chi_Minh"))
+
+// Date + time, no offset (e.g. "2026-08-11 14:30:00")
+private val dateTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+private fun parseUploadTime(dateStr: String): Long = dateTimeFormat.tryParseDateTime(dateStr, ZoneId.of("Asia/Ho_Chi_Minh"))
+
+// Date + time with offset/zone (e.g. ISO 8601 "2026-08-11T14:30:00+07:00")
+private val zonedDateTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX")
+private fun parseTimestamp(dateStr: String): Long = zonedDateTimeFormat.tryParseZonedDateTime(dateStr)
+```
+
+- `tryParseDate` — use when the source sends a date only (no time). Resolves to start of day in the given zone.
+- `tryParseDateTime` — use when the source sends a local date + time with no offset. The zone decides the instant.
+- `tryParseZonedDateTime` — use when the source sends a date + time with its own offset/zone id. The offset in the string decides the instant.
+
+All three return `0L` if the input is null or cannot be parsed.
 - The user can resolve the condition through a concrete action.
 - The message explains that action instead of reporting a generic parsing error.
 - Returning `emptyList()` would hide the required action from the user.
