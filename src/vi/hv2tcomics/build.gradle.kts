@@ -15,3 +15,8 @@ keiyoushi {
         baseUrl = "https://hv2tcomics.net"
     }
 }
+
+dependencies {
+    implementation("com.github.penfeizhou.android.animation:avif:3.0.5")
+    implementation("com.github.penfeizhou.android.animation:awebpencoder:3.0.5")
+}
