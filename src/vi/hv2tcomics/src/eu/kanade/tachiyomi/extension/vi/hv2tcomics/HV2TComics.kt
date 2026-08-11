@@ -230,10 +230,8 @@ abstract class HV2TComics : KeiSource() {
                 val url = request.url.toString()
                 if (url.contains("/media/") && (url.endsWith(".webp") || url.endsWith(".jpg") || url.endsWith(".png"))) {
                     capturedUrls.add(url)
-                    null
-                } else {
-                    android.webkit.WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(byteArrayOf()))
                 }
+                null
             }
 
             poll(1.seconds) {
