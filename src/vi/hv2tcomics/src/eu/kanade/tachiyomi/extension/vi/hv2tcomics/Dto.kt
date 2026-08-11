@@ -112,7 +112,6 @@ fun ChapterDto.toSChapter(mangaSlug: String): SChapter = SChapter.create().apply
         append("Chương ")
         append(chapterNumber.toString().removeSuffix(".0"))
         this@toSChapter.title?.takeIf { it.isNotEmpty() }?.let {
-            append(" - ")
             append(it)
         }
     }
