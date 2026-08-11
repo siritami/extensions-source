@@ -180,15 +180,21 @@ abstract class HV2TComics : KeiSource() {
         loadAuthToken()
         val detailResponse = if (fetchDetails || fetchChapters) {
             client.get("$baseUrl/api/comics/${manga.url}").parseAs<ComicDetailResponse>()
-        } else null
+        } else {
+            null
+        }
 
         val updatedManga = if (fetchDetails && detailResponse != null) {
             detailResponse.data.toSManga()
-        } else manga
+        } else {
+            manga
+        }
 
         val updatedChapters = if (fetchChapters && detailResponse != null) {
             detailResponse.data.chapters.map { it.toSChapter(manga.url) }
-        } else chapters
+        } else {
+            chapters
+        }
 
         SMangaUpdate(updatedManga, updatedChapters)
     }
@@ -212,27 +218,27 @@ abstract class HV2TComics : KeiSource() {
         loadAuthToken()
         val pageUrl = "$baseUrl/truyen/${chapter.url}"
         val imageUrls = runWebView<List<String>>(timeout = 60.seconds) {
-                loadWithOverviewMode = true
-                useWideViewPort = true
-                userAgent = headers["User-Agent"]!!
+            loadWithOverviewMode = true
+            useWideViewPort = true
+            userAgent = headers["User-Agent"]!!
 
-                val capturedUrls = java.util.concurrent.CopyOnWriteArrayList<String>()
-                var lastCount = 0
-                var stablePolls = 0
+            val capturedUrls = java.util.concurrent.CopyOnWriteArrayList<String>()
+            var lastCount = 0
+            var stablePolls = 0
 
-                interceptRequest { request ->
-                    val url = request.url.toString()
-                    if (url.contains("/media/") && (url.endsWith(".webp") || url.endsWith(".jpg") || url.endsWith(".png"))) {
-                        capturedUrls.add(url)
-                        null
-                    } else {
-                        android.webkit.WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(byteArrayOf()))
-                    }
+            interceptRequest { request ->
+                val url = request.url.toString()
+                if (url.contains("/media/") && (url.endsWith(".webp") || url.endsWith(".jpg") || url.endsWith(".png"))) {
+                    capturedUrls.add(url)
+                    null
+                } else {
+                    android.webkit.WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(byteArrayOf()))
                 }
+            }
 
-                poll(1.seconds) {
-                    evaluateJs(
-                        """
+            poll(1.seconds) {
+                evaluateJs(
+                    """
                         (function() {
                             var images = document.querySelectorAll('img[alt^="Page"]');
                             images.forEach(function(img) {
@@ -241,35 +247,35 @@ abstract class HV2TComics : KeiSource() {
                             });
                             window.scrollTo(0, document.body.scrollHeight);
                         })()
-                        """.trimIndent(),
-                    )
-                    val currentCount = capturedUrls.size
-                    if (currentCount > 0) {
-                        if (currentCount == lastCount) {
-                            stablePolls++
-                        } else {
-                            lastCount = currentCount
-                            stablePolls = 0
-                        }
-                        if (stablePolls >= 3) {
-                            resolve(capturedUrls.distinct())
-                        }
+                    """.trimIndent(),
+                )
+                val currentCount = capturedUrls.size
+                if (currentCount > 0) {
+                    if (currentCount == lastCount) {
+                        stablePolls++
+                    } else {
+                        lastCount = currentCount
+                        stablePolls = 0
                     }
-                    evaluateJs(
-                        """
+                    if (stablePolls >= 3) {
+                        resolve(capturedUrls.distinct())
+                    }
+                }
+                evaluateJs(
+                    """
                         (function() {
                             var loginRequired = document.querySelector('h2')?.textContent?.includes('Yêu cầu đăng nhập');
                             return loginRequired;
                         })()
-                        """.trimIndent(),
-                    ) { result ->
-                        if (result.parseAs<Boolean>()) {
-                            reject(Exception("Đăng nhập vào tài khoản phù hợp bằng webview để xem chương này"))
-                        }
+                    """.trimIndent(),
+                ) { result ->
+                    if (result.parseAs<Boolean>()) {
+                        reject(Exception("Đăng nhập vào tài khoản phù hợp bằng webview để xem chương này"))
                     }
                 }
-                loadUrl(pageUrl)
             }
+            loadUrl(pageUrl)
+        }
         return imageUrls.mapIndexed { index, imageUrl ->
             Page(index, pageUrl, imageUrl)
         }
