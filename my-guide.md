@@ -692,6 +692,27 @@ override suspend fun fetchMangaUpdate(
 }
 ```
 
+For API-based sources where a single endpoint returns both details and chapters:
+
+```kotlin
+override suspend fun fetchMangaUpdate(
+    manga: SManga,
+    chapters: List<SChapter>,
+    fetchDetails: Boolean,
+    fetchChapters: Boolean,
+): SMangaUpdate = coroutineScope {
+    loadAuthToken()
+    val detailResponse = client.get("$baseUrl/api/comics/${manga.url}").parseAs<ComicDetailResponse>()
+
+    SMangaUpdate(
+        manga = detailResponse.data.toSManga(),
+        chapters = detailResponse.data.chapters.map { it.toSChapter(manga.url) },
+    )
+}
+```
+
+Since `KeiSource` guarantees that `fetchDetails` and `fetchChapters` are never both `false`, the `if (fetchDetails || fetchChapters)` check is unnecessary. Always fetch and return both fields unconditionally.
+
 Only preserve an unrequested existing value when obtaining that field requires
 an independent request or other meaningful extra work.
 
