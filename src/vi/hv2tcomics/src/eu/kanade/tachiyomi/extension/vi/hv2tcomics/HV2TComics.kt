@@ -86,7 +86,8 @@ abstract class HV2TComics : KeiSource() {
         response.body.use { body ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 try {
-                    val source = ImageDecoder.createSource(body.byteStream())
+                    val bytes = body.bytes()
+                    val source = ImageDecoder.createSource(bytes)
                     val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, source ->
                         decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                     }
