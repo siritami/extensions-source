@@ -267,7 +267,7 @@ abstract class HV2TComics : KeiSource() {
                         })()
                     """.trimIndent(),
                 ) { result ->
-                    if (result.parseAs<Boolean>()) {
+                    if (result != "null" && result.parseAs<Boolean>()) {
                         reject(Exception("Đăng nhập vào tài khoản phù hợp bằng webview để xem chương này"))
                     }
                 }
