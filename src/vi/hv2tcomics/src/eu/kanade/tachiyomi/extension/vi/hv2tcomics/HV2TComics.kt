@@ -241,11 +241,11 @@ abstract class HV2TComics : KeiSource() {
                                     urls.push(img.src);
                                 }
                             });
-                            return JSON.stringify(urls);
+                            return urls;
                         })()
                     """.trimIndent(),
                 ) { result ->
-                    val urls = if (result != "null") result.parseAs<List<String>>() else emptyList()
+                    val urls = result.parseAs<List<String>>()
                     if (urls.isNotEmpty()) {
                         if (urls.size == lastCount) {
                             stablePolls++
