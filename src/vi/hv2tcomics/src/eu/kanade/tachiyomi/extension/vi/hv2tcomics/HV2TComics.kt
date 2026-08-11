@@ -1,9 +1,8 @@
 package eu.kanade.tachiyomi.extension.vi.hv2tcomics
 
-import com.github.penfeizhou.animation.avif.decode.AVIFDecoder
-import com.github.penfeizhou.animation.awebpencoder.WebPEncoder
-import com.github.penfeizhou.animation.io.ByteBufferReader
-import com.github.penfeizhou.animation.loader.Loader
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
+import android.os.Build
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -29,8 +28,7 @@ import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody.Companion.toResponseBody
-import java.io.IOException
-import java.nio.ByteBuffer
+import java.io.ByteArrayOutputStream
 import kotlin.time.Duration.Companion.seconds
 
 @Source
@@ -66,11 +64,12 @@ abstract class HV2TComics : KeiSource() {
         chain.proceed(request)
     }
 
-    // ============================== AVIF to Animated WebP ==============================
+    // ============================== AVIF to WebP ==============================
 
     /**
-     * Intercepts AVIF image requests and converts them to animated WebP format.
-     * Uses penfeizhou's APNG4Android library for decoding AVIF and encoding animated WebP.
+     * Website have some animated avif images. Can't display follow bug
+     * https://github.com/mihonapp/mihon/issues/1975
+     * Convert first frame animated avif image to webp image
      */
     private fun avifToWebpInterceptor() = Interceptor { chain ->
         val request = chain.request()
@@ -86,47 +85,32 @@ abstract class HV2TComics : KeiSource() {
         }
 
         response.body.use { body ->
-            val bytes = body.bytes()
-            try {
-                val webpBytes = convertAvifToAnimatedWebp(bytes)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    val bytes = body.bytes()
+                    val source = ImageDecoder.createSource(bytes)
+                    val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, source ->
+                        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    }
+
+                    val outputStream = ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 90, outputStream)
+                    val webpBytes = outputStream.toByteArray()
+
+                    response.newBuilder()
+                        .body(webpBytes.toResponseBody("image/webp".toMediaType()))
+                        .build()
+                } catch (_: Exception) {
+                    response.newBuilder()
+                        .body(body.bytes().toResponseBody("image/webp".toMediaType()))
+                        .build()
+                }
+            } else {
                 response.newBuilder()
-                    .body(webpBytes.toResponseBody("image/webp".toMediaType()))
-                    .build()
-            } catch (_: Exception) {
-                response.newBuilder()
-                    .body(bytes.toResponseBody("image/webp".toMediaType()))
+                    .body(body.bytes().toResponseBody("image/webp".toMediaType()))
                     .build()
             }
         }
-    }
-
-    private fun convertAvifToAnimatedWebp(avifBytes: ByteArray): ByteArray {
-        val loader = ByteArrayLoader(avifBytes)
-        val avifDecoder = AVIFDecoder(loader, null)
-
-        // Initialize the decoder by getting bounds (triggers native decoder creation)
-        avifDecoder.getBounds()
-
-        val frameCount = avifDecoder.getFrameCount()
-        if (frameCount <= 0) {
-            throw IOException("No frames found in AVIF")
-        }
-
-        val webpEncoder = WebPEncoder()
-        webpEncoder.loopCount(0) // 0 = infinite loop
-
-        for (i in 0 until frameCount) {
-            val bitmap = avifDecoder.getFrameBitmap(i)
-            val frame = avifDecoder.getFrame(i)
-            webpEncoder.addFrame(bitmap, 0, 0, frame.frameDuration.toInt())
-        }
-
-        avifDecoder.stop()
-        return webpEncoder.build()
-    }
-
-    private class ByteArrayLoader(private val bytes: ByteArray) : Loader {
-        override fun obtain(): com.github.penfeizhou.animation.io.Reader = ByteBufferReader(ByteBuffer.wrap(bytes))
     }
 
     // ============================== Popular ===============================
