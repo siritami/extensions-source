@@ -85,9 +85,9 @@ abstract class HV2TComics : KeiSource() {
         }
 
         response.body.use { body ->
+            val bytes = body.bytes()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 try {
-                    val bytes = body.bytes()
                     val source = ImageDecoder.createSource(bytes)
                     val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, source ->
                         decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
@@ -102,12 +102,12 @@ abstract class HV2TComics : KeiSource() {
                         .build()
                 } catch (_: Exception) {
                     response.newBuilder()
-                        .body(body.bytes().toResponseBody("image/webp".toMediaType()))
+                        .body(bytes.toResponseBody("image/webp".toMediaType()))
                         .build()
                 }
             } else {
                 response.newBuilder()
-                    .body(body.bytes().toResponseBody("image/webp".toMediaType()))
+                    .body(bytes.toResponseBody("image/webp".toMediaType()))
                     .build()
             }
         }
