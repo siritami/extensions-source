@@ -222,17 +222,8 @@ abstract class HV2TComics : KeiSource() {
             useWideViewPort = true
             userAgent = headers["User-Agent"]!!
 
-            val capturedUrls = java.util.concurrent.CopyOnWriteArrayList<String>()
             var lastCount = 0
             var stablePolls = 0
-
-            interceptRequest { request ->
-                val url = request.url.toString()
-                if (url.contains("/media/") && (url.endsWith(".webp") || url.endsWith(".jpg") || url.endsWith(".png"))) {
-                    capturedUrls.add(url)
-                }
-                null
-            }
 
             poll(1.seconds) {
                 evaluateJs(
@@ -244,19 +235,27 @@ abstract class HV2TComics : KeiSource() {
                                 img.removeAttribute('loading');
                             });
                             window.scrollTo(0, document.body.scrollHeight);
+                            var urls = [];
+                            images.forEach(function(img) {
+                                if (img.src && img.src.includes('/media/')) {
+                                    urls.push(img.src);
+                                }
+                            });
+                            return JSON.stringify(urls);
                         })()
                     """.trimIndent(),
-                )
-                val currentCount = capturedUrls.size
-                if (currentCount > 0) {
-                    if (currentCount == lastCount) {
-                        stablePolls++
-                    } else {
-                        lastCount = currentCount
-                        stablePolls = 0
-                    }
-                    if (stablePolls >= 3) {
-                        resolve(capturedUrls.distinct())
+                ) { result ->
+                    val urls = if (result != "null") result.parseAs<List<String>>() else emptyList()
+                    if (urls.isNotEmpty()) {
+                        if (urls.size == lastCount) {
+                            stablePolls++
+                        } else {
+                            lastCount = urls.size
+                            stablePolls = 0
+                        }
+                        if (stablePolls >= 3) {
+                            resolve(urls.distinct())
+                        }
                     }
                 }
                 evaluateJs(
