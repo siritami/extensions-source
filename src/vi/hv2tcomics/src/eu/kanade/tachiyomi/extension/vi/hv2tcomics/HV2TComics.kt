@@ -1,5 +1,8 @@
 package eu.kanade.tachiyomi.extension.vi.hv2tcomics
 
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
+import android.os.Build
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -22,7 +25,10 @@ import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody.Companion.toResponseBody
+import java.io.ByteArrayOutputStream
 import kotlin.time.Duration.Companion.seconds
 
 @Source
@@ -30,6 +36,7 @@ abstract class HV2TComics : KeiSource() {
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         addInterceptor(authInterceptor())
+        addInterceptor(avifToWebpInterceptor())
         rateLimit(3)
     }
 
@@ -57,10 +64,56 @@ abstract class HV2TComics : KeiSource() {
         chain.proceed(request)
     }
 
+    // ============================== AVIF to WebP ==============================
+
+    /**
+     * Intercepts AVIF image requests and converts them to WebP format.
+     * Android's ImageDecoder supports AVIF decoding since API 31.
+     */
+    private fun avifToWebpInterceptor() = Interceptor { chain ->
+        val request = chain.request()
+        val url = request.url.toString()
+
+        if (!url.endsWith(".avif", ignoreCase = true)) {
+            return@Interceptor chain.proceed(request)
+        }
+
+        val response = chain.proceed(request)
+        if (!response.isSuccessful) {
+            return@Interceptor response
+        }
+
+        response.body.use { body ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    val source = ImageDecoder.createSource(body.byteStream())
+                    val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, source ->
+                        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    }
+
+                    val outputStream = ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 90, outputStream)
+                    val webpBytes = outputStream.toByteArray()
+
+                    response.newBuilder()
+                        .body(webpBytes.toResponseBody("image/webp".toMediaType()))
+                        .build()
+                } catch (_: Exception) {
+                    response.newBuilder()
+                        .body(body.bytes().toResponseBody("image/webp".toMediaType()))
+                        .build()
+                }
+            } else {
+                response.newBuilder()
+                    .body(body.bytes().toResponseBody("image/webp".toMediaType()))
+                    .build()
+            }
+        }
+    }
+
     // ============================== Popular ===============================
 
     override suspend fun getPopularManga(page: Int): MangasPage {
-        loadAuthToken()
         val url = "$baseUrl/api/comics".toHttpUrl().newBuilder()
             .addQueryParameter("page", page.toString())
             .addQueryParameter("sort", "popular")
@@ -71,7 +124,6 @@ abstract class HV2TComics : KeiSource() {
     // ============================== Latest ================================
 
     override suspend fun getLatestUpdates(page: Int): MangasPage {
-        loadAuthToken()
         val url = "$baseUrl/api/comics".toHttpUrl().newBuilder()
             .addQueryParameter("page", page.toString())
             .addQueryParameter("sort", "latest")
