@@ -16,4 +16,8 @@ keiyoushi {
             custom("https://hv2tcomics.net")
         }
     }
+
+    deeplink {
+        path("/truyen/..*")
+    }
 }
