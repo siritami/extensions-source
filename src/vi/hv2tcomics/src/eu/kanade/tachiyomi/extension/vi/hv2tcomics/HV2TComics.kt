@@ -13,7 +13,6 @@ import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
-import keiyoushi.utils.WebViewTimeoutException
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getLocalStorage
 import keiyoushi.utils.parseAs
@@ -179,25 +178,19 @@ abstract class HV2TComics : KeiSource() {
         fetchChapters: Boolean,
     ): SMangaUpdate = coroutineScope {
         loadAuthToken()
-        val updatedManga = async {
-            if (fetchDetails) {
-                val url = "$baseUrl/api/comics/${manga.url}".toHttpUrl()
-                client.get(url).parseAs<ComicDetailResponse>().data.toSManga()
-            } else {
-                manga
-            }
-        }
-        val updatedChapters = async {
-            if (fetchChapters) {
-                val url = "$baseUrl/api/comics/${manga.url}".toHttpUrl()
-                client.get(url).parseAs<ComicDetailResponse>().data.chapters.map {
-                    it.toSChapter(manga.url)
-                }
-            } else {
-                chapters
-            }
-        }
-        SMangaUpdate(updatedManga.await(), updatedChapters.await())
+        val detailResponse = if (fetchDetails || fetchChapters) {
+            client.get("$baseUrl/api/comics/${manga.url}").parseAs<ComicDetailResponse>()
+        } else null
+
+        val updatedManga = if (fetchDetails && detailResponse != null) {
+            detailResponse.data.toSManga()
+        } else manga
+
+        val updatedChapters = if (fetchChapters && detailResponse != null) {
+            detailResponse.data.chapters.map { it.toSChapter(manga.url) }
+        } else chapters
+
+        SMangaUpdate(updatedManga, updatedChapters)
     }
 
     override fun getMangaUrl(manga: SManga): String = "$baseUrl/truyen/${manga.url}"
@@ -218,8 +211,7 @@ abstract class HV2TComics : KeiSource() {
         }
         loadAuthToken()
         val pageUrl = "$baseUrl/truyen/${chapter.url}"
-        val imageUrls = try {
-            runWebView<List<String>>(timeout = 60.seconds) {
+        val imageUrls = runWebView<List<String>>(timeout = 60.seconds) {
                 loadWithOverviewMode = true
                 useWideViewPort = true
                 userAgent = headers["User-Agent"]!!
@@ -232,8 +224,10 @@ abstract class HV2TComics : KeiSource() {
                     val url = request.url.toString()
                     if (url.contains("/media/") && (url.endsWith(".webp") || url.endsWith(".jpg") || url.endsWith(".png"))) {
                         capturedUrls.add(url)
+                        null
+                    } else {
+                        android.webkit.WebResourceResponse("text/plain", "UTF-8", java.io.ByteArrayInputStream(byteArrayOf()))
                     }
-                    null
                 }
 
                 poll(1.seconds) {
@@ -276,9 +270,6 @@ abstract class HV2TComics : KeiSource() {
                 }
                 loadUrl(pageUrl)
             }
-        } catch (_: WebViewTimeoutException) {
-            emptyList()
-        }
         return imageUrls.mapIndexed { index, imageUrl ->
             Page(index, pageUrl, imageUrl)
         }
