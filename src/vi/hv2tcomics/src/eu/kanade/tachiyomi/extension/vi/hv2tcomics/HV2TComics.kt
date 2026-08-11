@@ -67,7 +67,7 @@ abstract class HV2TComics : KeiSource() {
     // ============================== AVIF to WebP ==============================
 
     /**
-     * Website have some animated avif images. Can't display follow bug
+     * Website have some animated avif images in thumbnail. Can't display follow bug
      * https://github.com/mihonapp/mihon/issues/1975
      * Convert first frame animated avif image to webp image
      */
@@ -213,10 +213,13 @@ abstract class HV2TComics : KeiSource() {
     // =============================== Pages ================================
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
+        if (chapter.name.startsWith("🔒")) {
+            throw Exception("Chương này trả phí cần đăng nhập vào tài khoản phù hợp bằng webview")
+        }
         loadAuthToken()
         val pageUrl = "$baseUrl/truyen/${chapter.url}"
         val imageUrls = try {
-            runWebView<List<String>>(timeout = 30.seconds) {
+            runWebView<List<String>>(timeout = 60.seconds) {
                 loadWithOverviewMode = true
                 useWideViewPort = true
                 userAgent = headers["User-Agent"]!!
@@ -256,6 +259,19 @@ abstract class HV2TComics : KeiSource() {
                         }
                         if (stablePolls >= 3) {
                             resolve(capturedUrls.distinct())
+                        }
+                    }
+                    // Check if login is required
+                    evaluateJs(
+                        """
+                        (function() {
+                            var loginRequired = document.querySelector('h2')?.textContent?.includes('Yêu cầu đăng nhập');
+                            return loginRequired;
+                        })()
+                        """.trimIndent(),
+                    ) { result ->
+                        if (result.parseAs<Boolean>()) {
+                            reject(Exception("Đăng nhập vào tài khoản phù hợp bằng webview để xem chương này"))
                         }
                     }
                 }
