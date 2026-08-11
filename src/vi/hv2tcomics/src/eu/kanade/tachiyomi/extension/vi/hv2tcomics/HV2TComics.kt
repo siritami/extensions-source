@@ -261,7 +261,6 @@ abstract class HV2TComics : KeiSource() {
                             resolve(capturedUrls.distinct())
                         }
                     }
-                    // Check if login is required
                     evaluateJs(
                         """
                         (function() {
