@@ -279,6 +279,16 @@ private fun parseTimestamp(dateStr: String): Long = zonedDateTimeFormat.tryParse
 - `tryParseDateTime` — use when the source sends a local date + time with no offset. The zone decides the instant.
 - `tryParseZonedDateTime` — use when the source sends a date + time with its own offset/zone id. The offset in the string decides the instant.
 
+All three helpers accept a `zone` parameter (defaults to `ZoneId.systemDefault()`). When the source operates in a specific timezone, pass it explicitly:
+
+```kotlin
+private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
+
+private fun parseChapterDate(dateStr: String): Long = dateFormat.tryParseDate(dateStr, dateZone)
+```
+
+This ensures dates are resolved to the correct start-of-day instant regardless of the user's device timezone.
+
 All three return `0L` if the input is null or cannot be parsed.
 - The user can resolve the condition through a concrete action.
 - The message explains that action instead of reporting a generic parsing error.
