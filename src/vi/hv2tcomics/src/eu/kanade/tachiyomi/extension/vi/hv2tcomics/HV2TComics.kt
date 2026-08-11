@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.vi.hv2tcomics
 
-import android.graphics.Bitmap
 import com.github.penfeizhou.animation.avif.decode.AVIFDecoder
 import com.github.penfeizhou.animation.awebpencoder.WebPEncoder
 import com.github.penfeizhou.animation.io.ByteBufferReader
@@ -21,10 +20,8 @@ import keiyoushi.utils.getLocalStorage
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.runWebView
 import keiyoushi.utils.toJsonElement
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -32,7 +29,6 @@ import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody.Companion.toResponseBody
-import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.nio.ByteBuffer
 import kotlin.time.Duration.Companion.seconds
@@ -107,10 +103,10 @@ abstract class HV2TComics : KeiSource() {
     private fun convertAvifToAnimatedWebp(avifBytes: ByteArray): ByteArray {
         val loader = ByteArrayLoader(avifBytes)
         val avifDecoder = AVIFDecoder(loader, null)
-        
+
         // Initialize the decoder by getting bounds (triggers native decoder creation)
         avifDecoder.getBounds()
-        
+
         val frameCount = avifDecoder.getFrameCount()
         if (frameCount <= 0) {
             throw IOException("No frames found in AVIF")
@@ -130,9 +126,7 @@ abstract class HV2TComics : KeiSource() {
     }
 
     private class ByteArrayLoader(private val bytes: ByteArray) : Loader {
-        override fun obtain(): com.github.penfeizhou.animation.io.Reader {
-            return ByteBufferReader(ByteBuffer.wrap(bytes))
-        }
+        override fun obtain(): com.github.penfeizhou.animation.io.Reader = ByteBufferReader(ByteBuffer.wrap(bytes))
     }
 
     // ============================== Popular ===============================
