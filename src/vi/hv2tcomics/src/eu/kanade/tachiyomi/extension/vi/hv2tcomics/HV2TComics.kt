@@ -125,7 +125,7 @@ abstract class HV2TComics : KeiSource() {
             webpEncoder.addFrame(bitmap, 0, 0, frame.frameDuration.toInt())
         }
 
-        avifDecoder.release()
+        avifDecoder.stop()
         return webpEncoder.build()
     }
 
