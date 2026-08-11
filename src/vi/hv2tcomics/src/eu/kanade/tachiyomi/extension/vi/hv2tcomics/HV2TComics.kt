@@ -36,7 +36,7 @@ abstract class HV2TComics : KeiSource() {
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         addInterceptor(authInterceptor())
-        addInterceptor(animatedAvifToStaticAvifInterceptor())
+        addInterceptor(avifToWebpInterceptor())
         rateLimit(3)
     }
 
@@ -64,14 +64,14 @@ abstract class HV2TComics : KeiSource() {
         chain.proceed(request)
     }
 
-    // ============================== Animated AVIF to Static AVIF ==============================
+    // ============================== AVIF to WebP ==============================
 
     /**
      * Website have some animated avif images in thumbnail. Can't display follow bug
      * https://github.com/mihonapp/mihon/issues/1975
-     * Convert first frame of animated avif image to static avif image
+     * Convert first frame animated avif image to webp image
      */
-    private fun animatedAvifToStaticAvifInterceptor() = Interceptor { chain ->
+    private fun avifToWebpInterceptor() = Interceptor { chain ->
         val request = chain.request()
         val url = request.url.toString()
 
@@ -94,20 +94,20 @@ abstract class HV2TComics : KeiSource() {
                     }
 
                     val outputStream = ByteArrayOutputStream()
-                    bitmap.compress(Bitmap.CompressFormat.AVIF, 90, outputStream)
-                    val avifBytes = outputStream.toByteArray()
+                    bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 90, outputStream)
+                    val webpBytes = outputStream.toByteArray()
 
                     response.newBuilder()
-                        .body(avifBytes.toResponseBody("image/avif".toMediaType()))
+                        .body(webpBytes.toResponseBody("image/webp".toMediaType()))
                         .build()
                 } catch (_: Exception) {
                     response.newBuilder()
-                        .body(bytes.toResponseBody("image/avif".toMediaType()))
+                        .body(bytes.toResponseBody("image/webp".toMediaType()))
                         .build()
                 }
             } else {
                 response.newBuilder()
-                    .body(bytes.toResponseBody("image/avif".toMediaType()))
+                    .body(bytes.toResponseBody("image/webp".toMediaType()))
                     .build()
             }
         }
