@@ -94,8 +94,9 @@
             }
             if (init && init.headers) {
                 var headers = init.headers;
-                if (headers instanceof Headers) { token = headers.get('Token') || headers.get('token'); }
-                else if (typeof headers === 'object') { token = headers['Token'] || headers['token']; }
+                try {
+                    token = new Headers(headers).get('Token') || new Headers(headers).get('token');
+                } catch(e) {}
             }
 
             if (token && isImageUrl(url)) {
@@ -145,6 +146,18 @@
             return _xhrSetRequestHeader.apply(this, arguments);
         };
         XMLHttpRequest.prototype.send = function() {
+            var xhr = this;
+            if (this.__lxUrl && this.__lxUrl.indexOf('/get_token') >= 0 && !this.__lxTokenHooked) {
+                this.__lxTokenHooked = true;
+                try {
+                    this.addEventListener('load', function() {
+                        try {
+                            var data = JSON.parse(xhr.responseText || '{}');
+                            if (data && data.action_token) window.__lxToken = data.action_token;
+                        } catch(e) {}
+                    });
+                } catch(e) {}
+            }
             return _xhrSend.apply(this, arguments);
         };
         XMLHttpRequest.prototype.open.toString = function() { return _xhrOpen.toString(); };

@@ -6,10 +6,11 @@
             var activeDialog = Array.from(document.querySelectorAll('.swal2-container'))
                 .find(function(dialog) {
                     return getComputedStyle(dialog).display !== 'none' &&
-                        dialog.getAttribute('aria-hidden') !== 'true';
+                        dialog.getAttribute('aria-hidden') !== 'true' &&
+                        dialog.querySelector('.swal2-popup');
                 });
             var turnstileResponse = activeDialog && activeDialog.querySelector(
-                'input[name="cf-turnstile-response"]'
+                'input[name="cf-turnstile-response"], input[id*="turnstile"][id$="_response"]'
             );
             var hasTurnstileResponse = turnstileResponse && turnstileResponse.value;
             var btns = activeDialog ? activeDialog.querySelectorAll('.swal2-confirm') : [];
