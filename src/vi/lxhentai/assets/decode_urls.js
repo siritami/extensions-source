@@ -3,10 +3,19 @@
 (function() {
     try {
         if (!window._lxClicked) {
-            var btns = document.querySelectorAll('.swal2-confirm');
+            var activeDialog = Array.from(document.querySelectorAll('.swal2-container'))
+                .find(function(dialog) {
+                    return getComputedStyle(dialog).display !== 'none' &&
+                        dialog.getAttribute('aria-hidden') !== 'true';
+                });
+            var turnstileResponse = activeDialog && activeDialog.querySelector(
+                'input[name="cf-turnstile-response"]',
+            );
+            var hasTurnstileResponse = turnstileResponse && turnstileResponse.value;
+            var btns = activeDialog ? activeDialog.querySelectorAll('.swal2-confirm') : [];
             for (var bi = 0; bi < btns.length; bi++) {
                 var b = btns[bi];
-                if (b && !b.disabled) {
+                if (b && !b.disabled && hasTurnstileResponse) {
                     var txt = (b.textContent || '').toLowerCase();
                     if (txt.indexOf('ok') >= 0 || txt.indexOf('tiếp tục') >= 0 || txt.indexOf('continue') >= 0) {
                         b.click();

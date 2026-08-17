@@ -1,7 +1,12 @@
 // Fetch hook - intercepts /get_token, image URLs, and unblocks Turnstile
 // Injected via onPageStarted BEFORE any page scripts run
 (function() {
-    if (window.__lxHookInstalled) return;
+    if (window.__lxHookInstalled) {
+        window.__lxToken = null;
+        window.__lxImageUrls = [];
+        window.__lxCapturedUrls = null;
+        window.__lxHookInstalled = false;
+    }
     window.__lxHookInstalled = true;
     window.__lxToken = null;
     window.__lxImageUrls = [];
@@ -11,9 +16,13 @@
     window.__lxRealFetch = _realFetch;
 
     try {
-        var _realHasFocus = Document.prototype.hasFocus;
-        Document.prototype.hasFocus = function() { return true; };
-        Document.prototype.hasFocus.toString = function() { return _realHasFocus.toString(); };
+        if (!Document.prototype.hasFocus.__lxWrapped) {
+            var _realHasFocus = Document.prototype.hasFocus;
+            var _lxHasFocus = function() { return true; };
+            _lxHasFocus.__lxWrapped = true;
+            _lxHasFocus.toString = function() { return _realHasFocus.toString(); };
+            Document.prototype.hasFocus = _lxHasFocus;
+        }
     } catch(e) {}
 
     var _origSlice = Array.prototype.slice;
@@ -84,9 +93,9 @@
                 else if (typeof headers === 'object') { token = headers['Token'] || headers['token']; }
             }
 
-            if (token) {
+            if (token && isImageUrl(url)) {
                 window.__lxToken = token;
-                if (isImageUrl(url) && window.__lxImageUrls.indexOf(url) < 0) {
+                if (window.__lxImageUrls.indexOf(url) < 0) {
                     window.__lxImageUrls.push(url);
                 }
             }
@@ -144,7 +153,7 @@
     }, 100);
 
     try {
-        localStorage.removeItem('turnstile_blocked');
-        localStorage.removeItem('turnstile_blocked_time');
+        localStorage.clear();
+        sessionStorage.clear();
     } catch(e) {}
 })();
