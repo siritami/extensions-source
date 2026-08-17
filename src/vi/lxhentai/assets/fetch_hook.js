@@ -36,12 +36,14 @@
                     }
                 }
                 if (urlValues.length > 0) {
-                    window.__lxCapturedUrls = urlValues;
+                    window.__lxCapturedUrls = (window.__lxCapturedUrls || []).concat(urlValues)
+                        .filter(function(url, index, all) { return all.indexOf(url) === index; });
                 }
             }
         } catch(e) {}
         return _origSlice.apply(this, arguments);
     };
+    try { Array.prototype.slice.toString = function() { return _origSlice.toString(); }; } catch(e) {}
 
     var _propTrapInterval = setInterval(function() {
         if (window.__lxPropTrapped) { clearInterval(_propTrapInterval); return; }
@@ -61,7 +63,10 @@
                                 _captured = val;
                                 if (Array.isArray(val) && val.length > 0 && !window.__lxCapturedUrls) {
                                     var urls = val.filter(function(item) { return typeof item === 'string' && isImageUrl(item); });
-                                    if (urls.length > 0) window.__lxCapturedUrls = urls.slice();
+                                    if (urls.length > 0) {
+                                        window.__lxCapturedUrls = (window.__lxCapturedUrls || []).concat(urls)
+                                            .filter(function(url, index, all) { return all.indexOf(url) === index; });
+                                    }
                                 }
                             }
                         });
@@ -142,6 +147,10 @@
         XMLHttpRequest.prototype.send = function() {
             return _xhrSend.apply(this, arguments);
         };
+        XMLHttpRequest.prototype.open.toString = function() { return _xhrOpen.toString(); };
+        XMLHttpRequest.prototype.setRequestHeader.toString = function() { return _xhrSetRequestHeader.toString(); };
+        XMLHttpRequest.prototype.send.toString = function() { return _xhrSend.toString(); };
+
     } catch(e) {}
 
     var _replaceInterval = setInterval(function() {
@@ -153,7 +162,27 @@
     }, 100);
 
     try {
-        localStorage.clear();
-        sessionStorage.clear();
+        localStorage.removeItem('turnstile_blocked');
+        localStorage.removeItem('turnstile_blocked_time');
     } catch(e) {}
+
+    var collectVisibleImages = function() {
+        try {
+            document.querySelectorAll('img').forEach(function(image) {
+                [image.currentSrc, image.src, image.getAttribute('data-src'), image.getAttribute('data-lazy-src')]
+                    .filter(isImageUrl)
+                    .forEach(function(url) {
+                        if (window.__lxImageUrls.indexOf(url) < 0) window.__lxImageUrls.push(url);
+                    });
+            });
+            if (window.performance && performance.getEntriesByType) {
+                performance.getEntriesByType('resource').forEach(function(entry) {
+                    if (isImageUrl(entry.name) && window.__lxImageUrls.indexOf(entry.name) < 0) {
+                        window.__lxImageUrls.push(entry.name);
+                    }
+                });
+            }
+        } catch(e) {}
+    };
+    setInterval(collectVisibleImages, 500);
 })();

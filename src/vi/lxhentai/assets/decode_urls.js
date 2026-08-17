@@ -9,7 +9,7 @@
                         dialog.getAttribute('aria-hidden') !== 'true';
                 });
             var turnstileResponse = activeDialog && activeDialog.querySelector(
-                'input[name="cf-turnstile-response"]',
+                'input[name="cf-turnstile-response"]'
             );
             var hasTurnstileResponse = turnstileResponse && turnstileResponse.value;
             var btns = activeDialog ? activeDialog.querySelectorAll('.swal2-confirm') : [];
@@ -40,8 +40,8 @@
         if (window.__lxCapturedUrls && window.__lxCapturedUrls.length > 0) {
             urls = window.__lxCapturedUrls;
         }
-        if (urls.length === 0 && window.__lxImageUrls && window.__lxImageUrls.length > 0) {
-            urls = window.__lxImageUrls;
+        if (window.__lxImageUrls && window.__lxImageUrls.length > 0) {
+            urls = urls.concat(window.__lxImageUrls);
         }
 
         urls = urls.filter(function(url, index) {
@@ -53,8 +53,14 @@
         });
 
         var token = window.__lxToken || null;
+        var currentCount = urls.length;
+        if (currentCount !== window.__lxLastUrlCount) {
+            window.__lxLastUrlCount = currentCount;
+            window.__lxStableSince = Date.now();
+        }
+        var stableLongEnough = window.__lxStableSince && Date.now() - window.__lxStableSince >= 2500;
 
-        if (token && urls.length > 0) {
+        if (token && urls.length > 0 && stableLongEnough) {
             return JSON.stringify({token: token, urls: urls});
         }
 
