@@ -16,10 +16,10 @@
             ' inProgress=' + Boolean(window.getTokenRequestInProgress));
 
         var verificationActive = Boolean(window.__lxCaptchaShown || window.getTokenRequestInProgress);
-        var verificationStarted = parseInt(sessionStorage.getItem('__lxVerificationStarted') || '0', 10);
+        var verificationStarted = window.__lxVerificationStarted || 0;
         if (verificationActive && !verificationStarted) {
             verificationStarted = Date.now();
-            sessionStorage.setItem('__lxVerificationStarted', String(verificationStarted));
+            window.__lxVerificationStarted = verificationStarted;
         }
         var failedDialog = visibleDialogs.find(function(dialog) {
             return /xác minh thất bại|verification failed|quá lâu không phản hồi/i.test(dialog.textContent || '');
@@ -28,10 +28,10 @@
             var reloadButton = Array.from(failedDialog.querySelectorAll('button')).find(function(button) {
                 return /tải lại|reload|retry/i.test(button.textContent || '') && !button.disabled;
             });
-            var reloadCount = parseInt(sessionStorage.getItem('__lxReloadCount') || '0', 10);
+            var reloadCount = window.__lxReloadCount || 0;
             if (reloadButton && reloadCount < 2) {
                 debug('RELOAD', String(reloadCount + 1));
-                sessionStorage.setItem('__lxReloadCount', String(reloadCount + 1));
+                window.__lxReloadCount = reloadCount + 1;
                 reloadButton.click();
                 return JSON.stringify({token: '', urls: [], reloading: true});
             }
@@ -62,11 +62,11 @@
 
         if (verificationActive && !hasTurnstileResponse && verificationStarted &&
             Date.now() - verificationStarted > 12000) {
-            var retryCount = parseInt(sessionStorage.getItem('__lxVerificationReloads') || '0', 10);
+            var retryCount = window.__lxVerificationReloads || 0;
             if (retryCount < 2) {
                 debug('VERIFICATION_RELOAD', 'stuck=' + (Date.now() - verificationStarted) + 'ms retry=' + (retryCount + 1));
-                sessionStorage.setItem('__lxVerificationReloads', String(retryCount + 1));
-                sessionStorage.removeItem('__lxVerificationStarted');
+                window.__lxVerificationReloads = retryCount + 1;
+                window.__lxVerificationStarted = 0;
                 location.reload();
                 return JSON.stringify({token: '', urls: [], reloading: true});
             }
@@ -111,8 +111,8 @@
 
         if (token && urls.length > 0 && stableLongEnough) {
             debug('READY', 'urls=' + urls.length);
-            sessionStorage.removeItem('__lxVerificationStarted');
-            sessionStorage.removeItem('__lxVerificationReloads');
+            window.__lxVerificationStarted = 0;
+            window.__lxVerificationReloads = 0;
             return JSON.stringify({token: token, urls: urls});
         }
 

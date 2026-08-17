@@ -11,11 +11,6 @@
         window.__lxCapturedUrls = null;
         window.__lxLastUrlCount = 0;
         window.__lxStableSince = 0;
-        try {
-            sessionStorage.removeItem('__lxReloadCount');
-            sessionStorage.removeItem('__lxVerificationStarted');
-            sessionStorage.removeItem('__lxVerificationReloads');
-        } catch(e) {}
     }
     window.__lxChapterUrl = location.href;
     if (window.__lxHookInstalled) {
