@@ -5,6 +5,13 @@
         try { console.error('[LXMANGA_DEBUG] ' + stage + ' ' + (detail || '')); } catch(e) {}
     };
     debug('HOOK_START', location.href);
+    // The page references rotating ad callbacks before their third-party script
+    // finishes loading. Chromium WebView can stop Rocket Loader's deferred queue
+    // after the resulting ReferenceError, preventing KGZ1 from ever executing.
+    ['lwxvuf', 'ucrkbvp', 'mkdqg93'].forEach(function(name) {
+        if (typeof window[name] === 'undefined') window[name] = function() {};
+    });
+    debug('EARLY_CALLBACKS_READY');
     if (window.__lxChapterUrl && window.__lxChapterUrl !== location.href) {
         window.__lxToken = null;
         window.__lxImageUrls = [];

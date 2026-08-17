@@ -16,6 +16,7 @@
             ' inProgress=' + Boolean(window.getTokenRequestInProgress));
 
         var verificationActive = Boolean(window.__lxCaptchaShown || window.getTokenRequestInProgress);
+        if (!window.__lxPollStarted) window.__lxPollStarted = Date.now();
         var verificationStarted = window.__lxVerificationStarted || 0;
         if (verificationActive && !verificationStarted) {
             verificationStarted = Date.now();
@@ -107,6 +108,18 @@
             window.__lxStableSince = Date.now();
         }
         var stableLongEnough = window.__lxStableSince && Date.now() - window.__lxStableSince >= 2500;
+
+        if (!token && urls.length === 0 && !verificationActive && visibleDialogs.length === 0 &&
+            Date.now() - window.__lxPollStarted > 10000) {
+            var initReloads = window.__lxInitReloads || 0;
+            if (initReloads < 1) {
+                window.__lxInitReloads = initReloads + 1;
+                debug('INIT_RELOAD', 'reader did not initialize');
+                location.reload();
+                return JSON.stringify({token: '', urls: [], reloading: true});
+            }
+            debug('INIT_STUCK', 'reader did not initialize after reload');
+        }
         debug('STATE', 'token=' + (token ? 'yes' : 'no') + ' urls=' + urls.length + ' stable=' + Boolean(stableLongEnough));
 
         if (token && urls.length > 0 && stableLongEnough) {
