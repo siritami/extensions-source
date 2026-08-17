@@ -30,6 +30,26 @@
 
         var verificationActive = Boolean(window.__lxCaptchaShown || window.getTokenRequestInProgress);
         if (!window.__lxPollStarted) window.__lxPollStarted = Date.now();
+
+        if (!window.__lxCapturedUrls && !window.__lxToken && !verificationActive &&
+            Date.now() - window.__lxPollStarted > 5000 && !window.__lxKgzFallbackTried) {
+            var kgzScripts = Array.from(document.querySelectorAll('script'))
+                .filter(function(script) {
+                    return !script.src && (script.textContent || '').indexOf('KGZ1') >= 0;
+                });
+            if (kgzScripts.length > 0) {
+                window.__lxKgzFallbackTried = true;
+                debug('KGZ_FALLBACK', 'scripts=' + kgzScripts.length);
+                kgzScripts.forEach(function(script, index) {
+                    try {
+                        (0, eval)(script.textContent || '');
+                        debug('KGZ_EXECUTED', String(index));
+                    } catch(e) {
+                        debug('KGZ_EXEC_ERROR', index + ' ' + String(e && e.stack || e));
+                    }
+                });
+            }
+        }
         var verificationStarted = window.__lxVerificationStarted || 0;
         if (verificationActive && !verificationStarted) {
             verificationStarted = Date.now();
