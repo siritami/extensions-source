@@ -6,11 +6,45 @@
     };
     debug('HOOK_START', location.href);
     // The page references rotating ad callbacks before their third-party script
-    // finishes loading. Chromium WebView can stop Rocket Loader's deferred queue
-    // after the resulting ReferenceError, preventing KGZ1 from ever executing.
-    ['lwxvuf', 'ucrkbvp', 'mkdqg93'].forEach(function(name) {
+    // finishes loading. Discover callback names from inline event attributes so
+    // the hook does not depend on the currently observed randomized names.
+    var defineEarlyCallback = function(name) {
+        if (!/^[A-Za-z_$][\w$]{4,31}$/.test(name)) return;
         if (typeof window[name] === 'undefined') window[name] = function() {};
-    });
+    };
+    var scanEarlyCallbacks = function(root) {
+        try {
+            var elements = [];
+            if (root && root.nodeType === 1 && (root.hasAttribute('onload') || root.hasAttribute('onerror'))) {
+                elements.push(root);
+            }
+            if (root && root.querySelectorAll) {
+                elements = elements.concat(Array.from(root.querySelectorAll('[onload], [onerror]')));
+            }
+            elements.forEach(function(element) {
+                ['onload', 'onerror'].forEach(function(attribute) {
+                    var handler = element.getAttribute(attribute) || '';
+                    var matches = handler.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g);
+                    for (var match of matches) defineEarlyCallback(match[1]);
+                });
+            });
+        } catch(e) {}
+    };
+    var installEarlyCallbackObserver = function() {
+        if (!document.documentElement) {
+            setTimeout(installEarlyCallbackObserver, 10);
+            return;
+        }
+        scanEarlyCallbacks(document.documentElement);
+        try {
+            new MutationObserver(function(records) {
+                records.forEach(function(record) {
+                    record.addedNodes.forEach(scanEarlyCallbacks);
+                });
+            }).observe(document.documentElement, {childList: true, subtree: true});
+        } catch(e) {}
+    };
+    installEarlyCallbackObserver();
     debug('EARLY_CALLBACKS_READY');
     if (window.__lxChapterUrl && window.__lxChapterUrl !== location.href) {
         window.__lxToken = null;
