@@ -1,6 +1,10 @@
 // Fetch hook - intercepts /get_token, image URLs, and unblocks Turnstile
 // Injected via onPageStarted BEFORE any page scripts run
 (function() {
+    var debug = function(stage, detail) {
+        try { console.error('[LXMANGA_DEBUG] ' + stage + ' ' + (detail || '')); } catch(e) {}
+    };
+    debug('HOOK_START', location.href);
     if (window.__lxChapterUrl && window.__lxChapterUrl !== location.href) {
         window.__lxToken = null;
         window.__lxImageUrls = [];
@@ -20,9 +24,11 @@
     window.__lxToken = null;
     window.__lxImageUrls = [];
     window.__lxCapturedUrls = null;
+    debug('STATE_RESET');
 
     var _realFetch = window.fetch;
     window.__lxRealFetch = _realFetch;
+    debug('FETCH_READY', typeof _realFetch);
 
     try {
         if (!Document.prototype.hasFocus.__lxWrapped) {
@@ -47,6 +53,7 @@
                 if (urlValues.length > 0) {
                     window.__lxCapturedUrls = (window.__lxCapturedUrls || []).concat(urlValues)
                         .filter(function(url, index, all) { return all.indexOf(url) === index; });
+                    debug('ARRAY_URLS', String(window.__lxCapturedUrls.length));
                 }
             }
         } catch(e) {}
@@ -75,6 +82,7 @@
                                     if (urls.length > 0) {
                                         window.__lxCapturedUrls = (window.__lxCapturedUrls || []).concat(urls)
                                             .filter(function(url, index, all) { return all.indexOf(url) === index; });
+                                        debug('PROPERTY_URLS', String(window.__lxCapturedUrls.length));
                                     }
                                 }
                             }
@@ -122,20 +130,26 @@
                 if (window.__lxImageUrls.indexOf(url) < 0) {
                     window.__lxImageUrls.push(url);
                 }
+                debug('FETCH_IMAGE', url + ' count=' + window.__lxImageUrls.length);
             }
 
             var result = fetchImpl.apply(this, arguments);
             if (url.indexOf('/get_token') < 0) return result;
+            debug('TOKEN_REQUEST', url);
 
             return result.then(function(resp) {
+                debug('TOKEN_RESPONSE', String(resp.status));
                 var clone = resp.clone();
                 clone.json().then(function(data) {
                     if (data && data.action_token) {
                         window.__lxToken = data.action_token;
+                        debug('TOKEN_CAPTURED', 'length=' + window.__lxToken.length);
+                    } else {
+                        debug('TOKEN_MISSING', JSON.stringify(data).slice(0, 300));
                     }
-                }).catch(function() {});
+                }).catch(function(error) { debug('TOKEN_JSON_ERROR', String(error)); });
                 return resp;
-            });
+            }).catch(function(error) { debug('TOKEN_FETCH_ERROR', String(error)); throw error; });
         };
 
         try { wrapped.toString = function() { return 'function fetch() { [native code] }'; }; } catch(e) {}
@@ -157,6 +171,7 @@
         XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
             if (String(name).toLowerCase() === 'token' && value) {
                 window.__lxToken = String(value);
+                debug('XHR_TOKEN_HEADER', 'length=' + window.__lxToken.length);
                 if (this.__lxUrl && window.__lxImageUrls.indexOf(this.__lxUrl) < 0) {
                     window.__lxImageUrls.push(this.__lxUrl);
                 }
@@ -172,6 +187,7 @@
                         try {
                             var data = JSON.parse(xhr.responseText || '{}');
                             if (data && data.action_token) window.__lxToken = data.action_token;
+                            if (data && data.action_token) debug('XHR_TOKEN_CAPTURED', 'length=' + window.__lxToken.length);
                         } catch(e) {}
                     });
                 } catch(e) {}
@@ -189,6 +205,7 @@
             if (window.fetch === window.__lxWrappedFetch) return;
             window.fetch = _wrapFetch(window.fetch);
             window.__lxWrappedFetch = window.fetch;
+            debug('FETCH_REWRAPPED');
         } catch(e) {}
     }, 100);
 
@@ -216,4 +233,11 @@
         } catch(e) {}
     };
     setInterval(collectVisibleImages, 500);
+    window.addEventListener('error', function(event) {
+        debug('PAGE_ERROR', (event.message || 'unknown') + ' @ ' + (event.filename || '') + ':' + (event.lineno || ''));
+    });
+    window.addEventListener('unhandledrejection', function(event) {
+        debug('PROMISE_ERROR', String(event.reason || 'unknown'));
+    });
+    debug('HOOK_INSTALLED');
 })();

@@ -2,6 +2,9 @@
 // Runs in evaluateJs every second until both token and URLs are ready
 (function() {
     try {
+        var debug = function(stage, detail) {
+            try { console.error('[LXMANGA_DEBUG] POLL_' + stage + ' ' + (detail || '')); } catch(e) {}
+        };
         var visibleDialogs = Array.from(document.querySelectorAll('.swal2-container'))
             .filter(function(dialog) {
                 return getComputedStyle(dialog).display !== 'none' &&
@@ -16,6 +19,7 @@
             });
             var reloadCount = parseInt(sessionStorage.getItem('__lxReloadCount') || '0', 10);
             if (reloadButton && reloadCount < 2) {
+                debug('RELOAD', String(reloadCount + 1));
                 sessionStorage.setItem('__lxReloadCount', String(reloadCount + 1));
                 reloadButton.click();
                 return JSON.stringify({token: '', urls: [], reloading: true});
@@ -79,13 +83,16 @@
             window.__lxStableSince = Date.now();
         }
         var stableLongEnough = window.__lxStableSince && Date.now() - window.__lxStableSince >= 2500;
+        debug('STATE', 'token=' + (token ? 'yes' : 'no') + ' urls=' + urls.length + ' stable=' + Boolean(stableLongEnough));
 
         if (token && urls.length > 0 && stableLongEnough) {
+            debug('READY', 'urls=' + urls.length);
             return JSON.stringify({token: token, urls: urls});
         }
 
         return JSON.stringify({token: token || '', urls: urls || [], ready: false});
     } catch(e) {
+        try { console.error('[LXMANGA_DEBUG] POLL_EXCEPTION ' + String(e && e.stack || e)); } catch(ignore) {}
         return JSON.stringify({token: '', urls: [], error: String(e)});
     }
 })();
