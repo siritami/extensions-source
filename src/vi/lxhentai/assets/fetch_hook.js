@@ -114,7 +114,9 @@
             (value.indexOf('http') !== 0 && value.indexOf('//') !== 0)) return false;
 
         var lower = value.toLowerCase();
-        return /\/page[_-]\d+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(value) &&
+        var isNormalPage = /\/page[_-]\d+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(value);
+        var isPuzzlePage = /^https?:\/\/s\d+\.lxmanga\.xyz\/.*\/\d+-[a-f0-9]+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(value);
+        return (isNormalPage || isPuzzlePage) &&
             lower.indexOf('favicon') < 0 &&
             lower.indexOf('/imgs/') < 0 &&
             lower.indexOf('/images/') < 0 &&
@@ -180,7 +182,7 @@
         XMLHttpRequest.prototype.open = function(method, requestUrl) {
             this.__lxUrl = requestUrl || '';
             try { this.__lxUrl = new URL(this.__lxUrl, location.href).href; } catch(e) {}
-            if (this.__lxUrl.indexOf('/get_token') >= 0 || /page[_-]\d+\./i.test(this.__lxUrl)) {
+            if (this.__lxUrl.indexOf('/get_token') >= 0 || isImageUrl(this.__lxUrl)) {
                 debug('XHR_OPEN', method + ' ' + this.__lxUrl);
             }
             return _xhrOpen.apply(this, arguments);

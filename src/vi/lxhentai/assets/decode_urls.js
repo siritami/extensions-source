@@ -67,7 +67,13 @@
                 var b = btns[bi];
                 if (b && !b.disabled && canConfirm) {
                     var txt = (b.textContent || '').toLowerCase();
-                    if (txt.indexOf('ok') >= 0 || txt.indexOf('tiếp tục') >= 0 || txt.indexOf('continue') >= 0) {
+                    var isVerificationButton = txt.indexOf('ok') >= 0 ||
+                        txt.indexOf('tiếp tục') >= 0 ||
+                        txt.indexOf('continue') >= 0 ||
+                        txt.indexOf('đọc') >= 0 ||
+                        txt.indexOf('xem') >= 0 ||
+                        (window.__lxToken && btns.length === 1);
+                    if (isVerificationButton) {
                         debug('CONFIRM', hasTurnstileResponse ? 'turnstile' : 'cached-token');
                         b.click();
                         window._lxClicked = true;
@@ -117,11 +123,12 @@
         }
 
         urls = urls.filter(function(url, index) {
-            return url && urls.indexOf(url) === index &&
-                /\/page[_-]\d+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(url);
+            var isNormalPage = /\/page[_-]\d+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(url || '');
+            var isPuzzlePage = /^https?:\/\/s\d+\.lxmanga\.xyz\/.*\/\d+-[a-f0-9]+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(url || '');
+            return url && urls.indexOf(url) === index && (isNormalPage || isPuzzlePage);
         }).sort(function(a, b) {
-            var pageA = parseInt((a.match(/page_(\d+)/i) || [])[1] || '0', 10);
-            var pageB = parseInt((b.match(/page_(\d+)/i) || [])[1] || '0', 10);
+            var pageA = parseInt((a.match(/(?:page[_-]|\/)(\d+)(?:-|\.)/i) || [])[1] || '0', 10);
+            var pageB = parseInt((b.match(/(?:page[_-]|\/)(\d+)(?:-|\.)/i) || [])[1] || '0', 10);
             return pageA - pageB;
         });
 
@@ -134,16 +141,8 @@
         var stableLongEnough = window.__lxStableSince && Date.now() - window.__lxStableSince >= 2500;
 
         if (!token && urls.length === 0 && !verificationActive && visibleDialogs.length === 0 &&
-            Date.now() - window.__lxPollStarted > 10000) {
-            var initReloads = retryState.initReloads || 0;
-            if (initReloads < 1) {
-                retryState.initReloads = initReloads + 1;
-                writeRetryState(retryState);
-                debug('INIT_RELOAD', 'reader did not initialize');
-                location.reload();
-                return JSON.stringify({token: '', urls: [], reloading: true});
-            }
-            debug('INIT_STUCK', 'reader did not initialize after reload');
+            Date.now() - window.__lxPollStarted > 20000) {
+            debug('INIT_WAIT', 'reader still initializing');
         }
         debug('STATE', 'token=' + (token ? 'yes' : 'no') + ' urls=' + urls.length + ' stable=' + Boolean(stableLongEnough));
 
