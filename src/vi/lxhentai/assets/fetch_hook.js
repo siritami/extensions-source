@@ -1,55 +1,15 @@
-// Captures LXManga reader tokens and image URLs before the site hides them.
-// Injected from onPageStarted, before the chapter scripts execute.
+// Fetch hook - intercepts /get_token, image URLs, and unblocks Turnstile
+// Injected via onPageStarted BEFORE any page scripts run
 (function() {
     var debug = function(stage, detail) {
         try { console.error('[LXMANGA_DEBUG] ' + stage + ' ' + (detail || '')); } catch(e) {}
     };
-
-    var isImageUrl = function(value) {
-        if (typeof value !== 'string' || !/^(?:https?:)?\/\//i.test(value)) return false;
-
-        var normalPage = /\/page[_-]\d+\.(?:jpe?g|png|webp)(?:[?#]|$)/i.test(value);
-        var puzzlePage = /^(?:https?:)?\/\/s\d+\.lxmanga\.xyz\/.*\/\d+-[a-f0-9]+\.(?:jpe?g|png|webp)(?:[?#]|$)/i.test(value);
-        var excluded = /favicon|\/imgs\/|\/images\/|cover|logo|background|avatar/i.test(value);
-        return (normalPage || puzzlePage) && !excluded;
-    };
-
-    var unique = function(values) {
-        return values.filter(function(value, index, all) {
-            return all.indexOf(value) === index;
-        });
-    };
-
-    var addUrls = function(targetName, values, stage) {
-        var valid = Array.prototype.filter.call(values || [], isImageUrl);
-        if (valid.length === 0) return;
-
-        window[targetName] = unique((window[targetName] || []).concat(valid));
-        if (stage) debug(stage, String(window[targetName].length));
-    };
-
-    var setToken = function(token, stage) {
-        if (!token) return;
-        window.__lxToken = String(token);
-        debug(stage, 'length=' + window.__lxToken.length);
-    };
-
     debug('HOOK_START', location.href);
-    window.__lxToken = null;
-    window.__lxImageUrls = [];
-    window.__lxCapturedUrls = [];
-    window.__lxLastUrlCount = 0;
-    window.__lxStableSince = 0;
-    window.__lxChapterUrl = location.href;
-    window.__lxHookInstalled = true;
-    debug('STATE_RESET');
 
-    // Define randomized inline ad callbacks before their third-party scripts load.
     var defineEarlyCallback = function(name) {
         if (!/^[A-Za-z_$][\w$]{4,31}$/.test(name)) return;
         if (typeof window[name] === 'undefined') window[name] = function() {};
     };
-
     var scanEarlyCallbacks = function(root) {
         try {
             var elements = [];
@@ -59,187 +19,272 @@
             if (root && root.querySelectorAll) {
                 elements = elements.concat(Array.from(root.querySelectorAll('[onload], [onerror]')));
             }
-
             elements.forEach(function(element) {
                 ['onload', 'onerror'].forEach(function(attribute) {
                     var handler = element.getAttribute(attribute) || '';
-                    var pattern = /\b([A-Za-z_$][\w$]*)\s*\(/g;
-                    var match;
-                    while ((match = pattern.exec(handler)) !== null) defineEarlyCallback(match[1]);
+                    var matches = handler.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g);
+                    for (var match of matches) defineEarlyCallback(match[1]);
                 });
             });
         } catch(e) {}
     };
-
-    var observeEarlyCallbacks = function() {
+    var installEarlyCallbackObserver = function() {
         if (!document.documentElement) {
-            setTimeout(observeEarlyCallbacks, 10);
+            setTimeout(installEarlyCallbackObserver, 10);
             return;
         }
         scanEarlyCallbacks(document.documentElement);
         try {
             new MutationObserver(function(records) {
                 records.forEach(function(record) {
-                    Array.prototype.forEach.call(record.addedNodes, scanEarlyCallbacks);
+                    record.addedNodes.forEach(scanEarlyCallbacks);
                 });
             }).observe(document.documentElement, {childList: true, subtree: true});
         } catch(e) {}
     };
-    observeEarlyCallbacks();
+    installEarlyCallbackObserver();
     debug('EARLY_CALLBACKS_READY');
+    if (window.__lxChapterUrl && window.__lxChapterUrl !== location.href) {
+        window.__lxToken = null;
+        window.__lxImageUrls = [];
+        window.__lxCapturedUrls = null;
+        window.__lxLastUrlCount = 0;
+        window.__lxStableSince = 0;
+    }
+    window.__lxChapterUrl = location.href;
+    if (window.__lxHookInstalled) {
+        window.__lxToken = null;
+        window.__lxImageUrls = [];
+        window.__lxCapturedUrls = null;
+        window.__lxHookInstalled = false;
+    }
+    window.__lxHookInstalled = true;
+    window.__lxToken = null;
+    window.__lxImageUrls = [];
+    window.__lxCapturedUrls = null;
+    debug('STATE_RESET');
+    try {
+        var scripts = document.scripts;
+        var kgzCount = 0;
+        for (var si = 0; si < scripts.length; si++) {
+            if ((scripts[si].textContent || '').indexOf('KGZ1') >= 0) kgzCount++;
+        }
+        debug('PAGE_SCRIPTS', 'count=' + scripts.length + ' kgz=' + kgzCount);
+    } catch(e) { debug('SCRIPT_SCAN_ERROR', String(e)); }
 
-    // Open the current reader's hard gate through its focus fallback.
+    var _realFetch = window.fetch;
+    window.__lxRealFetch = _realFetch;
+    debug('FETCH_READY', typeof _realFetch);
+
     try {
         if (!Document.prototype.hasFocus.__lxWrapped) {
-            var originalHasFocus = Document.prototype.hasFocus;
-            var hasFocus = function() { return true; };
-            hasFocus.__lxWrapped = true;
-            hasFocus.toString = function() { return originalHasFocus.toString(); };
-            Document.prototype.hasFocus = hasFocus;
+            var _realHasFocus = Document.prototype.hasFocus;
+            var _lxHasFocus = function() { return true; };
+            _lxHasFocus.__lxWrapped = true;
+            _lxHasFocus.toString = function() { return _realHasFocus.toString(); };
+            Document.prototype.hasFocus = _lxHasFocus;
         }
     } catch(e) {}
 
-    // Capture the rotating URL array when the main KGZ reader copies it.
-    var originalSlice = Array.prototype.slice;
+    var _origSlice = Array.prototype.slice;
     Array.prototype.slice = function() {
-        try { addUrls('__lxCapturedUrls', this, 'ARRAY_URLS'); } catch(e) {}
-        return originalSlice.apply(this, arguments);
-    };
-    try { Array.prototype.slice.toString = function() { return originalSlice.toString(); }; } catch(e) {}
-
-    // Backup path: discover and trap the rotating _0x property.
-    var propertyTrapTimer = setInterval(function() {
-        if (window.__lxPropTrapped) {
-            clearInterval(propertyTrapTimer);
-            return;
-        }
         try {
-            var scripts = document.querySelectorAll('script:not([src])');
-            for (var i = 0; i < scripts.length; i++) {
-                var match = (scripts[i].textContent || '').match(/window\s*\[\s*['\"](_0x[a-f0-9]{6,})['\"]\s*\]/i);
-                if (!match) continue;
-
-                var value;
-                Object.defineProperty(window, match[1], {
-                    configurable: true,
-                    enumerable: true,
-                    get: function() { return value; },
-                    set: function(next) {
-                        value = next;
-                        if (Array.isArray(next)) addUrls('__lxCapturedUrls', next, 'PROPERTY_URLS');
+            if (!window.__lxCapturedUrls && this.length > 0) {
+                var urlValues = [];
+                for (var i = 0; i < this.length; i++) {
+                    if (typeof this[i] === 'string' && isImageUrl(this[i])) {
+                        urlValues.push(this[i]);
                     }
-                });
-                window.__lxPropTrapped = true;
-                clearInterval(propertyTrapTimer);
-                break;
+                }
+                if (urlValues.length > 0) {
+                    window.__lxCapturedUrls = (window.__lxCapturedUrls || []).concat(urlValues)
+                        .filter(function(url, index, all) { return all.indexOf(url) === index; });
+                    debug('ARRAY_URLS', String(window.__lxCapturedUrls.length));
+                }
+            }
+        } catch(e) {}
+        return _origSlice.apply(this, arguments);
+    };
+    try { Array.prototype.slice.toString = function() { return _origSlice.toString(); }; } catch(e) {}
+
+    var _propTrapInterval = setInterval(function() {
+        if (window.__lxPropTrapped) { clearInterval(_propTrapInterval); return; }
+        try {
+            var scripts = document.querySelectorAll('script');
+            for (var i = 0; i < scripts.length; i++) {
+                var text = scripts[i].textContent || '';
+                var match = text.match(/window\s*\[\s*[\'\"](_0x[a-f0-9]{6,})[\'\"]\s*\]/);
+                if (match) {
+                    window.__lxPropTrapped = true;
+                    var _captured = null;
+                    try {
+                        Object.defineProperty(window, match[1], {
+                            configurable: true, enumerable: true,
+                            get: function() { return _captured; },
+                            set: function(val) {
+                                _captured = val;
+                                if (Array.isArray(val) && val.length > 0 && !window.__lxCapturedUrls) {
+                                    var urls = val.filter(function(item) { return typeof item === 'string' && isImageUrl(item); });
+                                    if (urls.length > 0) {
+                                        window.__lxCapturedUrls = (window.__lxCapturedUrls || []).concat(urls)
+                                            .filter(function(url, index, all) { return all.indexOf(url) === index; });
+                                        debug('PROPERTY_URLS', String(window.__lxCapturedUrls.length));
+                                    }
+                                }
+                            }
+                        });
+                    } catch(e) {}
+                    clearInterval(_propTrapInterval);
+                    break;
+                }
             }
         } catch(e) {}
     }, 50);
 
-    var readTokenHeader = function(headers) {
-        if (!headers) return null;
-        try { return new Headers(headers).get('Token'); } catch(e) { return null; }
+    var isImageUrl = function(value) {
+        if (typeof value !== 'string' ||
+            (value.indexOf('http') !== 0 && value.indexOf('//') !== 0)) return false;
+
+        var lower = value.toLowerCase();
+        var isNormalPage = /\/page[_-]\d+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(value);
+        var isPuzzlePage = /^https?:\/\/s\d+\.lxmanga\.xyz\/.*\/\d+-[a-f0-9]+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(value);
+        return (isNormalPage || isPuzzlePage) &&
+            lower.indexOf('favicon') < 0 &&
+            lower.indexOf('/imgs/') < 0 &&
+            lower.indexOf('/images/') < 0 &&
+            lower.indexOf('cover') < 0 &&
+            lower.indexOf('logo') < 0 &&
+            lower.indexOf('background') < 0 &&
+            lower.indexOf('avatar') < 0;
     };
 
-    var wrapFetch = function(fetchImpl) {
+    var _wrapFetch = function(fetchImpl) {
         var wrapped = function(input, init) {
-            var url = typeof input === 'string' ? input : (input && input.url) || '';
-            var token = readTokenHeader(input && input.headers) || readTokenHeader(init && init.headers);
+            var url = (typeof input === 'string') ? input : (input && input.url) || '';
+            var token = null;
+
+            if (input && input.headers) {
+                try { token = input.headers.get('Token') || input.headers.get('token'); } catch(e) {}
+            }
+            if (init && init.headers) {
+                var headers = init.headers;
+                try {
+                    token = new Headers(headers).get('Token') || new Headers(headers).get('token');
+                } catch(e) {}
+            }
+
             if (token && isImageUrl(url)) {
-                setToken(token, 'FETCH_TOKEN');
-                addUrls('__lxImageUrls', [url], 'FETCH_IMAGE');
+                window.__lxToken = token;
+                if (window.__lxImageUrls.indexOf(url) < 0) {
+                    window.__lxImageUrls.push(url);
+                }
+                debug('FETCH_IMAGE', url + ' count=' + window.__lxImageUrls.length);
             }
 
             var result = fetchImpl.apply(this, arguments);
             if (url.indexOf('/get_token') < 0) return result;
-
             debug('TOKEN_REQUEST', url);
-            return result.then(function(response) {
-                debug('TOKEN_RESPONSE', String(response.status));
-                response.clone().json().then(function(data) {
-                    if (data && data.action_token) setToken(data.action_token, 'TOKEN_CAPTURED');
-                    else debug('TOKEN_MISSING', JSON.stringify(data).slice(0, 300));
-                }).catch(function(error) {
-                    debug('TOKEN_JSON_ERROR', String(error));
-                });
-                return response;
-            });
+
+            return result.then(function(resp) {
+                debug('TOKEN_RESPONSE', String(resp.status));
+                var clone = resp.clone();
+                clone.json().then(function(data) {
+                    if (data && data.action_token) {
+                        window.__lxToken = data.action_token;
+                        debug('TOKEN_CAPTURED', 'length=' + window.__lxToken.length);
+                    } else {
+                        debug('TOKEN_MISSING', JSON.stringify(data).slice(0, 300));
+                    }
+                }).catch(function(error) { debug('TOKEN_JSON_ERROR', String(error)); });
+                return resp;
+            }).catch(function(error) { debug('TOKEN_FETCH_ERROR', String(error)); throw error; });
         };
+
         try { wrapped.toString = function() { return 'function fetch() { [native code] }'; }; } catch(e) {}
         return wrapped;
     };
 
-    window.fetch = wrapFetch(window.fetch);
+    window.fetch = _wrapFetch(_realFetch);
     window.__lxWrappedFetch = window.fetch;
 
-    // Rewrap whenever the reader or Cloudflare replaces fetch.
-    setInterval(function() {
+    try {
+        var _xhrOpen = XMLHttpRequest.prototype.open;
+        var _xhrSend = XMLHttpRequest.prototype.send;
+        var _xhrSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+        XMLHttpRequest.prototype.open = function(method, requestUrl) {
+            this.__lxUrl = requestUrl || '';
+            try { this.__lxUrl = new URL(this.__lxUrl, location.href).href; } catch(e) {}
+            if (this.__lxUrl.indexOf('/get_token') >= 0 || isImageUrl(this.__lxUrl)) {
+                debug('XHR_OPEN', method + ' ' + this.__lxUrl);
+            }
+            return _xhrOpen.apply(this, arguments);
+        };
+        XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+            if (String(name).toLowerCase() === 'token' && value) {
+                window.__lxToken = String(value);
+                debug('XHR_TOKEN_HEADER', 'length=' + window.__lxToken.length);
+                if (this.__lxUrl && window.__lxImageUrls.indexOf(this.__lxUrl) < 0) {
+                    window.__lxImageUrls.push(this.__lxUrl);
+                }
+            }
+            return _xhrSetRequestHeader.apply(this, arguments);
+        };
+        XMLHttpRequest.prototype.send = function() {
+            var xhr = this;
+            if (this.__lxUrl && this.__lxUrl.indexOf('/get_token') >= 0 && !this.__lxTokenHooked) {
+                this.__lxTokenHooked = true;
+                try {
+                    this.addEventListener('load', function() {
+                        debug('XHR_RESPONSE', xhr.__lxUrl + ' status=' + xhr.status);
+                        try {
+                            var data = JSON.parse(xhr.responseText || '{}');
+                            if (data && data.action_token) window.__lxToken = data.action_token;
+                            if (data && data.action_token) debug('XHR_TOKEN_CAPTURED', 'length=' + window.__lxToken.length);
+                        } catch(e) {}
+                    });
+                } catch(e) {}
+            }
+            return _xhrSend.apply(this, arguments);
+        };
+        XMLHttpRequest.prototype.open.toString = function() { return _xhrOpen.toString(); };
+        XMLHttpRequest.prototype.setRequestHeader.toString = function() { return _xhrSetRequestHeader.toString(); };
+        XMLHttpRequest.prototype.send.toString = function() { return _xhrSend.toString(); };
+
+    } catch(e) {}
+
+    var _replaceInterval = setInterval(function() {
         try {
             if (window.fetch === window.__lxWrappedFetch) return;
-            window.fetch = wrapFetch(window.fetch);
+            window.fetch = _wrapFetch(window.fetch);
             window.__lxWrappedFetch = window.fetch;
             debug('FETCH_REWRAPPED');
         } catch(e) {}
     }, 100);
-
-    // XHR fallback for future reader changes.
-    try {
-        var originalOpen = XMLHttpRequest.prototype.open;
-        var originalSend = XMLHttpRequest.prototype.send;
-        var originalSetHeader = XMLHttpRequest.prototype.setRequestHeader;
-
-        XMLHttpRequest.prototype.open = function(method, requestUrl) {
-            try { this.__lxUrl = new URL(requestUrl || '', location.href).href; } catch(e) { this.__lxUrl = requestUrl || ''; }
-            return originalOpen.apply(this, arguments);
-        };
-        XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
-            if (String(name).toLowerCase() === 'token' && value) {
-                setToken(value, 'XHR_TOKEN_HEADER');
-                addUrls('__lxImageUrls', [this.__lxUrl], 'XHR_IMAGE');
-            }
-            return originalSetHeader.apply(this, arguments);
-        };
-        XMLHttpRequest.prototype.send = function() {
-            var xhr = this;
-            if (xhr.__lxUrl && xhr.__lxUrl.indexOf('/get_token') >= 0 && !xhr.__lxTokenHooked) {
-                xhr.__lxTokenHooked = true;
-                xhr.addEventListener('load', function() {
-                    try {
-                        var data = JSON.parse(xhr.responseText || '{}');
-                        if (data.action_token) setToken(data.action_token, 'XHR_TOKEN_CAPTURED');
-                    } catch(e) {}
-                });
-            }
-            return originalSend.apply(this, arguments);
-        };
-
-        XMLHttpRequest.prototype.open.toString = function() { return originalOpen.toString(); };
-        XMLHttpRequest.prototype.send.toString = function() { return originalSend.toString(); };
-        XMLHttpRequest.prototype.setRequestHeader.toString = function() { return originalSetHeader.toString(); };
-    } catch(e) {}
 
     try {
         localStorage.removeItem('turnstile_blocked');
         localStorage.removeItem('turnstile_blocked_time');
     } catch(e) {}
 
-    // Last-resort observation paths for already-rendered resources.
-    setInterval(function() {
+    var collectVisibleImages = function() {
         try {
             document.querySelectorAll('img').forEach(function(image) {
-                addUrls('__lxImageUrls', [
-                    image.currentSrc,
-                    image.src,
-                    image.getAttribute('data-src'),
-                    image.getAttribute('data-lazy-src')
-                ]);
+                [image.currentSrc, image.src, image.getAttribute('data-src'), image.getAttribute('data-lazy-src')]
+                    .filter(isImageUrl)
+                    .forEach(function(url) {
+                        if (window.__lxImageUrls.indexOf(url) < 0) window.__lxImageUrls.push(url);
+                    });
             });
             if (window.performance && performance.getEntriesByType) {
-                addUrls('__lxImageUrls', performance.getEntriesByType('resource').map(function(entry) { return entry.name; }));
+                performance.getEntriesByType('resource').forEach(function(entry) {
+                    if (isImageUrl(entry.name) && window.__lxImageUrls.indexOf(entry.name) < 0) {
+                        window.__lxImageUrls.push(entry.name);
+                    }
+                });
             }
         } catch(e) {}
-    }, 500);
-
+    };
+    setInterval(collectVisibleImages, 500);
     window.addEventListener('error', function(event) {
         debug('PAGE_ERROR', (event.message || 'unknown') + ' @ ' + (event.filename || '') + ':' + (event.lineno || ''));
     });
