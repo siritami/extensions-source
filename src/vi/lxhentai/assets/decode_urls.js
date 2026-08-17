@@ -5,6 +5,19 @@
         var debug = function(stage, detail) {
             try { console.error('[LXMANGA_DEBUG] POLL_' + stage + ' ' + (detail || '')); } catch(e) {}
         };
+        var stateKey = '__lx_retry_' + location.pathname;
+        var readRetryState = function() {
+            try {
+                return JSON.parse(localStorage.getItem(stateKey) || '{}');
+            } catch(e) {
+                return window.__lxRetryState || {};
+            }
+        };
+        var writeRetryState = function(state) {
+            window.__lxRetryState = state;
+            try { localStorage.setItem(stateKey, JSON.stringify(state)); } catch(e) {}
+        };
+        var retryState = readRetryState();
         var visibleDialogs = Array.from(document.querySelectorAll('.swal2-container'))
             .filter(function(dialog) {
                 return getComputedStyle(dialog).display !== 'none' &&
@@ -29,10 +42,11 @@
             var reloadButton = Array.from(failedDialog.querySelectorAll('button')).find(function(button) {
                 return /tải lại|reload|retry/i.test(button.textContent || '') && !button.disabled;
             });
-            var reloadCount = window.__lxReloadCount || 0;
+            var reloadCount = retryState.dialogReloads || 0;
             if (reloadButton && reloadCount < 2) {
                 debug('RELOAD', String(reloadCount + 1));
-                window.__lxReloadCount = reloadCount + 1;
+                retryState.dialogReloads = reloadCount + 1;
+                writeRetryState(retryState);
                 reloadButton.click();
                 return JSON.stringify({token: '', urls: [], reloading: true});
             }
@@ -57,18 +71,26 @@
                         debug('CONFIRM', hasTurnstileResponse ? 'turnstile' : 'cached-token');
                         b.click();
                         window._lxClicked = true;
+                        window.__lxClickedAt = Date.now();
                         break;
                     }
                 }
             }
         }
 
+        if (window._lxClicked && activeDialog && window.__lxToken &&
+            Date.now() - (window.__lxClickedAt || 0) > 2500) {
+            debug('CONFIRM_RETRY', 'dialog still visible');
+            window._lxClicked = false;
+        }
+
         if (verificationActive && !hasTurnstileResponse && verificationStarted &&
             Date.now() - verificationStarted > 12000) {
-            var retryCount = window.__lxVerificationReloads || 0;
+            var retryCount = retryState.verificationReloads || 0;
             if (retryCount < 2) {
                 debug('VERIFICATION_RELOAD', 'stuck=' + (Date.now() - verificationStarted) + 'ms retry=' + (retryCount + 1));
-                window.__lxVerificationReloads = retryCount + 1;
+                retryState.verificationReloads = retryCount + 1;
+                writeRetryState(retryState);
                 window.__lxVerificationStarted = 0;
                 location.reload();
                 return JSON.stringify({token: '', urls: [], reloading: true});
@@ -113,9 +135,10 @@
 
         if (!token && urls.length === 0 && !verificationActive && visibleDialogs.length === 0 &&
             Date.now() - window.__lxPollStarted > 10000) {
-            var initReloads = window.__lxInitReloads || 0;
+            var initReloads = retryState.initReloads || 0;
             if (initReloads < 1) {
-                window.__lxInitReloads = initReloads + 1;
+                retryState.initReloads = initReloads + 1;
+                writeRetryState(retryState);
                 debug('INIT_RELOAD', 'reader did not initialize');
                 location.reload();
                 return JSON.stringify({token: '', urls: [], reloading: true});
@@ -128,6 +151,7 @@
             debug('READY', 'urls=' + urls.length);
             window.__lxVerificationStarted = 0;
             window.__lxVerificationReloads = 0;
+            try { localStorage.removeItem(stateKey); } catch(e) {}
             return JSON.stringify({token: token, urls: urls});
         }
 
