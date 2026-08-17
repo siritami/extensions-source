@@ -47,12 +47,14 @@
                 'input[name="cf-turnstile-response"], input[id*="turnstile"][id$="_response"], input[id*="cf-chl-widget"][id$="_response"]'
             );
             var hasTurnstileResponse = turnstileResponse && turnstileResponse.value;
+            var canConfirm = hasTurnstileResponse || window.__lxToken;
             var btns = activeDialog ? activeDialog.querySelectorAll('.swal2-confirm') : [];
             for (var bi = 0; bi < btns.length; bi++) {
                 var b = btns[bi];
-                if (b && !b.disabled && hasTurnstileResponse) {
+                if (b && !b.disabled && canConfirm) {
                     var txt = (b.textContent || '').toLowerCase();
                     if (txt.indexOf('ok') >= 0 || txt.indexOf('tiếp tục') >= 0 || txt.indexOf('continue') >= 0) {
+                        debug('CONFIRM', hasTurnstileResponse ? 'turnstile' : 'cached-token');
                         b.click();
                         window._lxClicked = true;
                         break;
