@@ -2,12 +2,30 @@
 // Runs in evaluateJs every second until both token and URLs are ready
 (function() {
     try {
+        var visibleDialogs = Array.from(document.querySelectorAll('.swal2-container'))
+            .filter(function(dialog) {
+                return getComputedStyle(dialog).display !== 'none' &&
+                    dialog.getAttribute('aria-hidden') !== 'true';
+            });
+        var failedDialog = visibleDialogs.find(function(dialog) {
+            return /xác minh thất bại|verification failed|quá lâu không phản hồi/i.test(dialog.textContent || '');
+        });
+        if (failedDialog) {
+            var reloadButton = Array.from(failedDialog.querySelectorAll('button')).find(function(button) {
+                return /tải lại|reload|retry/i.test(button.textContent || '') && !button.disabled;
+            });
+            var reloadCount = parseInt(sessionStorage.getItem('__lxReloadCount') || '0', 10);
+            if (reloadButton && reloadCount < 2) {
+                sessionStorage.setItem('__lxReloadCount', String(reloadCount + 1));
+                reloadButton.click();
+                return JSON.stringify({token: '', urls: [], reloading: true});
+            }
+        }
+
         if (!window._lxClicked) {
-            var activeDialog = Array.from(document.querySelectorAll('.swal2-container'))
+            var activeDialog = visibleDialogs
                 .find(function(dialog) {
-                    return getComputedStyle(dialog).display !== 'none' &&
-                        dialog.getAttribute('aria-hidden') !== 'true' &&
-                        dialog.querySelector('.swal2-popup');
+                    return dialog.querySelector('.swal2-popup');
                 });
             var turnstileResponse = activeDialog && activeDialog.querySelector(
                 'input[name="cf-turnstile-response"], input[id*="turnstile"][id$="_response"]'

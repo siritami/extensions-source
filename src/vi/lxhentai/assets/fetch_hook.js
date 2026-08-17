@@ -1,6 +1,15 @@
 // Fetch hook - intercepts /get_token, image URLs, and unblocks Turnstile
 // Injected via onPageStarted BEFORE any page scripts run
 (function() {
+    if (window.__lxChapterUrl && window.__lxChapterUrl !== location.href) {
+        window.__lxToken = null;
+        window.__lxImageUrls = [];
+        window.__lxCapturedUrls = null;
+        window.__lxLastUrlCount = 0;
+        window.__lxStableSince = 0;
+        try { sessionStorage.removeItem('__lxReloadCount'); } catch(e) {}
+    }
+    window.__lxChapterUrl = location.href;
     if (window.__lxHookInstalled) {
         window.__lxToken = null;
         window.__lxImageUrls = [];
