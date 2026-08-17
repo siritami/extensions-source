@@ -64,7 +64,8 @@
         }
 
         urls = urls.filter(function(url, index) {
-            return url && urls.indexOf(url) === index;
+            return url && urls.indexOf(url) === index &&
+                /\/page[_-]\d+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(url);
         }).sort(function(a, b) {
             var pageA = parseInt((a.match(/page_(\d+)/i) || [])[1] || '0', 10);
             var pageB = parseInt((b.match(/page_(\d+)/i) || [])[1] || '0', 10);

@@ -88,9 +88,18 @@
     }, 50);
 
     var isImageUrl = function(value) {
-        return typeof value === 'string' &&
-            (value.indexOf('http') === 0 || value.indexOf('//') === 0) &&
-            (/page_\d+/i.test(value) || /\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(value));
+        if (typeof value !== 'string' ||
+            (value.indexOf('http') !== 0 && value.indexOf('//') !== 0)) return false;
+
+        var lower = value.toLowerCase();
+        return /\/page[_-]\d+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(value) &&
+            lower.indexOf('favicon') < 0 &&
+            lower.indexOf('/imgs/') < 0 &&
+            lower.indexOf('/images/') < 0 &&
+            lower.indexOf('cover') < 0 &&
+            lower.indexOf('logo') < 0 &&
+            lower.indexOf('background') < 0 &&
+            lower.indexOf('avatar') < 0;
     };
 
     var _wrapFetch = function(fetchImpl) {
