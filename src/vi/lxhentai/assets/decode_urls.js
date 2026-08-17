@@ -44,6 +44,20 @@
                     try {
                         (0, eval)(script.textContent || '');
                         debug('KGZ_EXECUTED', String(index));
+                        Object.keys(window).forEach(function(key) {
+                            if (!/^_0x[a-f0-9]+$/i.test(key) || !Array.isArray(window[key])) return;
+
+                            var captured = window[key].filter(function(url) {
+                                if (typeof url !== 'string') return false;
+                                var normal = /\/page[_-]\d+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(url);
+                                var puzzle = /^https?:\/\/s\d+\.lxmanga\.xyz\/.*\/\d+-[a-f0-9]+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(url);
+                                return normal || puzzle;
+                            });
+                            if (captured.length > 0) {
+                                window.__lxCapturedUrls = captured;
+                                debug('KGZ_GLOBAL_URLS', key + ' count=' + captured.length);
+                            }
+                        });
                     } catch(e) {
                         debug('KGZ_EXEC_ERROR', index + ' ' + String(e && e.stack || e));
                     }
