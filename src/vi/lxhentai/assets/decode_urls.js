@@ -2,9 +2,6 @@
 // Runs in evaluateJs every second until both token and URLs are ready
 (function() {
     try {
-        var debug = function(stage, detail) {
-            try { console.error('[LXMANGA_DEBUG] POLL_' + stage + ' ' + (detail || '')); } catch(e) {}
-        };
         var stateKey = '__lx_retry_' + location.pathname;
         var readRetryState = function() {
             try {
@@ -24,9 +21,6 @@
                     dialog.getAttribute('aria-hidden') !== 'true';
             });
         var turnstileCount = document.querySelectorAll('[id*="turnstile"], iframe[src*="challenges.cloudflare.com"]').length;
-        debug('PAGE_STATE', 'dialogs=' + visibleDialogs.length + ' turnstile=' + turnstileCount +
-            ' captcha=' + Boolean(window.__lxCaptchaShown) +
-            ' inProgress=' + Boolean(window.getTokenRequestInProgress));
 
         var verificationActive = Boolean(window.__lxCaptchaShown || window.getTokenRequestInProgress);
         if (!window.__lxPollStarted) window.__lxPollStarted = Date.now();
@@ -39,11 +33,9 @@
                 });
             if (kgzScripts.length > 0) {
                 window.__lxKgzFallbackTried = true;
-                debug('KGZ_FALLBACK', 'scripts=' + kgzScripts.length);
                 kgzScripts.forEach(function(script, index) {
                     try {
                         (0, eval)(script.textContent || '');
-                        debug('KGZ_EXECUTED', String(index));
                         Object.keys(window).forEach(function(key) {
                             if (!/^_0x[a-f0-9]+$/i.test(key) || !Array.isArray(window[key])) return;
 
@@ -55,11 +47,9 @@
                             });
                             if (captured.length > 0) {
                                 window.__lxCapturedUrls = captured;
-                                debug('KGZ_GLOBAL_URLS', key + ' count=' + captured.length);
                             }
                         });
                     } catch(e) {
-                        debug('KGZ_EXEC_ERROR', index + ' ' + String(e && e.stack || e));
                     }
                 });
             }
@@ -78,7 +68,6 @@
             });
             var reloadCount = retryState.dialogReloads || 0;
             if (reloadButton && reloadCount < 2) {
-                debug('RELOAD', String(reloadCount + 1));
                 retryState.dialogReloads = reloadCount + 1;
                 writeRetryState(retryState);
                 reloadButton.click();
@@ -108,7 +97,6 @@
                         txt.indexOf('xem') >= 0 ||
                         (window.__lxToken && btns.length === 1);
                     if (isVerificationButton) {
-                        debug('CONFIRM', hasTurnstileResponse ? 'turnstile' : 'cached-token');
                         b.click();
                         window._lxClicked = true;
                         window.__lxClickedAt = Date.now();
@@ -120,7 +108,6 @@
 
         if (window._lxClicked && activeDialog && window.__lxToken &&
             Date.now() - (window.__lxClickedAt || 0) > 2500) {
-            debug('CONFIRM_RETRY', 'dialog still visible');
             window._lxClicked = false;
         }
 
@@ -128,14 +115,12 @@
             Date.now() - verificationStarted > 12000) {
             var retryCount = retryState.verificationReloads || 0;
             if (retryCount < 2) {
-                debug('VERIFICATION_RELOAD', 'stuck=' + (Date.now() - verificationStarted) + 'ms retry=' + (retryCount + 1));
                 retryState.verificationReloads = retryCount + 1;
                 writeRetryState(retryState);
                 window.__lxVerificationStarted = 0;
                 location.reload();
                 return JSON.stringify({token: '', urls: [], reloading: true});
             }
-            debug('VERIFICATION_STUCK', 'reloads=' + retryCount);
         }
 
         if (!window._lxDone) {
@@ -176,12 +161,9 @@
 
         if (!token && urls.length === 0 && !verificationActive && visibleDialogs.length === 0 &&
             Date.now() - window.__lxPollStarted > 20000) {
-            debug('INIT_WAIT', 'reader still initializing');
         }
-        debug('STATE', 'token=' + (token ? 'yes' : 'no') + ' urls=' + urls.length + ' stable=' + Boolean(stableLongEnough));
 
         if (token && urls.length > 0 && stableLongEnough) {
-            debug('READY', 'urls=' + urls.length);
             window.__lxVerificationStarted = 0;
             window.__lxVerificationReloads = 0;
             try { localStorage.removeItem(stateKey); } catch(e) {}
@@ -190,7 +172,6 @@
 
         return JSON.stringify({token: token || '', urls: urls || [], ready: false});
     } catch(e) {
-        try { console.error('[LXMANGA_DEBUG] POLL_EXCEPTION ' + String(e && e.stack || e)); } catch(ignore) {}
         return JSON.stringify({token: '', urls: [], error: String(e)});
     }
 })();
