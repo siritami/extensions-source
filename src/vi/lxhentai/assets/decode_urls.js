@@ -14,6 +14,13 @@
         debug('PAGE_STATE', 'dialogs=' + visibleDialogs.length + ' turnstile=' + turnstileCount +
             ' captcha=' + Boolean(window.__lxCaptchaShown) +
             ' inProgress=' + Boolean(window.getTokenRequestInProgress));
+
+        var verificationActive = Boolean(window.__lxCaptchaShown || window.getTokenRequestInProgress);
+        var verificationStarted = parseInt(sessionStorage.getItem('__lxVerificationStarted') || '0', 10);
+        if (verificationActive && !verificationStarted) {
+            verificationStarted = Date.now();
+            sessionStorage.setItem('__lxVerificationStarted', String(verificationStarted));
+        }
         var failedDialog = visibleDialogs.find(function(dialog) {
             return /xác minh thất bại|verification failed|quá lâu không phản hồi/i.test(dialog.textContent || '');
         });
@@ -35,8 +42,8 @@
                 .find(function(dialog) {
                     return dialog.querySelector('.swal2-popup');
                 });
-            var turnstileResponse = activeDialog && activeDialog.querySelector(
-                'input[name="cf-turnstile-response"], input[id*="turnstile"][id$="_response"]'
+            var turnstileResponse = document.querySelector(
+                'input[name="cf-turnstile-response"], input[id*="turnstile"][id$="_response"], input[id*="cf-chl-widget"][id$="_response"]'
             );
             var hasTurnstileResponse = turnstileResponse && turnstileResponse.value;
             var btns = activeDialog ? activeDialog.querySelectorAll('.swal2-confirm') : [];
@@ -51,6 +58,19 @@
                     }
                 }
             }
+        }
+
+        if (verificationActive && !hasTurnstileResponse && verificationStarted &&
+            Date.now() - verificationStarted > 12000) {
+            var retryCount = parseInt(sessionStorage.getItem('__lxVerificationReloads') || '0', 10);
+            if (retryCount < 2) {
+                debug('VERIFICATION_RELOAD', 'stuck=' + (Date.now() - verificationStarted) + 'ms retry=' + (retryCount + 1));
+                sessionStorage.setItem('__lxVerificationReloads', String(retryCount + 1));
+                sessionStorage.removeItem('__lxVerificationStarted');
+                location.reload();
+                return JSON.stringify({token: '', urls: [], reloading: true});
+            }
+            debug('VERIFICATION_STUCK', 'reloads=' + retryCount);
         }
 
         if (!window._lxDone) {
@@ -91,6 +111,8 @@
 
         if (token && urls.length > 0 && stableLongEnough) {
             debug('READY', 'urls=' + urls.length);
+            sessionStorage.removeItem('__lxVerificationStarted');
+            sessionStorage.removeItem('__lxVerificationReloads');
             return JSON.stringify({token: token, urls: urls});
         }
 
