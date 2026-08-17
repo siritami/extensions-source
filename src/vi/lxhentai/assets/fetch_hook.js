@@ -25,6 +25,14 @@
     window.__lxImageUrls = [];
     window.__lxCapturedUrls = null;
     debug('STATE_RESET');
+    try {
+        var scripts = document.scripts;
+        var kgzCount = 0;
+        for (var si = 0; si < scripts.length; si++) {
+            if ((scripts[si].textContent || '').indexOf('KGZ1') >= 0) kgzCount++;
+        }
+        debug('PAGE_SCRIPTS', 'count=' + scripts.length + ' kgz=' + kgzCount);
+    } catch(e) { debug('SCRIPT_SCAN_ERROR', String(e)); }
 
     var _realFetch = window.fetch;
     window.__lxRealFetch = _realFetch;
@@ -166,6 +174,9 @@
         XMLHttpRequest.prototype.open = function(method, requestUrl) {
             this.__lxUrl = requestUrl || '';
             try { this.__lxUrl = new URL(this.__lxUrl, location.href).href; } catch(e) {}
+            if (this.__lxUrl.indexOf('/get_token') >= 0 || /page[_-]\d+\./i.test(this.__lxUrl)) {
+                debug('XHR_OPEN', method + ' ' + this.__lxUrl);
+            }
             return _xhrOpen.apply(this, arguments);
         };
         XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
@@ -184,6 +195,7 @@
                 this.__lxTokenHooked = true;
                 try {
                     this.addEventListener('load', function() {
+                        debug('XHR_RESPONSE', xhr.__lxUrl + ' status=' + xhr.status);
                         try {
                             var data = JSON.parse(xhr.responseText || '{}');
                             if (data && data.action_token) window.__lxToken = data.action_token;

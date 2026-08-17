@@ -10,6 +10,10 @@
                 return getComputedStyle(dialog).display !== 'none' &&
                     dialog.getAttribute('aria-hidden') !== 'true';
             });
+        var turnstileCount = document.querySelectorAll('[id*="turnstile"], iframe[src*="challenges.cloudflare.com"]').length;
+        debug('PAGE_STATE', 'dialogs=' + visibleDialogs.length + ' turnstile=' + turnstileCount +
+            ' captcha=' + Boolean(window.__lxCaptchaShown) +
+            ' inProgress=' + Boolean(window.getTokenRequestInProgress));
         var failedDialog = visibleDialogs.find(function(dialog) {
             return /xác minh thất bại|verification failed|quá lâu không phản hồi/i.test(dialog.textContent || '');
         });
