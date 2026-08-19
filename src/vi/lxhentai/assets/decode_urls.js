@@ -41,25 +41,46 @@
 
         var verificationActive = Boolean(window.__lxCaptchaShown || window.getTokenRequestInProgress);
         debugState('verificationActive', verificationActive);
+        if (window.__lxPollCount <= 3) {
+            debug('poll#' + window.__lxPollCount + ' dialogs=' + visibleDialogs.length +
+                ' turnstile=' + turnstileCount +
+                ' captchaShown=' + !!window.__lxCaptchaShown +
+                ' getTokenInProgress=' + !!window.getTokenRequestInProgress);
+        }
         debugState('capturedUrls', window.__lxCapturedUrls ? window.__lxCapturedUrls.length : 0);
         debugState('imageUrls', window.__lxImageUrls ? window.__lxImageUrls.length : 0);
         debugState('token', window.__lxToken ? 'present length=' + String(window.__lxToken).length : 'missing');
         if (!window.__lxPollStarted) window.__lxPollStarted = Date.now();
+        if (!window.__lxPollCount) window.__lxPollCount = 0;
+        window.__lxPollCount++;
+
+        // Log hook status on first few polls
+        if (window.__lxPollCount <= 3 || window.__lxPollCount % 10 === 0) {
+            debug('poll#' + window.__lxPollCount + ' hookInstalled=' + !!window.__lxHookInstalled +
+                ' realFetch=' + (typeof window.__lxRealFetch) +
+                ' wrappedFetch=' + (typeof window.__lxWrappedFetch) +
+                ' propTrapped=' + !!window.__lxPropTrapped +
+                ' elapsed=' + Math.round((Date.now() - window.__lxPollStarted) / 1000) + 's');
+        }
 
         if (!window.__lxCapturedUrls && !window.__lxToken && !verificationActive &&
             Date.now() - window.__lxPollStarted > 5000 && !window.__lxKgzFallbackTried) {
+            debug('KGZ fallback check elapsed=' + Math.round((Date.now() - window.__lxPollStarted) / 1000) + 's');
             var kgzScripts = Array.from(document.querySelectorAll('script'))
                 .filter(function(script) {
                     return !script.src && (script.textContent || '').indexOf('KGZ1') >= 0;
                 });
             if (kgzScripts.length > 0) {
                 window.__lxKgzFallbackTried = true;
-                debug('KGZ fallback scripts=' + kgzScripts.length);
+                debug('KGZ fallback scripts=' + kgzScripts.length + ' sizes=' + kgzScripts.map(function(s) { return (s.textContent || '').length; }).join(','));
                 kgzScripts.forEach(function(script, index) {
                     try {
+                        debug('KGZ fallback executing script=' + index + ' len=' + (script.textContent || '').length);
                         (0, eval)(script.textContent || '');
+                        var foundKeys = [];
                         Object.keys(window).forEach(function(key) {
                             if (!/^_0x[a-f0-9]+$/i.test(key) || !Array.isArray(window[key])) return;
+                            foundKeys.push(key + '(' + window[key].length + ')');
 
                             var captured = window[key].filter(function(url) {
                                 if (typeof url !== 'string') return false;
@@ -69,9 +90,14 @@
                             });
                             if (captured.length > 0) {
                                 window.__lxCapturedUrls = captured;
-                                debug('KGZ fallback captured urls=' + captured.length);
+                                debug('KGZ fallback captured urls=' + captured.length + ' fromKey=' + key);
                             }
                         });
+                        if (foundKeys.length > 0) {
+                            debug('KGZ fallback script=' + index + ' globalArrayKeys=' + foundKeys.join(','));
+                        } else {
+                            debug('KGZ fallback script=' + index + ' no _0x arrays found in window');
+                        }
                     } catch(e) {
                         debugError('KGZ fallback script index=' + index, e);
                     }
@@ -111,6 +137,14 @@
             );
             var hasTurnstileResponse = turnstileResponse && turnstileResponse.value;
             var canConfirm = hasTurnstileResponse || window.__lxToken;
+            if (activeDialog && window.__lxPollCount <= 5) {
+                var btns = activeDialog.querySelectorAll('.swal2-confirm');
+                debug('dialog check activeDialog=yes buttons=' + btns.length +
+                    ' hasTurnstile=' + !!hasTurnstileResponse +
+                    ' token=' + (window.__lxToken ? 'yes' : 'no') +
+                    ' canConfirm=' + !!canConfirm +
+                    ' dialogText=' + (activeDialog.textContent || '').substring(0, 100));
+            }
             var btns = activeDialog ? activeDialog.querySelectorAll('.swal2-confirm') : [];
             for (var bi = 0; bi < btns.length; bi++) {
                 var b = btns[bi];
@@ -153,11 +187,13 @@
 
         if (!window._lxDone) {
             window._lxDone = true;
+            debug('dispatching synthetic interaction events');
             try {
                 ['pointerdown', 'touchstart', 'wheel', 'keydown'].forEach(function(t) {
                     document.dispatchEvent(new Event(t, {bubbles: true}));
                 });
                 window.dispatchEvent(new Event('scroll'));
+                debug('synthetic events dispatched ok');
             } catch(e) { debugError('synthetic interaction events', e); }
         }
 
@@ -184,20 +220,38 @@
         if (currentCount !== window.__lxLastUrlCount) {
             window.__lxLastUrlCount = currentCount;
             window.__lxStableSince = Date.now();
-            debug('url count changed count=' + currentCount);
+            debug('url count changed count=' + currentCount +
+                ' token=' + (token ? 'yes(' + String(token).length + ')' : 'no') +
+                (urls.length > 0 ? ' first=' + urls[0].substring(0, 80) : ''));
         }
         var stableLongEnough = window.__lxStableSince && Date.now() - window.__lxStableSince >= 2500;
 
         if (!token && urls.length === 0 && !verificationActive && visibleDialogs.length === 0 &&
             Date.now() - window.__lxPollStarted > 20000) {
+            debug('STALE no token, no urls, no dialogs after 20s! hookInstalled=' + !!window.__lxHookInstalled +
+                ' kgzFallbackTried=' + !!window.__lxKgzFallbackTried +
+                ' captchaShown=' + !!window.__lxCaptchaShown +
+                ' getTokenInProgress=' + !!window.getTokenRequestInProgress);
         }
 
         if (token && urls.length > 0 && stableLongEnough) {
             window.__lxVerificationStarted = 0;
             window.__lxVerificationReloads = 0;
             try { localStorage.removeItem(stateKey); } catch(e) { debugError('clear retry state', e); }
-            debug('ready tokenLength=' + String(token).length + ' urls=' + urls.length);
+            debug('ready tokenLength=' + String(token).length + ' urls=' + urls.length + ' first=' + urls[0].substring(0, 80));
             return JSON.stringify({token: token, urls: urls});
+        }
+
+        // Log why we're not ready yet (every 10 polls)
+        if (window.__lxPollCount % 10 === 0) {
+            debug('not-ready poll#' + window.__lxPollCount +
+                ' token=' + (token ? 'yes(' + String(token).length + ')' : 'no') +
+                ' urls=' + urls.length +
+                ' stable=' + stableLongEnough +
+                ' capturedUrls=' + (window.__lxCapturedUrls ? window.__lxCapturedUrls.length : 0) +
+                ' imageUrls=' + (window.__lxImageUrls ? window.__lxImageUrls.length : 0) +
+                ' dialogs=' + visibleDialogs.length +
+                ' elapsed=' + Math.round((Date.now() - window.__lxPollStarted) / 1000) + 's');
         }
 
         return JSON.stringify({token: token || '', urls: urls || [], ready: false});
