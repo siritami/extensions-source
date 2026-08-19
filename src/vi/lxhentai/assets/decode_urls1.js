@@ -1,19 +1,35 @@
 // Poll script - retrieves token + image URLs captured by fetch_hook
 // Runs in evaluateJs every second until both token and URLs are ready
-// NO-LOG version: all debug output disabled
 (function() {
     try {
+        var debug = function(event, details) {
+            try {
+                var message = '[LxHentai][decode_urls] ' + event;
+                if (details !== undefined) message += ' ' + String(details);
+                console.error(message);
+            } catch(e) {}
+        };
+        var debugError = function(event, error) {
+            debug(event + ' error=', error && error.stack ? error.stack : error);
+        };
+        var debugState = function(key, value) {
+            if (window.__lxDebugState && window.__lxDebugState[key] === value) return;
+            window.__lxDebugState = window.__lxDebugState || {};
+            window.__lxDebugState[key] = value;
+            debug(key + '=' + value);
+        };
         var stateKey = '__lx_retry_' + location.pathname;
         var readRetryState = function() {
             try {
                 return JSON.parse(localStorage.getItem(stateKey) || '{}');
             } catch(e) {
+                debugError('read retry state', e);
                 return window.__lxRetryState || {};
             }
         };
         var writeRetryState = function(state) {
             window.__lxRetryState = state;
-            try { localStorage.setItem(stateKey, JSON.stringify(state)); } catch(e) {}
+            try { localStorage.setItem(stateKey, JSON.stringify(state)); } catch(e) { debugError('write retry state', e); }
         };
         var retryState = readRetryState();
         var visibleDialogs = Array.from(document.querySelectorAll('.swal2-container'))
@@ -24,9 +40,35 @@
         var turnstileCount = document.querySelectorAll('[id*="turnstile"], iframe[src*="challenges.cloudflare.com"]').length;
 
         var verificationActive = Boolean(window.__lxCaptchaShown || window.getTokenRequestInProgress);
+        debugState('verificationActive', verificationActive);
+        debugState('capturedUrls', window.__lxCapturedUrls ? window.__lxCapturedUrls.length : 0);
+        debugState('imageUrls', window.__lxImageUrls ? window.__lxImageUrls.length : 0);
+        debugState('token', window.__lxToken ? 'present length=' + String(window.__lxToken).length : 'missing');
         if (!window.__lxPollStarted) window.__lxPollStarted = Date.now();
         if (!window.__lxPollCount) window.__lxPollCount = 0;
         window.__lxPollCount++;
+
+        // Detect reload retry on first poll
+        if (window.__lxPollCount === 1 && location.hash.indexOf('_lxretry') >= 0) {
+            debug('RETRY page reloaded for token recovery hash=' + location.hash);
+        }
+
+        // Log detailed state on first few polls
+        if (window.__lxPollCount <= 3) {
+            debug('poll#' + window.__lxPollCount + ' dialogs=' + visibleDialogs.length +
+                ' turnstile=' + turnstileCount +
+                ' captchaShown=' + !!window.__lxCaptchaShown +
+                ' getTokenInProgress=' + !!window.getTokenRequestInProgress);
+        }
+
+        // Log hook status on first few polls
+        if (window.__lxPollCount <= 3 || window.__lxPollCount % 10 === 0) {
+            debug('poll#' + window.__lxPollCount + ' hookInstalled=' + !!window.__lxHookInstalled +
+                ' realFetch=' + (typeof window.__lxRealFetch) +
+                ' wrappedFetch=' + (typeof window.__lxWrappedFetch) +
+                ' propTrapped=' + !!window.__lxPropTrapped +
+                ' elapsed=' + Math.round((Date.now() - window.__lxPollStarted) / 1000) + 's');
+        }
 
         if (!window.__lxCapturedUrls && !window.__lxToken && !verificationActive &&
             Date.now() - window.__lxPollStarted > 5000 && !window.__lxKgzFallbackTried) {
@@ -35,21 +77,30 @@
                     return !script.src && (script.textContent || '').indexOf('KGZ1') >= 0;
                 });
 
+            // Detect Cloudflare challenge page (no KGZ scripts, no site content)
             var isCfChallenge = location.href.indexOf('__cf_chl_rt_tk') >= 0 ||
                 (document.querySelectorAll('[id*="turnstile"], iframe[src*="challenges.cloudflare.com"]').length > 0 && kgzScripts.length === 0);
             if (isCfChallenge) {
+                debug('Cloudflare challenge page detected, skipping KGZ fallback');
                 window.__lxKgzFallbackTried = true;
             } else if (kgzScripts.length === 0 && Date.now() - window.__lxPollStarted > 10000) {
+                // No KGZ scripts found after 10s — scripts likely won't appear
+                debug('no KGZ scripts found after 10s, giving up');
                 window.__lxKgzFallbackTried = true;
             }
 
             if (kgzScripts.length > 0) {
+                debug('KGZ fallback scripts=' + kgzScripts.length + ' sizes=' + kgzScripts.map(function(s) { return (s.textContent || '').length; }).join(','));
                 window.__lxKgzFallbackTried = true;
+                debug('KGZ fallback scripts=' + kgzScripts.length + ' sizes=' + kgzScripts.map(function(s) { return (s.textContent || '').length; }).join(','));
                 kgzScripts.forEach(function(script, index) {
                     try {
+                        debug('KGZ fallback executing script=' + index + ' len=' + (script.textContent || '').length);
                         (0, eval)(script.textContent || '');
+                        var foundKeys = [];
                         Object.keys(window).forEach(function(key) {
                             if (!/^_0x[a-f0-9]+$/i.test(key) || !Array.isArray(window[key])) return;
+                            foundKeys.push(key + '(' + window[key].length + ')');
 
                             var captured = window[key].filter(function(url) {
                                 if (typeof url !== 'string') return false;
@@ -59,9 +110,17 @@
                             });
                             if (captured.length > 0) {
                                 window.__lxCapturedUrls = captured;
+                                debug('KGZ fallback captured urls=' + captured.length + ' fromKey=' + key);
                             }
                         });
-                    } catch(e) {}
+                        if (foundKeys.length > 0) {
+                            debug('KGZ fallback script=' + index + ' globalArrayKeys=' + foundKeys.join(','));
+                        } else {
+                            debug('KGZ fallback script=' + index + ' no _0x arrays found in window');
+                        }
+                    } catch(e) {
+                        debugError('KGZ fallback script index=' + index, e);
+                    }
                 });
             }
         }
@@ -74,6 +133,7 @@
             return /xác minh thất bại|verification failed|quá lâu không phản hồi/i.test(dialog.textContent || '');
         });
         if (failedDialog) {
+            debugState('failedDialog', 'visible');
             var reloadButton = Array.from(failedDialog.querySelectorAll('button')).find(function(button) {
                 return /tải lại|reload|retry/i.test(button.textContent || '') && !button.disabled;
             });
@@ -82,6 +142,7 @@
                 retryState.dialogReloads = reloadCount + 1;
                 writeRetryState(retryState);
                 reloadButton.click();
+                debug('reloading after failed verification attempt=' + retryState.dialogReloads);
                 return JSON.stringify({token: '', urls: [], reloading: true});
             }
         }
@@ -96,6 +157,14 @@
             );
             var hasTurnstileResponse = turnstileResponse && turnstileResponse.value;
             var canConfirm = hasTurnstileResponse || window.__lxToken;
+            if (activeDialog && window.__lxPollCount <= 5) {
+                var btns = activeDialog.querySelectorAll('.swal2-confirm');
+                debug('dialog check activeDialog=yes buttons=' + btns.length +
+                    ' hasTurnstile=' + !!hasTurnstileResponse +
+                    ' token=' + (window.__lxToken ? 'yes' : 'no') +
+                    ' canConfirm=' + !!canConfirm +
+                    ' dialogText=' + (activeDialog.textContent || '').substring(0, 100));
+            }
             var btns = activeDialog ? activeDialog.querySelectorAll('.swal2-confirm') : [];
             for (var bi = 0; bi < btns.length; bi++) {
                 var b = btns[bi];
@@ -115,6 +184,7 @@
                     }
                 }
             }
+            if (window._lxClicked) debug('verification button clicked');
         }
 
         if (window._lxClicked && activeDialog && window.__lxToken &&
@@ -130,18 +200,21 @@
                 writeRetryState(retryState);
                 window.__lxVerificationStarted = 0;
                 location.reload();
+                debug('reloading after verification timeout attempt=' + retryState.verificationReloads);
                 return JSON.stringify({token: '', urls: [], reloading: true});
             }
         }
 
         if (!window._lxDone) {
             window._lxDone = true;
+            debug('dispatching synthetic interaction events');
             try {
                 ['pointerdown', 'touchstart', 'wheel', 'keydown'].forEach(function(t) {
                     document.dispatchEvent(new Event(t, {bubbles: true}));
                 });
                 window.dispatchEvent(new Event('scroll'));
-            } catch(e) {}
+                debug('synthetic events dispatched ok');
+            } catch(e) { debugError('synthetic interaction events', e); }
         }
 
         var urls = [];
@@ -167,23 +240,40 @@
         if (currentCount !== window.__lxLastUrlCount) {
             window.__lxLastUrlCount = currentCount;
             window.__lxStableSince = Date.now();
+            debug('url count changed count=' + currentCount +
+                ' token=' + (token ? 'yes(' + String(token).length + ')' : 'no') +
+                (urls.length > 0 ? ' first=' + urls[0].substring(0, 80) : ''));
         }
         var stableLongEnough = window.__lxStableSince && Date.now() - window.__lxStableSince >= 2500;
 
-        // Manual /get_token fallback
+        if (!token && urls.length === 0 && !verificationActive && visibleDialogs.length === 0 &&
+            Date.now() - window.__lxPollStarted > 20000) {
+            debug('STALE no token, no urls, no dialogs after 20s! hookInstalled=' + !!window.__lxHookInstalled +
+                ' kgzFallbackTried=' + !!window.__lxKgzFallbackTried +
+                ' captchaShown=' + !!window.__lxCaptchaShown +
+                ' getTokenInProgress=' + !!window.getTokenRequestInProgress);
+        }
+
+        // Manual /get_token fallback: we have URLs but no token and no verification started
+        // This triggers when KGZ fallback captured URLs but the site's reader didn't call /get_token
         if (!token && urls.length > 0 && stableLongEnough && !verificationActive &&
             visibleDialogs.length === 0 && !window.__lxManualTokenTried) {
             window.__lxManualTokenTried = true;
 
+            // Get CSRF token: try meta tag first, then XSRF-TOKEN cookie (common Laravel pattern)
             var csrfMeta = document.querySelector('meta[name="csrf-token"]');
             var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
             if (!csrfToken) {
+                // Extract from XSRF-TOKEN cookie (Laravel sets this automatically)
                 var xsrfMatch = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
                 if (xsrfMatch) {
                     try { csrfToken = decodeURIComponent(xsrfMatch[1]); } catch(e) {}
                 }
             }
+            debug('manual /get_token fallback starting urls=' + urls.length + ' csrfToken=' + (csrfToken ? 'found(' + csrfToken.length + ')' : 'missing'));
 
+            // Use the WRAPPED fetch (not real) so the hook captures token from response
+            // and the site's reader code can intercept the response to show verification
             var fetchFn = window.fetch || window.__lxRealFetch;
             var headers = {
                 'X-Requested-With': 'XMLHttpRequest',
@@ -199,18 +289,31 @@
                     credentials: 'same-origin',
                     headers: headers
                 }).then(function(resp) {
+                    debug('manual /get_token response status=' + resp.status);
                     return resp.json();
                 }).then(function(data) {
+                    debug('manual /get_token data keys=' + Object.keys(data || {}).join(',') +
+                        ' hasActionToken=' + !!(data && data.action_token) +
+                        ' isBot=' + (data && data.is_bot) +
+                        ' requireVerification=' + (data && data.require_verification));
                     if (data && data.action_token) {
                         window.__lxToken = data.action_token;
+                        debug('manual /get_token captured token length=' + String(data.action_token).length);
                     } else if (data && (data.require_verification || data.is_bot)) {
+                        // Site says we need verification — the site's reader would normally show
+                        // a SweetAlert + Turnstile. Since the reader didn't run its flow,
+                        // we need to manually handle Turnstile + POST /get_token.
+                        debug('manual /get_token requires verification, starting manual Turnstile flow');
                         window.__lxCaptchaShown = true;
                         window.getTokenRequestInProgress = true;
                         window.__lxGetTokenResponse = data;
 
+                        // Try to find the Turnstile sitekey from the page
                         var sitekeyMatch = document.documentElement.innerHTML.match(/sitekey['":\s]+([A-Za-z0-9_-]+)/i);
                         var sitekey = sitekeyMatch ? sitekeyMatch[1] : '0x4AAAAAABmIZvltdaZbP-9a';
+                        debug('manual verification sitekey=' + sitekey);
 
+                        // Find or create a container for Turnstile
                         var container = document.querySelector('#turnstile-container, [id*="cf-chl-widget"]');
                         if (!container) {
                             container = document.createElement('div');
@@ -218,15 +321,19 @@
                             container.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:999999;background:#fff;padding:20px;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.3);text-align:center;font-family:sans-serif;min-width:300px;';
                             container.innerHTML = '<p style="margin:0 0 10px;font-size:14px;">Đang xác minh...</p><div id="__lx-turnstile-widget"></div>';
                             document.body.appendChild(container);
+                            debug('created Turnstile container');
                         }
 
+                        // Render Turnstile widget
                         var widgetTarget = container.querySelector('#__lx-turnstile-widget') || container;
                         try {
                             if (typeof turnstile !== 'undefined' && turnstile.render) {
                                 turnstile.render(widgetTarget, {
                                     sitekey: sitekey,
                                     callback: function(response) {
+                                        debug('Turnstile solved, response length=' + (response || '').length);
                                         window.__lxTurnstileResponse = response;
+                                        // Now POST /get_token with the Turnstile response
                                         var postFetch = window.__lxRealFetch || window.fetch;
                                         var postHeaders = { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json', 'Accept': 'application/json' };
                                         var postCsrf = document.querySelector('meta[name="csrf-token"]');
@@ -238,12 +345,17 @@
                                             headers: postHeaders,
                                             body: postBody
                                         }).then(function(resp) {
+                                            debug('manual POST /get_token status=' + resp.status);
                                             return resp.json();
                                         }).then(function(postData) {
+                                            debug('manual POST /get_token keys=' + Object.keys(postData || {}).join(',') + ' hasActionToken=' + !!(postData && postData.action_token));
                                             if (postData && postData.action_token) {
                                                 window.__lxToken = postData.action_token;
                                                 window.getTokenRequestInProgress = false;
+                                                debug('manual POST token captured length=' + String(postData.action_token).length);
                                             } else {
+                                                debug('manual POST failed, trying form-encoded body');
+                                                // Try form-encoded POST (some sites expect this)
                                                 var formBody = 'cf-turnstile-response=' + encodeURIComponent(response);
                                                 postFetch('/get_token', {
                                                     method: 'POST',
@@ -251,23 +363,32 @@
                                                     headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
                                                     body: formBody
                                                 }).then(function(r2) { return r2.json(); }).then(function(d2) {
+                                                    debug('manual form POST keys=' + Object.keys(d2 || {}).join(',') + ' hasActionToken=' + !!(d2 && d2.action_token));
                                                     if (d2 && d2.action_token) {
                                                         window.__lxToken = d2.action_token;
                                                         window.getTokenRequestInProgress = false;
+                                                        debug('manual form POST token captured length=' + String(d2.action_token).length);
                                                     }
-                                                }).catch(function() {});
+                                                }).catch(function(e) { debug('manual form POST error=' + e); });
                                             }
-                                        }).catch(function() {});
+                                        }).catch(function(err) {
+                                            debug('manual POST /get_token error=' + (err && err.message ? err.message : String(err)));
+                                        });
                                     }
                                 });
+                                debug('Turnstile widget rendered');
                             } else {
+                                debug('turnstile object not available, trying to load Turnstile script');
+                                // Load Turnstile script if not loaded
                                 var ts = document.createElement('script');
                                 ts.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
                                 ts.onload = function() {
+                                    debug('Turnstile script loaded, retrying render');
                                     if (typeof turnstile !== 'undefined' && turnstile.render) {
                                         turnstile.render(widgetTarget, {
                                             sitekey: sitekey,
                                             callback: function(response) {
+                                                debug('Turnstile callback fired');
                                                 window.__lxTurnstileResponse = response;
                                             }
                                         });
@@ -275,18 +396,26 @@
                                 };
                                 document.head.appendChild(ts);
                             }
-                        } catch(e3) {}
+                        } catch(e3) { debugError('Turnstile render', e3); }
                     }
-                }).catch(function() {});
-            } catch(e) {}
+                }).catch(function(err) {
+                    debug('manual /get_token error=' + (err && err.message ? err.message : String(err)));
+                });
+            } catch(e) {
+                debugError('manual /get_token fetch', e);
+            }
         }
 
-        // Reload fallback
+        // Reload fallback: we have URLs but still no token after 15s with stable URLs
+        // The natural page load should trigger the site's reader flow correctly
+        // Use URL hash to prevent infinite reload loops (survives page reload unlike window state)
         if (!token && urls.length > 0 && !verificationActive && visibleDialogs.length === 0 &&
             window.__lxManualTokenTried && !window.__lxTokenReloadTried &&
             Date.now() - window.__lxPollStarted > 15000 &&
             location.hash.indexOf('_lxretry') < 0) {
             window.__lxTokenReloadTried = true;
+            debug('reloading to trigger natural reader flow urls=' + urls.length + ' elapsed=' +
+                Math.round((Date.now() - window.__lxPollStarted) / 1000) + 's');
             location.hash = (location.hash || '') + '_lxretry';
             location.reload();
             return JSON.stringify({token: '', urls: [], reloading: true});
@@ -295,12 +424,26 @@
         if (token && urls.length > 0 && stableLongEnough) {
             window.__lxVerificationStarted = 0;
             window.__lxVerificationReloads = 0;
-            try { localStorage.removeItem(stateKey); } catch(e) {}
+            try { localStorage.removeItem(stateKey); } catch(e) { debugError('clear retry state', e); }
+            debug('ready tokenLength=' + String(token).length + ' urls=' + urls.length + ' first=' + urls[0].substring(0, 80));
             return JSON.stringify({token: token, urls: urls});
+        }
+
+        // Log why we're not ready yet (every 10 polls)
+        if (window.__lxPollCount % 10 === 0) {
+            debug('not-ready poll#' + window.__lxPollCount +
+                ' token=' + (token ? 'yes(' + String(token).length + ')' : 'no') +
+                ' urls=' + urls.length +
+                ' stable=' + stableLongEnough +
+                ' capturedUrls=' + (window.__lxCapturedUrls ? window.__lxCapturedUrls.length : 0) +
+                ' imageUrls=' + (window.__lxImageUrls ? window.__lxImageUrls.length : 0) +
+                ' dialogs=' + visibleDialogs.length +
+                ' elapsed=' + Math.round((Date.now() - window.__lxPollStarted) / 1000) + 's');
         }
 
         return JSON.stringify({token: token || '', urls: urls || [], ready: false});
     } catch(e) {
+        try { console.error('[LxHentai][decode_urls] fatal error', e && e.stack ? e.stack : e); } catch(ignored) {}
         return JSON.stringify({token: '', urls: [], error: String(e)});
     }
 })();
