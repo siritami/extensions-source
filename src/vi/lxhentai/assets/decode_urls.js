@@ -48,6 +48,11 @@
         if (!window.__lxPollCount) window.__lxPollCount = 0;
         window.__lxPollCount++;
 
+        // Detect reload retry on first poll
+        if (window.__lxPollCount === 1 && location.hash.indexOf('_lxretry') >= 0) {
+            debug('RETRY page reloaded for token recovery hash=' + location.hash);
+        }
+
         // Log detailed state on first few polls
         if (window.__lxPollCount <= 3) {
             debug('poll#' + window.__lxPollCount + ' dialogs=' + visibleDialogs.length +
@@ -234,6 +239,66 @@
                 ' kgzFallbackTried=' + !!window.__lxKgzFallbackTried +
                 ' captchaShown=' + !!window.__lxCaptchaShown +
                 ' getTokenInProgress=' + !!window.getTokenRequestInProgress);
+        }
+
+        // Manual /get_token fallback: we have URLs but no token and no verification started
+        if (!token && urls.length > 0 && stableLongEnough && !verificationActive &&
+            visibleDialogs.length === 0 && !window.__lxManualTokenTried) {
+            window.__lxManualTokenTried = true;
+            debug('manual /get_token fallback starting urls=' + urls.length);
+            var fetchFn = window.__lxRealFetch || window.fetch;
+            try {
+                fetchFn('/get_token', {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                }).then(function(resp) {
+                    debug('manual /get_token response status=' + resp.status);
+                    return resp.json();
+                }).then(function(data) {
+                    debug('manual /get_token data keys=' + Object.keys(data || {}).join(',') +
+                        ' hasActionToken=' + !!(data && data.action_token) +
+                        ' isBot=' + (data && data.is_bot) +
+                        ' requireVerification=' + (data && data.require_verification));
+                    if (data && data.action_token) {
+                        window.__lxToken = data.action_token;
+                        debug('manual /get_token captured token length=' + String(data.action_token).length);
+                    } else if (data && (data.require_verification || data.is_bot)) {
+                        // Need verification - site didn't trigger it on its own
+                        // Try to find and call the site's getToken function
+                        debug('manual /get_token requires verification, attempting to trigger site flow');
+                        try {
+                            // The site's reader usually has a global getToken or similar function
+                            if (typeof window.getToken === 'function') {
+                                debug('calling window.getToken()');
+                                window.getToken();
+                            } else if (typeof window.showVerification === 'function') {
+                                debug('calling window.showVerification()');
+                                window.showVerification();
+                            }
+                        } catch(e2) { debug('trigger site verification error=' + e2); }
+                    }
+                }).catch(function(err) {
+                    debug('manual /get_token error=' + (err && err.message ? err.message : String(err)));
+                });
+            } catch(e) {
+                debugError('manual /get_token fetch', e);
+            }
+        }
+
+        // Reload fallback: we have URLs but still no token after 15s with stable URLs
+        // The natural page load should trigger the site's reader flow correctly
+        // Use URL hash to prevent infinite reload loops (survives page reload unlike window state)
+        if (!token && urls.length > 0 && !verificationActive && visibleDialogs.length === 0 &&
+            window.__lxManualTokenTried && !window.__lxTokenReloadTried &&
+            Date.now() - window.__lxPollStarted > 15000 &&
+            location.hash.indexOf('_lxretry') < 0) {
+            window.__lxTokenReloadTried = true;
+            debug('reloading to trigger natural reader flow urls=' + urls.length + ' elapsed=' +
+                Math.round((Date.now() - window.__lxPollStarted) / 1000) + 's');
+            location.hash = (location.hash || '') + '_lxretry';
+            location.reload();
+            return JSON.stringify({token: '', urls: [], reloading: true});
         }
 
         if (token && urls.length > 0 && stableLongEnough) {

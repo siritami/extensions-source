@@ -69,6 +69,7 @@
         window.__lxHookInstalled = false;
     }
     window.__lxHookInstalled = true;
+    window.__lxHookStartTime = Date.now();
     window.__lxToken = null;
     window.__lxImageUrls = [];
     window.__lxCapturedUrls = null;
@@ -120,6 +121,12 @@
 
     var _propTrapInterval = setInterval(function() {
         if (window.__lxPropTrapped) { clearInterval(_propTrapInterval); return; }
+        // Stop scanning after 10 seconds
+        if (window.__lxHookInstalled && Date.now() - (window.__lxHookStartTime || Date.now()) > 10000) {
+            debug('property trap scan timeout, giving up');
+            clearInterval(_propTrapInterval);
+            return;
+        }
         try {
             var scripts = document.querySelectorAll('script');
             for (var i = 0; i < scripts.length; i++) {
