@@ -72,12 +72,25 @@
 
         if (!window.__lxCapturedUrls && !window.__lxToken && !verificationActive &&
             Date.now() - window.__lxPollStarted > 5000 && !window.__lxKgzFallbackTried) {
-            debug('KGZ fallback check elapsed=' + Math.round((Date.now() - window.__lxPollStarted) / 1000) + 's');
             var kgzScripts = Array.from(document.querySelectorAll('script'))
                 .filter(function(script) {
                     return !script.src && (script.textContent || '').indexOf('KGZ1') >= 0;
                 });
+
+            // Detect Cloudflare challenge page (no KGZ scripts, no site content)
+            var isCfChallenge = location.href.indexOf('__cf_chl_rt_tk') >= 0 ||
+                (document.querySelectorAll('[id*="turnstile"], iframe[src*="challenges.cloudflare.com"]').length > 0 && kgzScripts.length === 0);
+            if (isCfChallenge) {
+                debug('Cloudflare challenge page detected, skipping KGZ fallback');
+                window.__lxKgzFallbackTried = true;
+            } else if (kgzScripts.length === 0 && Date.now() - window.__lxPollStarted > 10000) {
+                // No KGZ scripts found after 10s — scripts likely won't appear
+                debug('no KGZ scripts found after 10s, giving up');
+                window.__lxKgzFallbackTried = true;
+            }
+
             if (kgzScripts.length > 0) {
+                debug('KGZ fallback scripts=' + kgzScripts.length + ' sizes=' + kgzScripts.map(function(s) { return (s.textContent || '').length; }).join(','));
                 window.__lxKgzFallbackTried = true;
                 debug('KGZ fallback scripts=' + kgzScripts.length + ' sizes=' + kgzScripts.map(function(s) { return (s.textContent || '').length; }).join(','));
                 kgzScripts.forEach(function(script, index) {
@@ -247,9 +260,16 @@
             visibleDialogs.length === 0 && !window.__lxManualTokenTried) {
             window.__lxManualTokenTried = true;
 
-            // Get CSRF token from page meta tag (Laravel requires it, returns 419 without it)
+            // Get CSRF token: try meta tag first, then XSRF-TOKEN cookie (common Laravel pattern)
             var csrfMeta = document.querySelector('meta[name="csrf-token"]');
             var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
+            if (!csrfToken) {
+                // Extract from XSRF-TOKEN cookie (Laravel sets this automatically)
+                var xsrfMatch = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
+                if (xsrfMatch) {
+                    try { csrfToken = decodeURIComponent(xsrfMatch[1]); } catch(e) {}
+                }
+            }
             debug('manual /get_token fallback starting urls=' + urls.length + ' csrfToken=' + (csrfToken ? 'found(' + csrfToken.length + ')' : 'missing'));
 
             // Use the WRAPPED fetch (not real) so the hook captures token from response
