@@ -2,17 +2,34 @@
 // Runs in evaluateJs every second until both token and URLs are ready
 (function() {
     try {
+        var debug = function(event, details) {
+            try {
+                var message = '[LxHentai][decode_urls] ' + event;
+                if (details !== undefined) message += ' ' + String(details);
+                console.error(message);
+            } catch(e) {}
+        };
+        var debugError = function(event, error) {
+            debug(event + ' error=', error && error.stack ? error.stack : error);
+        };
+        var debugState = function(key, value) {
+            if (window.__lxDebugState && window.__lxDebugState[key] === value) return;
+            window.__lxDebugState = window.__lxDebugState || {};
+            window.__lxDebugState[key] = value;
+            debug(key + '=' + value);
+        };
         var stateKey = '__lx_retry_' + location.pathname;
         var readRetryState = function() {
             try {
                 return JSON.parse(localStorage.getItem(stateKey) || '{}');
             } catch(e) {
+                debugError('read retry state', e);
                 return window.__lxRetryState || {};
             }
         };
         var writeRetryState = function(state) {
             window.__lxRetryState = state;
-            try { localStorage.setItem(stateKey, JSON.stringify(state)); } catch(e) {}
+            try { localStorage.setItem(stateKey, JSON.stringify(state)); } catch(e) { debugError('write retry state', e); }
         };
         var retryState = readRetryState();
         var visibleDialogs = Array.from(document.querySelectorAll('.swal2-container'))
@@ -23,6 +40,10 @@
         var turnstileCount = document.querySelectorAll('[id*="turnstile"], iframe[src*="challenges.cloudflare.com"]').length;
 
         var verificationActive = Boolean(window.__lxCaptchaShown || window.getTokenRequestInProgress);
+        debugState('verificationActive', verificationActive);
+        debugState('capturedUrls', window.__lxCapturedUrls ? window.__lxCapturedUrls.length : 0);
+        debugState('imageUrls', window.__lxImageUrls ? window.__lxImageUrls.length : 0);
+        debugState('token', window.__lxToken ? 'present length=' + String(window.__lxToken).length : 'missing');
         if (!window.__lxPollStarted) window.__lxPollStarted = Date.now();
 
         if (!window.__lxCapturedUrls && !window.__lxToken && !verificationActive &&
@@ -33,6 +54,7 @@
                 });
             if (kgzScripts.length > 0) {
                 window.__lxKgzFallbackTried = true;
+                debug('KGZ fallback scripts=' + kgzScripts.length);
                 kgzScripts.forEach(function(script, index) {
                     try {
                         (0, eval)(script.textContent || '');
@@ -47,9 +69,11 @@
                             });
                             if (captured.length > 0) {
                                 window.__lxCapturedUrls = captured;
+                                debug('KGZ fallback captured urls=' + captured.length);
                             }
                         });
                     } catch(e) {
+                        debugError('KGZ fallback script index=' + index, e);
                     }
                 });
             }
@@ -63,6 +87,7 @@
             return /xác minh thất bại|verification failed|quá lâu không phản hồi/i.test(dialog.textContent || '');
         });
         if (failedDialog) {
+            debugState('failedDialog', 'visible');
             var reloadButton = Array.from(failedDialog.querySelectorAll('button')).find(function(button) {
                 return /tải lại|reload|retry/i.test(button.textContent || '') && !button.disabled;
             });
@@ -71,6 +96,7 @@
                 retryState.dialogReloads = reloadCount + 1;
                 writeRetryState(retryState);
                 reloadButton.click();
+                debug('reloading after failed verification attempt=' + retryState.dialogReloads);
                 return JSON.stringify({token: '', urls: [], reloading: true});
             }
         }
@@ -104,6 +130,7 @@
                     }
                 }
             }
+            if (window._lxClicked) debug('verification button clicked');
         }
 
         if (window._lxClicked && activeDialog && window.__lxToken &&
@@ -119,6 +146,7 @@
                 writeRetryState(retryState);
                 window.__lxVerificationStarted = 0;
                 location.reload();
+                debug('reloading after verification timeout attempt=' + retryState.verificationReloads);
                 return JSON.stringify({token: '', urls: [], reloading: true});
             }
         }
@@ -130,7 +158,7 @@
                     document.dispatchEvent(new Event(t, {bubbles: true}));
                 });
                 window.dispatchEvent(new Event('scroll'));
-            } catch(e) {}
+            } catch(e) { debugError('synthetic interaction events', e); }
         }
 
         var urls = [];
@@ -156,6 +184,7 @@
         if (currentCount !== window.__lxLastUrlCount) {
             window.__lxLastUrlCount = currentCount;
             window.__lxStableSince = Date.now();
+            debug('url count changed count=' + currentCount);
         }
         var stableLongEnough = window.__lxStableSince && Date.now() - window.__lxStableSince >= 2500;
 
@@ -166,12 +195,14 @@
         if (token && urls.length > 0 && stableLongEnough) {
             window.__lxVerificationStarted = 0;
             window.__lxVerificationReloads = 0;
-            try { localStorage.removeItem(stateKey); } catch(e) {}
+            try { localStorage.removeItem(stateKey); } catch(e) { debugError('clear retry state', e); }
+            debug('ready tokenLength=' + String(token).length + ' urls=' + urls.length);
             return JSON.stringify({token: token, urls: urls});
         }
 
         return JSON.stringify({token: token || '', urls: urls || [], ready: false});
     } catch(e) {
+        try { console.error('[LxHentai][decode_urls] fatal error', e && e.stack ? e.stack : e); } catch(ignored) {}
         return JSON.stringify({token: '', urls: [], error: String(e)});
     }
 })();

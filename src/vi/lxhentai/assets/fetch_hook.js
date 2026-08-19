@@ -1,9 +1,23 @@
 // Fetch hook - intercepts /get_token, image URLs, and unblocks Turnstile
 // Injected via onPageStarted BEFORE any page scripts run
 (function() {
+    var debug = function(event, details) {
+        try {
+            var message = '[LxHentai][fetch_hook] ' + event;
+            if (details !== undefined) message += ' ' + String(details);
+            console.error(message);
+        } catch(e) {}
+    };
+    var debugError = function(event, error) {
+        debug(event + ' error=', error && error.stack ? error.stack : error);
+    };
+    debug('start url=' + location.href);
     var defineEarlyCallback = function(name) {
         if (!/^[A-Za-z_$][\w$]{4,31}$/.test(name)) return;
-        if (typeof window[name] === 'undefined') window[name] = function() {};
+        if (typeof window[name] === 'undefined') {
+            window[name] = function() {};
+            debug('defined early callback name=' + name);
+        }
     };
     var scanEarlyCallbacks = function(root) {
         try {
@@ -21,7 +35,7 @@
                     for (var match of matches) defineEarlyCallback(match[1]);
                 });
             });
-        } catch(e) {}
+        } catch(e) { debugError('scan early callbacks', e); }
     };
     var installEarlyCallbackObserver = function() {
         if (!document.documentElement) {
@@ -35,10 +49,11 @@
                     record.addedNodes.forEach(scanEarlyCallbacks);
                 });
             }).observe(document.documentElement, {childList: true, subtree: true});
-        } catch(e) {}
+        } catch(e) { debugError('install callback observer', e); }
     };
     installEarlyCallbackObserver();
     if (window.__lxChapterUrl && window.__lxChapterUrl !== location.href) {
+        debug('chapter changed; clearing previous state');
         window.__lxToken = null;
         window.__lxImageUrls = [];
         window.__lxCapturedUrls = null;
@@ -47,6 +62,7 @@
     }
     window.__lxChapterUrl = location.href;
     if (window.__lxHookInstalled) {
+        debug('hook already existed; resetting state');
         window.__lxToken = null;
         window.__lxImageUrls = [];
         window.__lxCapturedUrls = null;
@@ -56,6 +72,7 @@
     window.__lxToken = null;
     window.__lxImageUrls = [];
     window.__lxCapturedUrls = null;
+    debug('state initialized');
 
     var _realFetch = window.fetch;
     window.__lxRealFetch = _realFetch;
@@ -68,7 +85,7 @@
             _lxHasFocus.toString = function() { return _realHasFocus.toString(); };
             Document.prototype.hasFocus = _lxHasFocus;
         }
-    } catch(e) {}
+    } catch(e) { debugError('hasFocus override', e); }
 
     var _origSlice = Array.prototype.slice;
     Array.prototype.slice = function() {
@@ -83,9 +100,10 @@
                 if (urlValues.length > 0) {
                     window.__lxCapturedUrls = (window.__lxCapturedUrls || []).concat(urlValues)
                         .filter(function(url, index, all) { return all.indexOf(url) === index; });
+                    debug('slice captured urls count=' + window.__lxCapturedUrls.length);
                 }
             }
-        } catch(e) {}
+        } catch(e) { debugError('slice capture', e); }
         return _origSlice.apply(this, arguments);
     };
     try { Array.prototype.slice.toString = function() { return _origSlice.toString(); }; } catch(e) {}
@@ -111,16 +129,19 @@
                                     if (urls.length > 0) {
                                         window.__lxCapturedUrls = (window.__lxCapturedUrls || []).concat(urls)
                                             .filter(function(url, index, all) { return all.indexOf(url) === index; });
+                                        debug('property captured urls count=' + window.__lxCapturedUrls.length);
                                     }
                                 }
                             }
                         });
-                    } catch(e) {}
+                    } catch(e) { debugError('property trap install', e); }
+                        debug('property trap installed name=' + match[1]);
+                    } catch(e) { debugError('property trap setup', e); }
                     clearInterval(_propTrapInterval);
                     break;
                 }
             }
-        } catch(e) {}
+        } catch(e) { debugError('property trap scan', e); }
     }, 50);
 
     var isImageUrl = function(value) {
@@ -160,6 +181,7 @@
                 if (window.__lxImageUrls.indexOf(url) < 0) {
                     window.__lxImageUrls.push(url);
                 }
+                debug('fetch image observed urls=' + window.__lxImageUrls.length + ' tokenLength=' + token.length);
             }
 
             var result = fetchImpl.apply(this, arguments);
@@ -170,10 +192,11 @@
                 clone.json().then(function(data) {
                     if (data && data.action_token) {
                         window.__lxToken = data.action_token;
+                        debug('fetch token captured length=' + String(data.action_token).length);
                     }
-                }).catch(function() {});
+                }).catch(function(error) { debugError('fetch token response parse', error); });
                 return resp;
-            }).catch(function(error) { throw error; });
+            }).catch(function(error) { debugError('fetch request', error); throw error; });
         };
 
         try { wrapped.toString = function() { return 'function fetch() { [native code] }'; }; } catch(e) {}
@@ -220,20 +243,20 @@
         XMLHttpRequest.prototype.setRequestHeader.toString = function() { return _xhrSetRequestHeader.toString(); };
         XMLHttpRequest.prototype.send.toString = function() { return _xhrSend.toString(); };
 
-    } catch(e) {}
+    } catch(e) { debugError('XHR hook install', e); }
 
     var _replaceInterval = setInterval(function() {
         try {
             if (window.fetch === window.__lxWrappedFetch) return;
             window.fetch = _wrapFetch(window.fetch);
             window.__lxWrappedFetch = window.fetch;
-        } catch(e) {}
+        } catch(e) { debugError('fetch replacement recovery', e); }
     }, 100);
 
     try {
         localStorage.removeItem('turnstile_blocked');
         localStorage.removeItem('turnstile_blocked_time');
-    } catch(e) {}
+    } catch(e) { debugError('storage cleanup', e); }
 
     var collectVisibleImages = function() {
         try {
@@ -251,7 +274,8 @@
                     }
                 });
             }
-        } catch(e) {}
+        } catch(e) { debugError('visible image collection', e); }
     };
     setInterval(collectVisibleImages, 500);
+    debug('installed successfully');
 })();
