@@ -41,18 +41,20 @@
 
         var verificationActive = Boolean(window.__lxCaptchaShown || window.getTokenRequestInProgress);
         debugState('verificationActive', verificationActive);
-        if (window.__lxPollCount <= 3) {
-            debug('poll#' + window.__lxPollCount + ' dialogs=' + visibleDialogs.length +
-                ' turnstile=' + turnstileCount +
-                ' captchaShown=' + !!window.__lxCaptchaShown +
-                ' getTokenInProgress=' + !!window.getTokenRequestInProgress);
-        }
         debugState('capturedUrls', window.__lxCapturedUrls ? window.__lxCapturedUrls.length : 0);
         debugState('imageUrls', window.__lxImageUrls ? window.__lxImageUrls.length : 0);
         debugState('token', window.__lxToken ? 'present length=' + String(window.__lxToken).length : 'missing');
         if (!window.__lxPollStarted) window.__lxPollStarted = Date.now();
         if (!window.__lxPollCount) window.__lxPollCount = 0;
         window.__lxPollCount++;
+
+        // Log detailed state on first few polls
+        if (window.__lxPollCount <= 3) {
+            debug('poll#' + window.__lxPollCount + ' dialogs=' + visibleDialogs.length +
+                ' turnstile=' + turnstileCount +
+                ' captchaShown=' + !!window.__lxCaptchaShown +
+                ' getTokenInProgress=' + !!window.getTokenRequestInProgress);
+        }
 
         // Log hook status on first few polls
         if (window.__lxPollCount <= 3 || window.__lxPollCount % 10 === 0) {
