@@ -242,16 +242,32 @@
         }
 
         // Manual /get_token fallback: we have URLs but no token and no verification started
+        // This triggers when KGZ fallback captured URLs but the site's reader didn't call /get_token
         if (!token && urls.length > 0 && stableLongEnough && !verificationActive &&
             visibleDialogs.length === 0 && !window.__lxManualTokenTried) {
             window.__lxManualTokenTried = true;
-            debug('manual /get_token fallback starting urls=' + urls.length);
-            var fetchFn = window.__lxRealFetch || window.fetch;
+
+            // Get CSRF token from page meta tag (Laravel requires it, returns 419 without it)
+            var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+            var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
+            debug('manual /get_token fallback starting urls=' + urls.length + ' csrfToken=' + (csrfToken ? 'found(' + csrfToken.length + ')' : 'missing'));
+
+            // Use the WRAPPED fetch (not real) so the hook captures token from response
+            // and the site's reader code can intercept the response to show verification
+            var fetchFn = window.fetch || window.__lxRealFetch;
+            var headers = {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json'
+            };
+            if (csrfToken) {
+                headers['X-CSRF-TOKEN'] = csrfToken;
+            }
+
             try {
                 fetchFn('/get_token', {
                     method: 'GET',
                     credentials: 'same-origin',
-                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    headers: headers
                 }).then(function(resp) {
                     debug('manual /get_token response status=' + resp.status);
                     return resp.json();
@@ -264,19 +280,103 @@
                         window.__lxToken = data.action_token;
                         debug('manual /get_token captured token length=' + String(data.action_token).length);
                     } else if (data && (data.require_verification || data.is_bot)) {
-                        // Need verification - site didn't trigger it on its own
-                        // Try to find and call the site's getToken function
-                        debug('manual /get_token requires verification, attempting to trigger site flow');
+                        // Site says we need verification — the site's reader would normally show
+                        // a SweetAlert + Turnstile. Since the reader didn't run its flow,
+                        // we need to manually handle Turnstile + POST /get_token.
+                        debug('manual /get_token requires verification, starting manual Turnstile flow');
+                        window.__lxCaptchaShown = true;
+                        window.getTokenRequestInProgress = true;
+                        window.__lxGetTokenResponse = data;
+
+                        // Try to find the Turnstile sitekey from the page
+                        var sitekeyMatch = document.documentElement.innerHTML.match(/sitekey['":\s]+([A-Za-z0-9_-]+)/i);
+                        var sitekey = sitekeyMatch ? sitekeyMatch[1] : '0x4AAAAAABmIZvltdaZbP-9a';
+                        debug('manual verification sitekey=' + sitekey);
+
+                        // Find or create a container for Turnstile
+                        var container = document.querySelector('#turnstile-container, [id*="cf-chl-widget"]');
+                        if (!container) {
+                            container = document.createElement('div');
+                            container.id = '__lx-turnstile-container';
+                            container.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:999999;background:#fff;padding:20px;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.3);text-align:center;font-family:sans-serif;min-width:300px;';
+                            container.innerHTML = '<p style="margin:0 0 10px;font-size:14px;">Đang xác minh...</p><div id="__lx-turnstile-widget"></div>';
+                            document.body.appendChild(container);
+                            debug('created Turnstile container');
+                        }
+
+                        // Render Turnstile widget
+                        var widgetTarget = container.querySelector('#__lx-turnstile-widget') || container;
                         try {
-                            // The site's reader usually has a global getToken or similar function
-                            if (typeof window.getToken === 'function') {
-                                debug('calling window.getToken()');
-                                window.getToken();
-                            } else if (typeof window.showVerification === 'function') {
-                                debug('calling window.showVerification()');
-                                window.showVerification();
+                            if (typeof turnstile !== 'undefined' && turnstile.render) {
+                                turnstile.render(widgetTarget, {
+                                    sitekey: sitekey,
+                                    callback: function(response) {
+                                        debug('Turnstile solved, response length=' + (response || '').length);
+                                        window.__lxTurnstileResponse = response;
+                                        // Now POST /get_token with the Turnstile response
+                                        var postFetch = window.__lxRealFetch || window.fetch;
+                                        var postHeaders = { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json', 'Accept': 'application/json' };
+                                        var postCsrf = document.querySelector('meta[name="csrf-token"]');
+                                        if (postCsrf) postHeaders['X-CSRF-TOKEN'] = postCsrf.getAttribute('content');
+                                        var postBody = JSON.stringify({ 'cf-turnstile-response': response });
+                                        postFetch('/get_token', {
+                                            method: 'POST',
+                                            credentials: 'same-origin',
+                                            headers: postHeaders,
+                                            body: postBody
+                                        }).then(function(resp) {
+                                            debug('manual POST /get_token status=' + resp.status);
+                                            return resp.json();
+                                        }).then(function(postData) {
+                                            debug('manual POST /get_token keys=' + Object.keys(postData || {}).join(',') + ' hasActionToken=' + !!(postData && postData.action_token));
+                                            if (postData && postData.action_token) {
+                                                window.__lxToken = postData.action_token;
+                                                window.getTokenRequestInProgress = false;
+                                                debug('manual POST token captured length=' + String(postData.action_token).length);
+                                            } else {
+                                                debug('manual POST failed, trying form-encoded body');
+                                                // Try form-encoded POST (some sites expect this)
+                                                var formBody = 'cf-turnstile-response=' + encodeURIComponent(response);
+                                                postFetch('/get_token', {
+                                                    method: 'POST',
+                                                    credentials: 'same-origin',
+                                                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+                                                    body: formBody
+                                                }).then(function(r2) { return r2.json(); }).then(function(d2) {
+                                                    debug('manual form POST keys=' + Object.keys(d2 || {}).join(',') + ' hasActionToken=' + !!(d2 && d2.action_token));
+                                                    if (d2 && d2.action_token) {
+                                                        window.__lxToken = d2.action_token;
+                                                        window.getTokenRequestInProgress = false;
+                                                        debug('manual form POST token captured length=' + String(d2.action_token).length);
+                                                    }
+                                                }).catch(function(e) { debug('manual form POST error=' + e); });
+                                            }
+                                        }).catch(function(err) {
+                                            debug('manual POST /get_token error=' + (err && err.message ? err.message : String(err)));
+                                        });
+                                    }
+                                });
+                                debug('Turnstile widget rendered');
+                            } else {
+                                debug('turnstile object not available, trying to load Turnstile script');
+                                // Load Turnstile script if not loaded
+                                var ts = document.createElement('script');
+                                ts.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+                                ts.onload = function() {
+                                    debug('Turnstile script loaded, retrying render');
+                                    if (typeof turnstile !== 'undefined' && turnstile.render) {
+                                        turnstile.render(widgetTarget, {
+                                            sitekey: sitekey,
+                                            callback: function(response) {
+                                                debug('Turnstile callback fired');
+                                                window.__lxTurnstileResponse = response;
+                                            }
+                                        });
+                                    }
+                                };
+                                document.head.appendChild(ts);
                             }
-                        } catch(e2) { debug('trigger site verification error=' + e2); }
+                        } catch(e3) { debugError('Turnstile render', e3); }
                     }
                 }).catch(function(err) {
                     debug('manual /get_token error=' + (err && err.message ? err.message : String(err)));
