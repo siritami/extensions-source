@@ -292,7 +292,184 @@ private fun parseChapterDate(dateStr: String): Long = dateFormat.tryParseDate(da
 This ensures dates are resolved to the correct start-of-day instant regardless of the user's device timezone.
 
 All three return `0L` if the input is null or cannot be parsed.
-- The user can resolve the condition through a concrete action.
+
+---
+
+# Direct Password Prompt via In-App GUI Dialog
+
+## How it works
+
+Instead of redirecting users to the in-app WebView with an error message when a chapter is password-protected, prompt for the password directly inside the app using an `AlertDialog` and submit the unlock request via HTTP.
+
+1. Track the foreground `Activity` by registering `Application.ActivityLifecycleCallbacks` on `applicationContext` in `init`.
+2. When `getPageList` encounters a lock form (e.g. `form.post-password-form` on WordPress sites), suspend and show an `AlertDialog` with an `EditText` password input.
+3. Once the user submits the password, send a `POST` request to the site's password unlock endpoint (`wp-login.php?action=postpass`).
+4. OkHttp's `CookieJar` stores the session/unlock cookie (e.g. `wp-postpass_<hash>`) from the `Set-Cookie` response header.
+5. If the returned HTML still contains the lock form, throw an `Exception` notifying that the password was incorrect. Otherwise, proceed to parse the unlocked pages normally.
+
+## Implementation
+
+```kotlin
+import android.app.Activity
+import android.app.AlertDialog
+import android.app.Application
+import android.os.Bundle
+import android.text.InputType
+import android.widget.EditText
+import android.widget.FrameLayout
+import eu.kanade.tachiyomi.source.model.Page
+import eu.kanade.tachiyomi.source.model.SChapter
+import keiyoushi.network.get
+import keiyoushi.network.post
+import keiyoushi.source.KeiSource
+import keiyoushi.utils.applicationContext
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import okhttp3.FormBody
+import org.jsoup.Jsoup
+import java.lang.ref.WeakReference
+
+abstract class ExampleSource : KeiSource() {
+
+    private var currentActivity: WeakReference<Activity>? = null
+
+    init {
+        applicationContext.registerActivityLifecycleCallbacks(
+            object : Application.ActivityLifecycleCallbacks {
+                override fun onActivityResumed(a: Activity) {
+                    currentActivity = WeakReference(a)
+                }
+                override fun onActivityPaused(a: Activity) {
+                    if (currentActivity?.get() === a) currentActivity = null
+                }
+                override fun onActivityDestroyed(a: Activity) {
+                    if (currentActivity?.get() === a) currentActivity = null
+                }
+                override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+                override fun onActivityStarted(activity: Activity) = Unit
+                override fun onActivityStopped(activity: Activity) = Unit
+                override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+            },
+        )
+    }
+
+    override suspend fun getPageList(chapter: SChapter): List<Page> {
+        val chapterUrl = getChapterUrl(chapter)
+        val response = client.get(chapterUrl)
+        var html = response.body.string()
+        var document = Jsoup.parse(html, chapterUrl)
+
+        val lockForm = document.selectFirst("form.post-password-form")
+        if (lockForm != null) {
+            val password = promptForPassword(chapter.name)
+            val postAction = lockForm.absUrl("action").ifEmpty {
+                "$baseUrl/wp-login.php?action=postpass"
+            }
+            val formBody = FormBody.Builder()
+                .add("post_password", password)
+                .add("redirect_to", chapterUrl)
+                .add("Submit", "Nhập")
+                .build()
+
+            val postHeaders = headers.newBuilder()
+                .set("Referer", chapterUrl)
+                .build()
+
+            val postResponse = client.post(postAction, postHeaders, formBody, ensureSuccess = false)
+            val responseUrl = postResponse.request.url.toString()
+            val responseBody = postResponse.body.string()
+
+            html = if (postResponse.isSuccessful && !responseUrl.contains("wp-login.php")) {
+                responseBody
+            } else {
+                client.get(chapterUrl).body.string()
+            }
+
+            document = Jsoup.parse(html, chapterUrl)
+            if (document.selectFirst("form.post-password-form") != null) {
+                throw Exception("Mật khẩu không chính xác")
+            }
+        }
+
+        return extractImageUrls(html).mapIndexed { index, imageUrl ->
+            Page(index, imageUrl = imageUrl)
+        }
+    }
+
+    private suspend fun promptForPassword(chapterTitle: String): String {
+        val activity = currentActivity?.get()
+            ?: run {
+                for (i in 0 until 10) {
+                    delay(100)
+                    val act = currentActivity?.get()
+                    if (act != null) return@run act
+                }
+                null
+            }
+            ?: throw Exception("No foreground activity to attach dialog")
+
+        val deferred = CompletableDeferred<String>()
+        var dialog: AlertDialog? = null
+
+        try {
+            withContext(Dispatchers.Main.immediate) {
+                val input = EditText(activity).apply {
+                    inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    hint = "Password"
+                }
+                val container = FrameLayout(activity).apply {
+                    val pad = (16 * resources.displayMetrics.density).toInt()
+                    setPadding(pad, pad / 2, pad, 0)
+                    addView(input)
+                }
+
+                dialog = AlertDialog.Builder(activity)
+                    .setTitle(chapterTitle)
+                    .setMessage("This chapter requires a password")
+                    .setView(container)
+                    .setPositiveButton("Unlock") { _, _ ->
+                        val text = input.text.toString().trim()
+                        if (text.isNotBlank()) {
+                            deferred.complete(text)
+                        } else {
+                            deferred.completeExceptionally(Exception("Password cannot be empty"))
+                        }
+                    }
+                    .setNegativeButton("Cancel") { _, _ ->
+                        deferred.completeExceptionally(Exception("User cancelled password prompt"))
+                    }
+                    .setOnCancelListener {
+                        deferred.completeExceptionally(Exception("Dialog dismissed"))
+                    }
+                    .setOnDismissListener {
+                        if (!deferred.isCompleted) {
+                            deferred.completeExceptionally(Exception("Dialog dismissed"))
+                        }
+                    }
+                    .show()
+            }
+
+            return deferred.await()
+        } finally {
+            withContext(NonCancellable + Dispatchers.Main.immediate) {
+                dialog?.takeIf { it.isShowing }?.dismiss()
+            }
+        }
+    }
+}
+```
+
+## Key Considerations
+
+- **Lifecycle and Activity Reference**: Always store `Activity` inside `WeakReference` to avoid memory leaks. Clear references when activities pause or are destroyed.
+- **Coroutines Bridge**: Use `CompletableDeferred<String>` to bridge asynchronous user input in `AlertDialog` callbacks with the coroutine in `getPageList`.
+- **UI Dispatcher**: The dialog must be created and displayed on `Dispatchers.Main.immediate`.
+- **Dialog Cleanup**: Dismiss the dialog inside a `finally` block wrapped in `withContext(NonCancellable + Dispatchers.Main.immediate)` to avoid leaking open dialogs on job cancellation.
+- **Cookie Jar Persistence**: WordPress postpass sets cookie `wp-postpass_<hash>` on a `302 Found` response. OkHttp's `CookieJar` in Tachiyomi/Mihon persists this cookie across subsequent chapter requests.
+- **Wrong Password Detection**: When an incorrect password is submitted, WordPress redirects back to the post URL while still displaying `form.post-password-form`. Inspecting the returned document for the presence of this form detects invalid credentials and allows throwing a clear error.
 - The message explains that action instead of reporting a generic parsing error.
 - Returning `emptyList()` would hide the required action from the user.
 
