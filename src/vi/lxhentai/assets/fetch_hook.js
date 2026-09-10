@@ -105,8 +105,68 @@
     };
     try { Array.prototype.slice.toString = function() { return _origSlice.toString(); }; } catch(e) {}
 
+    var isImageUrl = function(value) {
+        if (typeof value !== 'string' ||
+            (value.indexOf('http') !== 0 && value.indexOf('//') !== 0)) return false;
+
+        var lower = value.toLowerCase();
+        if (!/\.(?:jpe?g|png|webp)(?:[?#]|$)/i.test(lower)) return false;
+        if (lower.indexOf('avatar') >= 0 ||
+            lower.indexOf('favicon') >= 0 ||
+            lower.indexOf('/imgs/') >= 0 ||
+            lower.indexOf('/images/default') >= 0 ||
+            lower.indexOf('/images/avatars') >= 0 ||
+            lower.indexOf('/images/pets') >= 0 ||
+            lower.indexOf('/emoji/') >= 0 ||
+            lower.indexOf('rank') >= 0 ||
+            lower.indexOf('cover') >= 0 ||
+            lower.indexOf('logo') >= 0 ||
+            lower.indexOf('background') >= 0) return false;
+        return /lxmanga\.(?:xyz|space|me)/i.test(lower);
+    };
+
+    var trapWindowProp = function(propName) {
+        if (!propName || window.__lxTrappedProps && window.__lxTrappedProps[propName]) return;
+        window.__lxTrappedProps = window.__lxTrappedProps || {};
+        window.__lxTrappedProps[propName] = true;
+        var _captured = null;
+        try {
+            Object.defineProperty(window, propName, {
+                configurable: true,
+                enumerable: true,
+                get: function() { return _captured; },
+                set: function(val) {
+                    _captured = val;
+                    if (Array.isArray(val) && val.length > 0) {
+                        var urls = val.filter(function(item) { return typeof item === 'string' && isImageUrl(item); });
+                        if (urls.length > 0) {
+                            window.__lxCapturedUrls = (window.__lxCapturedUrls || []).concat(urls)
+                                .filter(function(url, index, all) { return all.indexOf(url) === index; });
+                        }
+                    }
+                }
+            });
+        } catch(e) {}
+    };
+
+    try {
+        var _origFunction = window.Function;
+        var _wrappedFunction = function() {
+            var body = arguments[arguments.length - 1];
+            if (typeof body === 'string') {
+                var match = body.match(/window\s*\[\s*[\'\"](_0x[a-f0-9]{6,})[\'\"]\s*\]/);
+                if (match) {
+                    trapWindowProp(match[1]);
+                }
+            }
+            return _origFunction.apply(this, arguments);
+        };
+        _wrappedFunction.prototype = _origFunction.prototype;
+        window.Function = _wrappedFunction;
+    } catch(e) {}
+
     var _propTrapInterval = setInterval(function() {
-        if (window.__lxPropTrapped) { clearInterval(_propTrapInterval); return; }
+        if (window.__lxCapturedUrls && window.__lxCapturedUrls.length > 0) { clearInterval(_propTrapInterval); return; }
         if (window.__lxHookInstalled && Date.now() - (window.__lxHookStartTime || Date.now()) > 10000) {
             clearInterval(_propTrapInterval);
             return;
@@ -117,47 +177,11 @@
                 var text = scripts[i].textContent || '';
                 var match = text.match(/window\s*\[\s*[\'\"](_0x[a-f0-9]{6,})[\'\"]\s*\]/);
                 if (match) {
-                    window.__lxPropTrapped = true;
-                    var _captured = null;
-                    try {
-                        Object.defineProperty(window, match[1], {
-                            configurable: true, enumerable: true,
-                            get: function() { return _captured; },
-                            set: function(val) {
-                                _captured = val;
-                                if (Array.isArray(val) && val.length > 0 && !window.__lxCapturedUrls) {
-                                    var urls = val.filter(function(item) { return typeof item === 'string' && isImageUrl(item); });
-                                    if (urls.length > 0) {
-                                        window.__lxCapturedUrls = (window.__lxCapturedUrls || []).concat(urls)
-                                            .filter(function(url, index, all) { return all.indexOf(url) === index; });
-                                    }
-                                }
-                            }
-                        });
-                    } catch(e) {}
-                    clearInterval(_propTrapInterval);
-                    break;
+                    trapWindowProp(match[1]);
                 }
             }
         } catch(e) {}
     }, 50);
-
-    var isImageUrl = function(value) {
-        if (typeof value !== 'string' ||
-            (value.indexOf('http') !== 0 && value.indexOf('//') !== 0)) return false;
-
-        var lower = value.toLowerCase();
-        var isNormalPage = /\/page[_-]\d+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(value);
-        var isPuzzlePage = /^https?:\/\/s\d+\.lxmanga\.xyz\/.*\/\d+-[a-f0-9]+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(value);
-        return (isNormalPage || isPuzzlePage) &&
-            lower.indexOf('favicon') < 0 &&
-            lower.indexOf('/imgs/') < 0 &&
-            lower.indexOf('/images/') < 0 &&
-            lower.indexOf('cover') < 0 &&
-            lower.indexOf('logo') < 0 &&
-            lower.indexOf('background') < 0 &&
-            lower.indexOf('avatar') < 0;
-    };
 
     var _wrapFetch = function(fetchImpl) {
         var wrapped = function(input, init) {

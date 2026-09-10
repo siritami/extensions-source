@@ -78,42 +78,55 @@
         if (!window.__lxPollCount) window.__lxPollCount = 0;
         window.__lxPollCount++;
 
-        if (!window.__lxCapturedUrls && !window.__lxToken && !verificationActive &&
-            Date.now() - window.__lxPollStarted > 5000 && !window.__lxKgzFallbackTried) {
+        var isImageUrl = function(value) {
+            if (typeof value !== 'string' ||
+                (value.indexOf('http') !== 0 && value.indexOf('//') !== 0)) return false;
+
+            var lower = value.toLowerCase();
+            if (!/\.(?:jpe?g|png|webp)(?:[?#]|$)/i.test(lower)) return false;
+            if (lower.indexOf('avatar') >= 0 ||
+                lower.indexOf('favicon') >= 0 ||
+                lower.indexOf('/imgs/') >= 0 ||
+                lower.indexOf('/images/default') >= 0 ||
+                lower.indexOf('/images/avatars') >= 0 ||
+                lower.indexOf('/images/pets') >= 0 ||
+                lower.indexOf('/emoji/') >= 0 ||
+                lower.indexOf('rank') >= 0 ||
+                lower.indexOf('cover') >= 0 ||
+                lower.indexOf('logo') >= 0 ||
+                lower.indexOf('background') >= 0) return false;
+            return /lxmanga\.(?:xyz|space|me)/i.test(lower);
+        };
+
+        if (!window.__lxCapturedUrls || window.__lxCapturedUrls.length === 0) {
             var kgzScripts = Array.from(document.querySelectorAll('script'))
                 .filter(function(script) {
-                    return !script.src && (script.textContent || '').indexOf('KGZ1') >= 0;
+                    var text = script.textContent || '';
+                    return !script.src && text.length < 50000 &&
+                        (text.indexOf('KGZ1') >= 0 || (text.indexOf('concat(') >= 0 && text.indexOf('TextDecoder') >= 0));
                 });
 
-            var isCfChallenge = location.href.indexOf('__cf_chl_rt_tk') >= 0 ||
-                (document.querySelectorAll('[id*="turnstile"], iframe[src*="challenges.cloudflare.com"]').length > 0 && kgzScripts.length === 0);
-            if (isCfChallenge) {
-                window.__lxKgzFallbackTried = true;
-            } else if (kgzScripts.length === 0 && Date.now() - window.__lxPollStarted > 10000) {
-                window.__lxKgzFallbackTried = true;
-            }
-
             if (kgzScripts.length > 0) {
-                window.__lxKgzFallbackTried = true;
-                kgzScripts.forEach(function(script, index) {
+                kgzScripts.forEach(function(script) {
                     try {
                         (0, eval)(script.textContent || '');
-                        Object.keys(window).forEach(function(key) {
-                            if (!/^_0x[a-f0-9]+$/i.test(key) || !Array.isArray(window[key])) return;
-
-                            var captured = window[key].filter(function(url) {
-                                if (typeof url !== 'string') return false;
-                                var normal = /\/page[_-]\d+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(url);
-                                var puzzle = /^https?:\/\/s\d+\.lxmanga\.xyz\/.*\/\d+-[a-f0-9]+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(url);
-                                return normal || puzzle;
-                            });
-                            if (captured.length > 0) {
-                                window.__lxCapturedUrls = captured;
-                            }
-                        });
                     } catch(e) {}
                 });
             }
+
+            try {
+                Object.keys(window).forEach(function(key) {
+                    if (!/^_0x[a-f0-9]+$/i.test(key) || !Array.isArray(window[key])) return;
+
+                    var captured = window[key].filter(function(url) {
+                        return typeof url === 'string' && isImageUrl(url);
+                    });
+                    if (captured.length > 0) {
+                        window.__lxCapturedUrls = (window.__lxCapturedUrls || []).concat(captured)
+                            .filter(function(url, index, all) { return all.indexOf(url) === index; });
+                    }
+                });
+            } catch(e) {}
         }
         var verificationStarted = window.__lxVerificationStarted || 0;
         if (verificationActive && !verificationStarted) {
@@ -145,7 +158,8 @@
                 'input[name="cf-turnstile-response"], input[id*="turnstile"][id$="_response"], input[id*="cf-chl-widget"][id$="_response"]'
             );
             var hasTurnstileResponse = turnstileResponse && turnstileResponse.value;
-            var canConfirm = hasTurnstileResponse || window.__lxToken;
+            var currentToken = window.__lxToken || (document.querySelector('meta[name="action_token"]') && document.querySelector('meta[name="action_token"]').getAttribute('content'));
+            var canConfirm = hasTurnstileResponse || Boolean(currentToken);
             var btns = activeDialog ? activeDialog.querySelectorAll('.swal2-confirm') : [];
             for (var bi = 0; bi < btns.length; bi++) {
                 var b = btns[bi];
@@ -156,7 +170,7 @@
                         txt.indexOf('continue') >= 0 ||
                         txt.indexOf('đọc') >= 0 ||
                         txt.indexOf('xem') >= 0 ||
-                        (window.__lxToken && btns.length === 1);
+                        (currentToken && btns.length === 1);
                     if (isVerificationButton) {
                         b.click();
                         window._lxClicked = true;
@@ -167,7 +181,7 @@
             }
         }
 
-        if (window._lxClicked && activeDialog && window.__lxToken &&
+        if (window._lxClicked && activeDialog && currentToken &&
             Date.now() - (window.__lxClickedAt || 0) > 2500) {
             window._lxClicked = false;
         }
@@ -203,9 +217,7 @@
         }
 
         urls = urls.filter(function(url, index) {
-            var isNormalPage = /\/page[_-]\d+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(url || '');
-            var isPuzzlePage = /^https?:\/\/s\d+\.lxmanga\.xyz\/.*\/\d+-[a-f0-9]+\.(?:jpg|jpeg|png|webp)(?:[?#]|$)/i.test(url || '');
-            return url && urls.indexOf(url) === index && (isNormalPage || isPuzzlePage);
+            return url && urls.indexOf(url) === index && isImageUrl(url);
         }).sort(function(a, b) {
             var pageA = parseInt((a.match(/(?:page[_-]|\/)(\d+)(?:-|\.)/i) || [])[1] || '0', 10);
             var pageB = parseInt((b.match(/(?:page[_-]|\/)(\d+)(?:-|\.)/i) || [])[1] || '0', 10);
@@ -223,6 +235,10 @@
             window.__lxStableSince = Date.now();
         }
         var stableLongEnough = window.__lxStableSince && Date.now() - window.__lxStableSince >= 2500;
+        var containerCount = document.querySelectorAll('#image-container').length;
+        var hasAllCaptured = Boolean(window.__lxCapturedUrls && window.__lxCapturedUrls.length > 0);
+        var containerCountSatisfied = containerCount > 0 && urls.length >= containerCount;
+        var isReady = hasAllCaptured || containerCountSatisfied || stableLongEnough;
 
         if (!token && urls.length > 0 && stableLongEnough && !verificationActive &&
             visibleDialogs.length === 0 && !window.__lxManualTokenTried) {
@@ -344,7 +360,7 @@
             return JSON.stringify({token: '', urls: [], reloading: true});
         }
 
-        if (token && urls.length > 0 && stableLongEnough) {
+        if (token && urls.length > 0 && isReady) {
             window.__lxVerificationStarted = 0;
             window.__lxVerificationReloads = 0;
             try { localStorage.removeItem(stateKey); } catch(e) {}
