@@ -34,7 +34,7 @@ on:
         description: 'Extension name'
         required: true
         type: string
-        default: 'hentaicube'
+        default: ''
 
 permissions: {}
 
