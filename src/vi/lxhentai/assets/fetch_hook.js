@@ -1,6 +1,10 @@
 // Fetch hook - intercepts /get_token, image URLs, and unblocks Turnstile
 // Injected via onPageStarted BEFORE any page scripts run
 (function() {
+    // The site blocks reader initialization when its unrelated ad check fails.
+    window.skipAdblockCheck = true;
+    window.adblockDetected = false;
+
     var defineEarlyCallback = function(name) {
         if (!/^[A-Za-z_$][\w$]{4,31}$/.test(name)) return;
         if (typeof window[name] === 'undefined') {
