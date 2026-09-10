@@ -162,6 +162,10 @@
         });
 
         var token = window.__lxToken || null;
+        if (!token) {
+            var tokenMeta = document.querySelector('meta[name="action_token"]');
+            token = tokenMeta && tokenMeta.getAttribute('content') || null;
+        }
         var currentCount = urls.length;
         if (currentCount !== window.__lxLastUrlCount) {
             window.__lxLastUrlCount = currentCount;

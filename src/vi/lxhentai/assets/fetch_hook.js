@@ -7,6 +7,14 @@
             window[name] = function() {};
         }
     };
+    window.addEventListener('error', function(event) {
+        var message = event && event.message || '';
+        var match = message.match(/^([A-Za-z_$][\w$]*) is not defined$/);
+        if (match) {
+            defineEarlyCallback(match[1]);
+            event.preventDefault();
+        }
+    }, true);
     var scanEarlyCallbacks = function(root) {
         try {
             var elements = [];
