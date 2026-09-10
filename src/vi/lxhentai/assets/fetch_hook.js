@@ -199,7 +199,9 @@
             }
 
             if (token && isImageUrl(url)) {
-                window.__lxToken = token;
+                if (typeof token === 'string' && /^[a-f0-9]{64}$/i.test(token.trim())) {
+                    window.__lxToken = token.trim();
+                }
                 if (window.__lxImageUrls.indexOf(url) < 0) {
                     window.__lxImageUrls.push(url);
                 }

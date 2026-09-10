@@ -329,8 +329,8 @@ abstract class LxHentai : KeiSource() {
             throw Exception("Không đọc được thông tin token ảnh")
         }
 
-        val chapterUrl = rawMetadata.substring(0, separatorIndex)
-        val actionToken = rawMetadata.substring(separatorIndex + 1)
+        val chapterUrl = rawMetadata.substring(0, separatorIndex).trim()
+        val actionToken = rawMetadata.substring(separatorIndex + 1).trim()
         return chapterUrl to actionToken
     }
 

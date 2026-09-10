@@ -40,7 +40,7 @@
             return {
                 url: location.href,
                 title: document.title,
-                token: Boolean(window.__lxToken || document.querySelector('meta[name="action_token"]')),
+                token: Boolean(window.__lxToken && /^[a-f0-9]{64}$/i.test(window.__lxToken.trim())),
                 capturedUrls: window.__lxCapturedUrls && window.__lxCapturedUrls.length || 0,
                 imageUrls: window.__lxImageUrls && window.__lxImageUrls.length || 0,
                 readerScript: Array.from(document.scripts).some(function(script) {
@@ -224,11 +224,25 @@
             return pageA - pageB;
         });
 
-        var token = window.__lxToken || null;
-        if (!token) {
-            var tokenMeta = document.querySelector('meta[name="action_token"]');
-            token = tokenMeta && tokenMeta.getAttribute('content') || null;
-        }
+        var isValidActionToken = function(val) {
+            return typeof val === 'string' && /^[a-f0-9]{64}$/i.test(val.trim());
+        };
+        var token = isValidActionToken(window.__lxToken) ? window.__lxToken.trim() : null;
+
+        var getCsrfToken = function() {
+            var metaAction = document.querySelector('meta[name="action_token"]');
+            var metaCsrf = document.querySelector('meta[name="csrf-token"]');
+            var fromMeta = (metaAction && metaAction.getAttribute('content')) ||
+                           (metaCsrf && metaCsrf.getAttribute('content'));
+            if (fromMeta) return fromMeta.trim();
+            if (typeof window.csrf_token === 'string' && window.csrf_token) return window.csrf_token.trim();
+            var xsrfMatch = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
+            if (xsrfMatch) {
+                try { return decodeURIComponent(xsrfMatch[1]); } catch(e) {}
+            }
+            return '';
+        };
+
         var currentCount = urls.length;
         if (currentCount !== window.__lxLastUrlCount) {
             window.__lxLastUrlCount = currentCount;
@@ -240,19 +254,9 @@
         var containerCountSatisfied = containerCount > 0 && urls.length >= containerCount;
         var isReady = hasAllCaptured || containerCountSatisfied || stableLongEnough;
 
-        if (!token && urls.length > 0 && stableLongEnough && !verificationActive &&
-            visibleDialogs.length === 0 && !window.__lxManualTokenTried) {
-            window.__lxManualTokenTried = true;
-
-            var csrfMeta = document.querySelector('meta[name="csrf-token"]');
-            var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
-            if (!csrfToken) {
-                var xsrfMatch = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
-                if (xsrfMatch) {
-                    try { csrfToken = decodeURIComponent(xsrfMatch[1]); } catch(e) {}
-                }
-            }
-
+        if (!token && !window.__lxGetTokenCalling && !verificationActive) {
+            window.__lxGetTokenCalling = true;
+            var csrfToken = getCsrfToken();
             var fetchFn = window.fetch || window.__lxRealFetch;
             var headers = {
                 'X-Requested-With': 'XMLHttpRequest',
@@ -270,8 +274,9 @@
                 }).then(function(resp) {
                     return resp.json();
                 }).then(function(data) {
-                    if (data && data.action_token) {
-                        window.__lxToken = data.action_token;
+                    window.__lxGetTokenCalling = false;
+                    if (data && data.action_token && isValidActionToken(data.action_token)) {
+                        window.__lxToken = data.action_token.trim();
                     } else if (data && (data.require_verification || data.is_bot)) {
                         window.__lxCaptchaShown = true;
                         window.getTokenRequestInProgress = true;
@@ -298,8 +303,8 @@
                                         window.__lxTurnstileResponse = response;
                                         var postFetch = window.__lxRealFetch || window.fetch;
                                         var postHeaders = { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json', 'Accept': 'application/json' };
-                                        var postCsrf = document.querySelector('meta[name="csrf-token"]');
-                                        if (postCsrf) postHeaders['X-CSRF-TOKEN'] = postCsrf.getAttribute('content');
+                                        var postCsrf = getCsrfToken();
+                                        if (postCsrf) postHeaders['X-CSRF-TOKEN'] = postCsrf;
                                         var postBody = JSON.stringify({ 'cf-turnstile-response': response });
                                         postFetch('/get_token', {
                                             method: 'POST',
@@ -309,8 +314,8 @@
                                         }).then(function(resp) {
                                             return resp.json();
                                         }).then(function(postData) {
-                                            if (postData && postData.action_token) {
-                                                window.__lxToken = postData.action_token;
+                                            if (postData && postData.action_token && isValidActionToken(postData.action_token)) {
+                                                window.__lxToken = postData.action_token.trim();
                                                 window.getTokenRequestInProgress = false;
                                             } else {
                                                 var formBody = 'cf-turnstile-response=' + encodeURIComponent(response);
@@ -320,8 +325,8 @@
                                                     headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
                                                     body: formBody
                                                 }).then(function(r2) { return r2.json(); }).then(function(d2) {
-                                                    if (d2 && d2.action_token) {
-                                                        window.__lxToken = d2.action_token;
+                                                    if (d2 && d2.action_token && isValidActionToken(d2.action_token)) {
+                                                        window.__lxToken = d2.action_token.trim();
                                                         window.getTokenRequestInProgress = false;
                                                     }
                                                 }).catch(function() {});
@@ -346,8 +351,12 @@
                             }
                         } catch(e3) {}
                     }
-                }).catch(function() {});
-            } catch(e) {}
+                }).catch(function() {
+                    window.__lxGetTokenCalling = false;
+                });
+            } catch(e) {
+                window.__lxGetTokenCalling = false;
+            }
         }
 
         if (!token && urls.length > 0 && !verificationActive && visibleDialogs.length === 0 &&
