@@ -33,7 +33,13 @@ rootProject.name = "Keiyoushi"
 /**
  * Add or remove modules to load as needed for local development here.
  */
-loadAllIndividualExtensions()
+val extensionLanguage = providers.gradleProperty("extensionLanguage").orNull
+if (extensionLanguage == null) {
+    loadAllIndividualExtensions()
+    // loadIndividualExtension("all", "mangadex")
+} else {
+    loadLanguageExtensions(extensionLanguage)
+}
 // loadIndividualExtension("all", "mangadex")
 
 /**
@@ -56,6 +62,11 @@ fun loadAllIndividualExtensions() {
         dir.eachDir { subdir ->
             include("src:${dir.name}:${subdir.name}")
         }
+    }
+}
+fun loadLanguageExtensions(lang: String) {
+    File(rootDir, "src/$lang").eachDir { dir ->
+        include("src:$lang:${dir.name}")
     }
 }
 fun loadIndividualExtension(lang: String, name: String) {
