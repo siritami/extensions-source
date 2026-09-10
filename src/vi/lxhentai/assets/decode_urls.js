@@ -80,11 +80,7 @@
             if (reloadButton && reloadCount < 2) {
                 retryState.dialogReloads = reloadCount + 1;
                 writeRetryState(retryState);
-                if (typeof window.__lxClick === 'function') {
-                    window.__lxClick(reloadButton);
-                } else {
-                    reloadButton.click();
-                }
+                reloadButton.click();
                 return JSON.stringify({token: '', urls: [], reloading: true});
             }
         }
@@ -111,11 +107,7 @@
                         txt.indexOf('xem') >= 0 ||
                         (window.__lxToken && btns.length === 1);
                     if (isVerificationButton) {
-                        if (typeof window.__lxClick === 'function') {
-                            window.__lxClick(b);
-                        } else {
-                            b.click();
-                        }
+                        b.click();
                         window._lxClicked = true;
                         window.__lxClickedAt = Date.now();
                         break;
