@@ -1,7 +1,7 @@
 // Fetch hook - intercepts /get_token, image URLs, and unblocks Turnstile
 // Injected via onPageStarted BEFORE any page scripts run
 (function() {
-    // --- Cloudflare Turnstile Solver (ported from Nekori) ---
+    // Cloudflare Turnstile Click Solver (ported from Nekori https://github.com/Yuneko-dev/Nekori)
     if (!window.__lxTurnstileSolverInstalled) {
         window.__lxTurnstileSolverInstalled = true;
 
@@ -172,7 +172,6 @@
         }, 100);
     }
 
-    // The site blocks reader initialization when its unrelated ad check fails.
     window.skipAdblockCheck = true;
     window.adblockDetected = false;
 
