@@ -122,8 +122,8 @@ abstract class MoeTruyen : KeiSource() {
         val status = filters.firstInstanceOrNull<StatusFilter>()?.toUriPart()?.ifEmpty { null }
         val sort = filters.firstInstanceOrNull<SortFilter>()?.toUriPart()?.ifEmpty { null }
         val genres = filters.firstInstanceOrNull<GenreFilter>()?.state.orEmpty()
-        val includedGenres = genres.filter { it.isIncluded }
-        val excludedGenres = genres.filter { it.isExcluded }
+        val includedGenres = genres.filter { it.isIncluded() }
+        val excludedGenres = genres.filter { it.isExcluded() }
         val hasFilter = status != null || (sort != null && sort != "updated_desc") || includedGenres.isNotEmpty() || excludedGenres.isNotEmpty()
 
         if (query.isBlank() && !hasFilter) {

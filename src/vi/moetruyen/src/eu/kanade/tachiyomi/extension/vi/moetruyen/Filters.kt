@@ -51,10 +51,7 @@ class SortFilter :
         ),
     )
 
-class GenreTriStateFilter(name: String, val id: String) : Filter.TriState(name) {
-    val isIncluded: Boolean get() = state == STATE_INCLUDE
-    val isExcluded: Boolean get() = state == STATE_EXCLUDE
-}
+class GenreTriStateFilter(name: String, val id: String) : Filter.TriState(name)
 
 class GenreFilter(genres: List<GenreOption>) :
     Filter.Group<GenreTriStateFilter>(
