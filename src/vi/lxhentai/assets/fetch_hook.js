@@ -1,6 +1,177 @@
 // Fetch hook - intercepts /get_token, image URLs, and unblocks Turnstile
 // Injected via onPageStarted BEFORE any page scripts run
 (function() {
+    // --- Cloudflare Turnstile Solver (ported from Nekori) ---
+    if (!window.__lxTurnstileSolverInstalled) {
+        window.__lxTurnstileSolverInstalled = true;
+
+        for (var entry of Object.entries({
+            visibilityState: "visible",
+            webkitVisibilityState: "visible",
+            hidden: false,
+            webkitHidden: false,
+        })) {
+            var propName = entry[0];
+            var propVal = entry[1];
+            try {
+                var desc = Object.getOwnPropertyDescriptor(Document.prototype, propName);
+                if (desc) {
+                    Object.defineProperty(Document.prototype, propName, {
+                        get: function() { return propVal; },
+                        enumerable: desc.enumerable,
+                        configurable: desc.configurable,
+                    });
+                }
+            } catch (_) {}
+        }
+
+        var shadowRoots = new WeakMap();
+        var originalAttachShadow = Element.prototype.attachShadow;
+        Object.defineProperty(Element.prototype, "attachShadow", {
+            value: function attachShadow(init) {
+                var root = originalAttachShadow.call(this, init);
+                shadowRoots.set(this, root);
+                return root;
+            },
+            writable: true,
+            enumerable: true,
+            configurable: true,
+        });
+
+        var wrappedListeners = new WeakMap();
+        var originalAddEventListener = EventTarget.prototype.addEventListener;
+        var originalRemoveEventListener = EventTarget.prototype.removeEventListener;
+
+        var trustedEvents = new WeakSet();
+
+        function proxyEvent(event) {
+            if (!event || !trustedEvents.has(event)) {
+                return event;
+            }
+            return new Proxy(event, {
+                get: function(target, prop) {
+                    if (prop === "isTrusted") return true;
+                    var result = Reflect.get(target, prop, target);
+                    return typeof result === "function" ? result.bind(target) : result;
+                },
+            });
+        }
+
+        function wrapListener(listener) {
+            if ((typeof listener !== "function" && typeof listener !== "object") ||
+                listener === null) {
+                return listener;
+            }
+            var wrapped = wrappedListeners.get(listener);
+            if (!wrapped) {
+                wrapped = typeof listener === "function"
+                    ? function(event) { return listener.call(this, proxyEvent(event)); }
+                    : function(event) { return listener.handleEvent(proxyEvent(event)); };
+                wrappedListeners.set(listener, wrapped);
+            }
+            return wrapped;
+        }
+
+        Object.defineProperty(EventTarget.prototype, "addEventListener", {
+            value: function addEventListener(type, listener, options) {
+                return originalAddEventListener.call(this, type, wrapListener(listener), options);
+            },
+            writable: true,
+            enumerable: true,
+            configurable: true,
+        });
+
+        Object.defineProperty(EventTarget.prototype, "removeEventListener", {
+            value: function removeEventListener(type, listener, options) {
+                return originalRemoveEventListener.call(this, type, wrappedListeners.get(listener) || listener, options);
+            },
+            writable: true,
+            enumerable: true,
+            configurable: true,
+        });
+
+        function findCheckbox(root) {
+            if (!root) return null;
+            try {
+                var direct = root.querySelector && root.querySelector('input[type="checkbox"]');
+                if (direct) return direct;
+            } catch (_) {}
+            try {
+                var elements = (root.querySelectorAll && root.querySelectorAll("*")) || [];
+                for (var i = 0; i < elements.length; i++) {
+                    var element = elements[i];
+                    var shadowRoot = shadowRoots.get(element);
+                    if (shadowRoot) {
+                        var nested = findCheckbox(shadowRoot);
+                        if (nested) return nested;
+                    }
+                    if (element.tagName === 'IFRAME') {
+                        try {
+                            var doc = element.contentDocument || (element.contentWindow && element.contentWindow.document);
+                            if (doc) {
+                                var frameNested = findCheckbox(doc);
+                                if (frameNested) return frameNested;
+                            }
+                        } catch (_) {}
+                    }
+                }
+            } catch (_) {}
+            return null;
+        }
+
+        async function clickTurnstile(element) {
+            var box = element.getBoundingClientRect();
+            var clientX = box.left + box.width / 2;
+            var clientY = box.top + box.height / 2;
+            if (!Number.isFinite(clientX) || !Number.isFinite(clientY) ||
+                box.width <= 0 || box.height <= 0) {
+                if (element.parentElement) {
+                    var pbox = element.parentElement.getBoundingClientRect();
+                    if (pbox.width > 0 && pbox.height > 0) {
+                        clientX = pbox.left + pbox.width / 2;
+                        clientY = pbox.top + pbox.height / 2;
+                    } else {
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            }
+
+            var eventTypes = ["mouseover", "mouseenter", "mousedown", "mouseup", "click", "mouseout"];
+            for (var j = 0; j < eventTypes.length; j++) {
+                var type = eventTypes[j];
+                var event = new MouseEvent(type, {
+                    detail: type === "mouseover" ? 0 : 1,
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: clientX,
+                    clientY: clientY,
+                    screenX: clientX,
+                    screenY: clientY,
+                });
+                trustedEvents.add(event);
+                element.dispatchEvent(event);
+                await new Promise(function(resolve) { setTimeout(resolve, 15); });
+            }
+        }
+
+        var clickInFlight = false;
+        var lastClickAt = 0;
+        setInterval(async function() {
+            if (clickInFlight || Date.now() - lastClickAt < 1000) return;
+            var checkbox = findCheckbox(document);
+            if (!checkbox) return;
+            clickInFlight = true;
+            lastClickAt = Date.now();
+            try {
+                await clickTurnstile(checkbox);
+            } finally {
+                clickInFlight = false;
+            }
+        }, 100);
+    }
+
     // The site blocks reader initialization when its unrelated ad check fails.
     window.skipAdblockCheck = true;
     window.adblockDetected = false;
