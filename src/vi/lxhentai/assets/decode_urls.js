@@ -2,57 +2,6 @@
 // Runs in evaluateJs every second until both token and URLs are ready
 (function() {
     try {
-        var debugErrors = window.__lxDebugErrors || [];
-        var debugErrorHandler = function(event) {
-            var message = event && (event.message || event.error && event.error.message) || String(event || 'Unknown error');
-            if (debugErrors.indexOf(message) < 0) debugErrors.push(message);
-            window.__lxDebugErrors = debugErrors.slice(-10);
-        };
-        if (!window.__lxDebugHandlerInstalled) {
-            window.addEventListener('error', debugErrorHandler, true);
-            window.addEventListener('unhandledrejection', function(event) {
-                debugErrorHandler(event.reason || event);
-            });
-            window.__lxDebugHandlerInstalled = true;
-        }
-
-        var getDebugState = function() {
-            var containers = document.querySelectorAll('#image-container').length;
-            var canvases = document.querySelectorAll('canvas').length;
-            var nonBlankCanvases = 0;
-            try {
-                document.querySelectorAll('canvas').forEach(function(canvas) {
-                    if (!canvas.width || !canvas.height) return;
-                    var sample = canvas.getContext('2d').getImageData(
-                        0,
-                        0,
-                        Math.min(canvas.width, 10),
-                        Math.min(canvas.height, 10)
-                    ).data;
-                    if (Array.from(sample).some(function(value) { return value !== 0; })) {
-                        nonBlankCanvases++;
-                    }
-                });
-            } catch (error) {
-                debugErrorHandler(error);
-            }
-
-            return {
-                url: location.href,
-                title: document.title,
-                token: Boolean(window.__lxToken && /^[a-f0-9]{64}$/i.test(window.__lxToken.trim())),
-                capturedUrls: window.__lxCapturedUrls && window.__lxCapturedUrls.length || 0,
-                imageUrls: window.__lxImageUrls && window.__lxImageUrls.length || 0,
-                readerScript: Array.from(document.scripts).some(function(script) {
-                    return /\/js\/read\.js(?:\?|$)/i.test(script.src || '');
-                }),
-                readerContainers: containers,
-                canvases: canvases,
-                nonBlankCanvases: nonBlankCanvases,
-                debugErrors: (window.__lxDebugErrors || []).slice(-10)
-            };
-        };
-
         var stateKey = '__lx_retry_' + location.pathname;
         var readRetryState = function() {
             try {
@@ -376,24 +325,8 @@
             return JSON.stringify({token: token, urls: urls});
         }
 
-        var debugState = getDebugState();
-        if (debugState.debugErrors.length > 0 || (debugState.readerContainers > 0 && debugState.capturedUrls === 0)) {
-            console.error('[LxHentai] decode_urls debug:', JSON.stringify(debugState));
-        }
-        return JSON.stringify({token: token || '', urls: urls || [], ready: false, debug: debugState});
+        return JSON.stringify({token: token || '', urls: urls || [], ready: false});
     } catch(e) {
-        var fatalDebug = {
-            error: String(e),
-            stack: e && e.stack || '',
-            url: location.href,
-            token: Boolean(window.__lxToken || document.querySelector('meta[name="action_token"]')),
-            capturedUrls: window.__lxCapturedUrls && window.__lxCapturedUrls.length || 0,
-            imageUrls: window.__lxImageUrls && window.__lxImageUrls.length || 0,
-            readerContainers: document.querySelectorAll('#image-container').length,
-            canvases: document.querySelectorAll('canvas').length,
-            debugErrors: (window.__lxDebugErrors || []).slice(-10)
-        };
-        console.error('[LxHentai] decode_urls fatal:', JSON.stringify(fatalDebug));
-        return JSON.stringify({token: '', urls: [], error: String(e), debug: fatalDebug});
+        return JSON.stringify({token: '', urls: [], error: String(e)});
     }
 })();
