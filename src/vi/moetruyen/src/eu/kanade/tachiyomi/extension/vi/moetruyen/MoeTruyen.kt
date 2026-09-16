@@ -342,6 +342,12 @@ abstract class MoeTruyen : KeiSource() {
                         }
                     }
                     "done" -> resolve(Unit)
+                    "diagnostic" -> {
+                        val message = payload["message"]?.jsonPrimitive?.content ?: "IMGX diagnostic"
+                        val pages = payload["pages"]?.jsonPrimitive?.content ?: "unknown"
+                        val fingerprint = payload["fingerprint"]?.toString() ?: "unknown"
+                        Log.e(LOG_TAG, "IMGX diagnostic: $message; pages=$pages; fingerprint=$fingerprint")
+                    }
                     "error" -> {
                         val message = payload["message"]?.jsonPrimitive?.content ?: "IMGX reader failed"
                         val stack = payload["stack"]?.jsonPrimitive?.content ?: "none"

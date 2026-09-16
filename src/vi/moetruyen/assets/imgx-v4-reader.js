@@ -32,6 +32,9 @@
     const hexPreview = (bytes, length = 16) => [...bytes.slice(0, length)]
         .map((byte) => byte.toString(16).padStart(2, "0"))
         .join("");
+    const digest = async (bytes) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("");
     const fnv1a = (bytes) => {
         let hash = 2166136261;
         for (const byte of bytes) {
@@ -158,6 +161,7 @@
 
         const decoderUrl = "__IMGX_DECODER_URL__";
         const { decodeImgxV4 } = await import(decoderUrl);
+        const decodedFingerprints = [];
 
         for (let order = 0; order < pageIndexes.length; order++) {
             const page = pages.get(pageIndexes[order]);
@@ -191,12 +195,28 @@
                         `stack=${error?.stack || "none"}`,
                     ].join("; "));
                 }
+                decodedFingerprints.push({
+                    page: order + 1,
+                    storageKey: page.storageKey,
+                    bytes: webp.byteLength,
+                    head: hexPreview(webp),
+                    sha256: await digest(webp),
+                });
                 post({ type: "page", index: order, data: toBase64(webp) });
                 webp.fill(0);
             } finally {
                 encrypted.fill(0);
                 key?.fill(0);
             }
+        }
+        const uniqueFingerprints = new Set(decodedFingerprints.map((entry) => entry.sha256));
+        if (decodedFingerprints.length > 1 && uniqueFingerprints.size === 1) {
+            post({
+                type: "diagnostic",
+                message: "IMGX decoded pages are identical; possible site lock/banner response",
+                pages: decodedFingerprints.length,
+                fingerprint: decodedFingerprints[0],
+            });
         }
         post({ type: "done", count: pageIndexes.length });
     } catch (error) {
