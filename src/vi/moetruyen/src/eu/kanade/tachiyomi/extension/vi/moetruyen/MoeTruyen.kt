@@ -317,6 +317,10 @@ abstract class MoeTruyen : KeiSource() {
             ?.get(1)
             ?: throw IllegalStateException("IMGX v4 decoder missing")
         val decoderUrl = "$baseUrl/chunks/$decoderPath"
+        val readerScriptForWebView = readerScript.replace(
+            "window.__IMGX_RUNTIME__?.take()||null",
+            "null",
+        )
         val script = javaClass.getResource("/assets/imgx-v4-reader.js")?.readText()
             ?: throw IllegalStateException("imgx-v4-reader.js not found")
         val webViewScript = script.replace("__IMGX_DECODER_URL__", decoderUrl)
@@ -327,7 +331,7 @@ abstract class MoeTruyen : KeiSource() {
             blockImages = true
             interceptRequest { request ->
                 if (request.url.toString().substringBefore('?') == "$baseUrl/reader.js") {
-                    WebResourceResponse("application/javascript", "UTF-8", "".byteInputStream())
+                    WebResourceResponse("application/javascript", "UTF-8", readerScriptForWebView.byteInputStream())
                 } else {
                     null
                 }
