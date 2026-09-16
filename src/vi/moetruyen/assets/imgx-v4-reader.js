@@ -302,7 +302,7 @@
                 throw new Error(`IMGX page ${order + 1} HTTP ${encryptedResponse.status}`);
             }
             const payloadVersion = encrypted[4];
-            const key = payloadVersion === 4 ? unwrapV4Key(page.grant, page.storageKey) : null;
+            const key = page.grant?.wrappedV4Key ? unwrapV4Key(page.grant, page.storageKey) : null;
             const expectedUrl = page.downloadUrl.replace(/[?#].*$/, "");
             if (expectedUrl.endsWith(`/media/${page.storageKey}`) === false && expectedUrl.endsWith(page.storageKey) === false) {
                 throw new Error([
@@ -314,13 +314,22 @@
             }
             try {
                 let webp;
+                let intermediate;
                 try {
-                    webp = payloadVersion === 3
+                    intermediate = payloadVersion === 3
                         ? await decodeImgxV3(encrypted, page.grant, page.storageKey)
-                        : await decodeImgxV4(encrypted, key, {
+                        : encrypted;
+                    webp = payloadVersion === 3 && key
+                        ? await decodeImgxV4(intermediate, key, {
                             imageId: page.grant.imageId,
                             storageKey: page.storageKey,
-                        });
+                        })
+                        : payloadVersion === 3
+                            ? intermediate
+                            : await decodeImgxV4(intermediate, key, {
+                                imageId: page.grant.imageId,
+                                storageKey: page.storageKey,
+                            });
                     const magic = webp.byteLength >= 12 ? hexPreview(webp, 4) : "";
                     if (magic !== "52494646" || hexPreview(webp.slice(8), 4) !== "57454250") {
                         throw new Error(`IMGX v3 authentication failed; output is not WebP; magic=${magic}`);
@@ -335,6 +344,8 @@
                         `error=${error?.message || String(error)}`,
                         `stack=${error?.stack || "none"}`,
                     ].join("; "));
+                } finally {
+                    if (intermediate && intermediate !== encrypted && intermediate !== webp) intermediate.fill(0);
                 }
                 decodedFingerprints.push({
                     page: order + 1,
