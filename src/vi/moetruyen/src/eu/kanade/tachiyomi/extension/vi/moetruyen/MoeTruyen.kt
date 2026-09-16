@@ -381,8 +381,16 @@ abstract class MoeTruyen : KeiSource() {
 
     private fun webViewImageInterceptor() = Interceptor { chain ->
         val request = chain.request()
-        val data = webViewImages[request.url.toString()]
-            ?: return@Interceptor chain.proceed(request)
+        val requestUrl = request.url.toString()
+        val data = webViewImages[requestUrl]
+        if (request.url.host == WEBVIEW_IMAGE_HOST.toHttpUrl().host) {
+            if (data == null) {
+                Log.e(LOG_TAG, "IMGX image delivery miss: url=$requestUrl; cached=${webViewImages.size}")
+                return@Interceptor chain.proceed(request)
+            }
+            Log.e(LOG_TAG, "IMGX image delivery hit: url=$requestUrl; bytes=${data.size}")
+        }
+        if (data == null) return@Interceptor chain.proceed(request)
 
         Response.Builder()
             .request(request)
