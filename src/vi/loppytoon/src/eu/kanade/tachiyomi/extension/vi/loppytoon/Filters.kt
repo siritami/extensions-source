@@ -6,31 +6,50 @@ import kotlinx.serialization.Serializable
 
 fun getFilters(data: FilterData?): FilterList = FilterList(
     buildList {
-        data?.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
-            add(GenreFilter(genres.map { Genre(it.name, it.slug) }))
+        add(SortFilter())
+        if (data == null || data.groups.isEmpty()) {
+            add(Filter.Header("Nhấn 'Đặt lại' để tải bộ lọc"))
+            return@buildList
         }
-        data?.groups?.takeIf { it.isNotEmpty() }?.let { groups ->
-            add(GroupFilter(groups.map { ScanlationGroup(it.name, it.slug) }))
+        for (group in data.groups) {
+            add(GenreGroup(group.name, group.options.map { Genre(it.name, it.id) }))
         }
     },
 )
 
+open class UriPartFilter(
+    displayName: String,
+    private val vals: Array<Pair<String, String>>,
+    defaultValue: Int = 0,
+) : Filter.Select<String>(displayName, vals.map { it.first }.toTypedArray(), defaultValue) {
+    fun toUriPart() = vals[state].second
+}
+
+class SortFilter : UriPartFilter(
+    "Sắp xếp theo",
+    arrayOf(
+        "Mới nhất" to "newest",
+        "Xem nhiều nhất" to "views",
+    ),
+)
+
+class Genre(name: String, val id: String) : Filter.CheckBox(name)
+
+class GenreGroup(name: String, genres: List<Genre>) : Filter.Group<Genre>(name, genres)
+
 @Serializable
 class FilterData(
-    val genres: List<FilterOption>,
-    val groups: List<FilterOption>,
+    val groups: List<FilterGroupData> = emptyList(),
 )
 
 @Serializable
-class FilterOption(
+class FilterGroupData(
     val name: String,
-    val slug: String,
+    val options: List<FilterOptionData> = emptyList(),
 )
 
-class Genre(name: String, val slug: String) : Filter.CheckBox(name)
-
-class GenreFilter(genres: List<Genre>) : Filter.Group<Genre>("Thể loại", genres)
-
-class ScanlationGroup(name: String, val slug: String) : Filter.CheckBox(name)
-
-class GroupFilter(groups: List<ScanlationGroup>) : Filter.Group<ScanlationGroup>("Nhóm dịch", groups)
+@Serializable
+class FilterOptionData(
+    val name: String,
+    val id: String,
+)
