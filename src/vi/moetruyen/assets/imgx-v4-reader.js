@@ -22,6 +22,83 @@
         atob(value.replace(/-/g, "+").replace(/_/g, "/")),
         (char) => char.charCodeAt(0),
     );
+    const openSealedPages = async (channelKeyPair, sealed, proof) => {
+        if (!sealed || sealed.version !== "imgx-reader-channel-v1") {
+            throw new Error("IMGX sealed page channel invalid");
+        }
+        if (typeof proof !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(proof)) {
+            throw new Error("IMGX channel proof invalid");
+        }
+        const serverPublicBytes = decodeBase64Url(sealed.publicKey);
+        if (serverPublicBytes.byteLength !== 65 || serverPublicBytes[0] !== 4) {
+            throw new Error("IMGX channel public key invalid");
+        }
+        const serverPublicKey = await crypto.subtle.importKey(
+            "raw",
+            serverPublicBytes,
+            { name: "ECDH", namedCurve: "P-256" },
+            false,
+            [],
+        );
+        const sharedSecret = new Uint8Array(await crypto.subtle.deriveBits(
+            { name: "ECDH", public: serverPublicKey },
+            channelKeyPair.privateKey,
+            256,
+        ));
+        try {
+            const hkdfBaseKey = await crypto.subtle.importKey(
+                "raw",
+                sharedSecret,
+                "HKDF",
+                false,
+                ["deriveKey"],
+            );
+            const channelKey = await crypto.subtle.deriveKey(
+                {
+                    name: "HKDF",
+                    hash: "SHA-256",
+                    salt: new TextEncoder().encode(proof),
+                    info: new TextEncoder().encode("imgx-reader-channel-v1"),
+                },
+                hkdfBaseKey,
+                { name: "AES-GCM", length: 256 },
+                false,
+                ["decrypt"],
+            );
+            const iv = decodeBase64Url(sealed.iv);
+            const ciphertext = decodeBase64Url(sealed.ciphertext);
+            const publicKeyBytes = new Uint8Array(await crypto.subtle.exportKey(
+                "raw",
+                channelKeyPair.publicKey,
+            ));
+            const additionalData = new TextEncoder().encode(JSON.stringify([
+                "imgx-reader-channel-v1",
+                toBase64Url(publicKeyBytes),
+                sealed.publicKey,
+                proof,
+            ]));
+            const plaintext = new Uint8Array(await crypto.subtle.decrypt(
+                { name: "AES-GCM", iv, additionalData, tagLength: 128 },
+                channelKey,
+                ciphertext,
+            ));
+            try {
+                const pages = JSON.parse(new TextDecoder().decode(plaintext));
+                if (!Array.isArray(pages)) throw new Error("IMGX sealed pages invalid");
+                return pages;
+            } finally {
+                plaintext.fill(0);
+                ciphertext.fill(0);
+                iv.fill(0);
+            }
+        } finally {
+            sharedSecret.fill(0);
+        }
+    };
+    const toBase64Url = (bytes) => btoa(String.fromCharCode(...bytes))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
     const toBase64 = (bytes) => {
         const chunks = [];
         for (let offset = 0; offset < bytes.byteLength; offset += 0x8000) {
@@ -155,8 +232,15 @@
         if (!root) throw new Error("IMGX reader metadata missing");
 
         const media = JSON.parse(decodeURIComponent(root.dataset.readerImgxMedia || "%5B%5D"))
-            .filter((page) => page.storageKey !== "0.js" && !page.downloadUrl?.endsWith("/0.js"))
-            .sort((left, right) => left.pageNumber - right.pageNumber);
+            .filter((page) => {
+                const storageKey = String(page.storageKey || "");
+                const downloadUrl = String(page.downloadUrl || "");
+                return Number.isSafeInteger(Number(page.pageIndex)) &&
+                    storageKey.startsWith("chapters/") &&
+                    !storageKey.endsWith("/0.js") &&
+                    !downloadUrl.endsWith("/0.js");
+            })
+            .sort((left, right) => Number(left.pageIndex) - Number(right.pageIndex));
         const pageIndexes = media
             .map((page) => Number(page.pageIndex))
             .filter(Number.isSafeInteger);
@@ -169,7 +253,18 @@
         for (let offset = 0; offset < pageIndexes.length; offset += 10) {
             const indexes = pageIndexes.slice(offset, offset + 10);
             const batch = await runtime.requestPageAccess(indexes);
-            batch.forEach((page) => pages.set(page.pageIndex, page));
+            batch.forEach((page) => {
+                const expected = media.find((entry) => Number(entry.pageIndex) === Number(page.pageIndex));
+                if (!expected || page.storageKey !== expected.storageKey) {
+                    throw new Error([
+                        "IMGX grant mismatch",
+                        `pageIndex=${page.pageIndex}`,
+                        `expected=${expected?.storageKey || "missing"}`,
+                        `actual=${page.storageKey || "missing"}`,
+                    ].join("; "));
+                }
+                pages.set(Number(page.pageIndex), page);
+            });
         }
 
         const decoderUrl = "__IMGX_DECODER_URL__";
