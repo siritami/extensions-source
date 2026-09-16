@@ -38,8 +38,8 @@
             hexPreview(bytes.slice(12), 4) !== "56503858") {
             return "unknown";
         }
-        const width = 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16);
-        const height = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16);
+        const width = 1 + bytes[20] + (bytes[21] << 8) + (bytes[22] << 16);
+        const height = 1 + bytes[23] + (bytes[24] << 8) + (bytes[25] << 16);
         return `${width}x${height}`;
     };
     const imgxDimensions = (bytes) => bytes.byteLength >= 13
