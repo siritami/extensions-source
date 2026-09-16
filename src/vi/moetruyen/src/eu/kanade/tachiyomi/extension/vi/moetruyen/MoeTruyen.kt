@@ -397,6 +397,9 @@ abstract class MoeTruyen : KeiSource() {
             .protocol(Protocol.HTTP_1_1)
             .code(200)
             .message("OK")
+            .header("Content-Type", "image/webp")
+            .header("Content-Length", data.size.toString())
+            .header("Cache-Control", "no-store")
             .body(data.toResponseBody("image/webp".toMediaType()))
             .build()
     }
