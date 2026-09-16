@@ -246,10 +246,18 @@
             .filter(Number.isSafeInteger);
         if (!pageIndexes.length) throw new Error("IMGX page indexes missing");
 
+        const initialPages = JSON.parse(decodeURIComponent(root.dataset.readerImgxInitialPages || "%5B%5D"));
+        const initialIndexes = initialPages
+            .map((page) => Number(page.pageIndex))
+            .filter(Number.isSafeInteger);
+
         const runtime = (await waitFor(() => globalThis.__IMGX_RUNTIME__))?.take();
         if (!runtime) throw new Error("IMGX reader runtime unavailable");
         const pages = new Map();
 
+        if (initialIndexes.length) {
+            await runtime.requestPageAccess(initialIndexes);
+        }
         for (let offset = 0; offset < pageIndexes.length; offset += 10) {
             const indexes = pageIndexes.slice(offset, offset + 10);
             const batch = await runtime.requestPageAccess(indexes);
