@@ -40,10 +40,11 @@ class TagFilter(tags: List<TagOption>) :
     fun selectedTagIds(): List<String> = state.filter { it.state }.map { it.tagId }
 }
 
-class StatusFilter : Filter.Select<String>(
-    "Trạng thái",
-    STATUS_OPTIONS.map { it.first }.toTypedArray(),
-) {
+class StatusFilter :
+    Filter.Select<String>(
+        "Trạng thái",
+        STATUS_OPTIONS.map { it.first }.toTypedArray(),
+    ) {
     fun selectedValue(): String = STATUS_OPTIONS[state].second
 
     companion object {
@@ -57,10 +58,11 @@ class StatusFilter : Filter.Select<String>(
     }
 }
 
-class DemographicFilter : Filter.Select<String>(
-    "Đối tượng độc giả",
-    DEMOGRAPHIC_OPTIONS.map { it.first }.toTypedArray(),
-) {
+class DemographicFilter :
+    Filter.Select<String>(
+        "Đối tượng độc giả",
+        DEMOGRAPHIC_OPTIONS.map { it.first }.toTypedArray(),
+    ) {
     fun selectedValue(): String = DEMOGRAPHIC_OPTIONS[state].second
 
     companion object {
@@ -74,10 +76,11 @@ class DemographicFilter : Filter.Select<String>(
     }
 }
 
-class ContentRatingFilter : Filter.Select<String>(
-    "Phân loại độ tuổi",
-    CONTENT_RATING_OPTIONS.map { it.first }.toTypedArray(),
-) {
+class ContentRatingFilter :
+    Filter.Select<String>(
+        "Phân loại độ tuổi",
+        CONTENT_RATING_OPTIONS.map { it.first }.toTypedArray(),
+    ) {
     fun selectedValue(): String = CONTENT_RATING_OPTIONS[state].second
 
     companion object {

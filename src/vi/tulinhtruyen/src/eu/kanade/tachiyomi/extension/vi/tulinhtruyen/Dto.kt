@@ -30,12 +30,10 @@ class MangaDataDto(
     val attributes: MangaAttributesDto,
     val relationships: List<RelationshipDto> = emptyList(),
 ) {
-    fun getTitle(): String {
-        return attributes.title["vi"]
-            ?: attributes.title["en"]
-            ?: attributes.title.values.firstOrNull()
-            ?: "Tu Linh Manga"
-    }
+    fun getTitle(): String = attributes.title["vi"]
+        ?: attributes.title["en"]
+        ?: attributes.title.values.firstOrNull()
+        ?: "Tu Linh Manga"
 
     fun getCoverUrl(baseUrl: String): String? {
         val coverRel = relationships.firstOrNull { it.type == "cover_art" }
@@ -47,9 +45,7 @@ class MangaDataDto(
         }
     }
 
-    fun getAuthor(): String? {
-        return relationships.firstOrNull { it.type == "author" }?.attributes?.name
-    }
+    fun getAuthor(): String? = relationships.firstOrNull { it.type == "author" }?.attributes?.name
 
     fun toSManga(baseUrl: String): SManga = SManga.create().apply {
         url = "/manga/$id"
