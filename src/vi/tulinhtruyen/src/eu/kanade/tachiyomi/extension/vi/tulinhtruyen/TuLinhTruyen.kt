@@ -32,7 +32,7 @@ import okhttp3.Request
 import kotlin.concurrent.thread
 
 @Source
-class TuLinhTruyen :
+abstract class TuLinhTruyen :
     KeiSource(),
     ConfigurableSource {
 
