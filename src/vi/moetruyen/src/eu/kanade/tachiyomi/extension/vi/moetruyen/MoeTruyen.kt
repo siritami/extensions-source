@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.extension.vi.moetruyen
 
 import android.util.Base64
+import android.util.Log
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -325,7 +326,12 @@ abstract class MoeTruyen : KeiSource() {
                         }
                     }
                     "done" -> resolve(Unit)
-                    "error" -> reject(Exception(payload["message"]?.jsonPrimitive?.content ?: "IMGX reader failed"))
+                    "error" -> {
+                        val message = payload["message"]?.jsonPrimitive?.content ?: "IMGX reader failed"
+                        val stack = payload["stack"]?.jsonPrimitive?.content ?: "none"
+                        Log.e(LOG_TAG, "IMGX reader error: $message; stack=$stack")
+                        reject(Exception(message))
+                    }
                 }
             }
             onPageStarted { url ->
@@ -421,6 +427,7 @@ abstract class MoeTruyen : KeiSource() {
     private val secureRandom = SecureRandom()
 
     private companion object {
+        const val LOG_TAG = "MoeTruyen"
         const val WEBVIEW_BRIDGE_NAME = "MoeTruyenBridge"
         const val WEBVIEW_IMAGE_CACHE_SIZE = 100
         const val WEBVIEW_IMAGE_HOST = "https://moetruyen-webview.invalid"

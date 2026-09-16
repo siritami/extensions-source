@@ -16,6 +16,9 @@
         }
         return btoa(chunks.join(""));
     };
+    const hexPreview = (bytes, length = 16) => [...bytes.slice(0, length)]
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("");
     const fnv1a = (bytes) => {
         let hash = 2166136261;
         for (const byte of bytes) {
@@ -95,7 +98,11 @@
         }
 
         const readerScriptUrl = new URL("/reader.js", location.href).href;
-        const readerScript = await (await fetch(readerScriptUrl)).text();
+        const readerResponse = await fetch(readerScriptUrl);
+        if (!readerResponse.ok) {
+            throw new Error(`IMGX reader script HTTP ${readerResponse.status}`);
+        }
+        const readerScript = await readerResponse.text();
         const v4Path = readerScript.match(/\.\.\/chunks\/(v4-[A-Za-z0-9_-]+\.js)/)?.[1];
         if (!v4Path) throw new Error("IMGX v4 decoder missing");
         const decoderUrl = new URL(`/chunks/${v4Path}`, location.href).href;
@@ -106,13 +113,30 @@
             if (!page?.downloadUrl || !page?.grant?.wrappedV4Key) {
                 throw new Error(`IMGX grant missing for page ${order + 1}`);
             }
-            const encrypted = new Uint8Array(await (await fetch(page.downloadUrl)).arrayBuffer());
+            const encryptedResponse = await fetch(page.downloadUrl);
+            const encrypted = new Uint8Array(await encryptedResponse.arrayBuffer());
+            if (!encryptedResponse.ok) {
+                throw new Error(`IMGX page ${order + 1} HTTP ${encryptedResponse.status}`);
+            }
             const key = unwrapV4Key(page.grant, page.storageKey);
             try {
-                const webp = await decodeImgxV4(encrypted, key, {
-                    imageId: page.grant.imageId,
-                    storageKey: page.storageKey,
-                });
+                let webp;
+                try {
+                    webp = await decodeImgxV4(encrypted, key, {
+                        imageId: page.grant.imageId,
+                        storageKey: page.storageKey,
+                    });
+                } catch (error) {
+                    throw new Error([
+                        `IMGX v4 decode failed page=${order + 1}`,
+                        `storageKey=${page.storageKey}`,
+                        `status=${encryptedResponse.status}`,
+                        `bytes=${encrypted.byteLength}`,
+                        `head=${hexPreview(encrypted)}`,
+                        `error=${error?.message || String(error)}`,
+                        `stack=${error?.stack || "none"}`,
+                    ].join("; "));
+                }
                 post({ type: "page", index: order, data: toBase64(webp) });
                 webp.fill(0);
             } finally {
@@ -122,6 +146,10 @@
         }
         post({ type: "done", count: pageIndexes.length });
     } catch (error) {
-        post({ type: "error", message: error?.message || String(error) });
+        post({
+            type: "error",
+            message: error?.message || String(error),
+            stack: error?.stack || "none",
+        });
     }
 })();
