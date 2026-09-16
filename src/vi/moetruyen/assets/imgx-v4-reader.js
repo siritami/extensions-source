@@ -42,6 +42,9 @@
         const height = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16);
         return `${width}x${height}`;
     };
+    const imgxDimensions = (bytes) => bytes.byteLength >= 13
+        ? `${new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(5)}x${new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(9)}`
+        : "unknown";
     const digest = async (bytes) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
         .map((byte) => byte.toString(16).padStart(2, "0"))
         .join("");
@@ -208,6 +211,8 @@
                 decodedFingerprints.push({
                     page: order + 1,
                     storageKey: page.storageKey,
+                    pageIndex: page.pageIndex,
+                    encryptedDimensions: imgxDimensions(encrypted),
                     expected: `${page.width || "?"}x${page.height || "?"}`,
                     bytes: webp.byteLength,
                     dimensions: webpDimensions(webp),
