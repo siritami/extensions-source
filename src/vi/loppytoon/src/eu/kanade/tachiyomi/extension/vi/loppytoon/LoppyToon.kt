@@ -176,8 +176,8 @@ abstract class LoppyToon : KeiSource() {
         status = document.selectFirst(".info-row:has(.info-label:contains(Tình trạng)) .info-value, span.meta-label:contains(Tình trạng) + *")
             ?.text()?.lowercase()?.let { statusText ->
                 when {
-                    "ongoing" in statusText || "đang tiến hành" in statusText -> SManga.ONGOING
-                    "completed" in statusText || "hoàn thành" in statusText -> SManga.COMPLETED
+                    "ongoing" in statusText || "dang-tien-hanh" in statusText -> SManga.ONGOING
+                    "completed" in statusText || "hoan-thanh" in statusText -> SManga.COMPLETED
                     else -> SManga.UNKNOWN
                 }
             } ?: SManga.UNKNOWN
@@ -215,9 +215,7 @@ abstract class LoppyToon : KeiSource() {
         val chapterUrl = linkElement.absUrl("href").takeIf(String::isNotEmpty) ?: return@mapNotNull null
         SChapter.create().apply {
             setUrlWithoutDomain(chapterUrl)
-            name = element.selectFirst("h3")?.text()?.takeIf(String::isNotEmpty)
-                ?: linkElement.text().takeIf(String::isNotEmpty)
-                ?: "Chương"
+            name = element.selectFirst("h3")!!.text()
             date_upload = element.selectFirst("span.chapter-date")?.text().toDate()
         }
     }
