@@ -319,17 +319,24 @@
                     intermediate = payloadVersion === 3
                         ? await decodeImgxV3(encrypted, page.grant, page.storageKey)
                         : encrypted;
-                    webp = payloadVersion === 3 && key
-                        ? await decodeImgxV4(intermediate, key, {
+                    if (payloadVersion === 3) {
+                        webp = intermediate;
+                        if (key) {
+                            try {
+                                webp = await decodeImgxV4(intermediate, key, {
+                                    imageId: page.grant.imageId,
+                                    storageKey: page.storageKey,
+                                });
+                            } catch (error) {
+                                if (!String(error?.message || error).includes("IMGX v4 file invalid")) throw error;
+                            }
+                        }
+                    } else {
+                        webp = await decodeImgxV4(intermediate, key, {
                             imageId: page.grant.imageId,
                             storageKey: page.storageKey,
-                        })
-                        : payloadVersion === 3
-                            ? intermediate
-                            : await decodeImgxV4(intermediate, key, {
-                                imageId: page.grant.imageId,
-                                storageKey: page.storageKey,
-                            });
+                        });
+                    }
                     const magic = webp.byteLength >= 12 ? hexPreview(webp, 4) : "";
                     if (magic !== "52494646" || hexPreview(webp.slice(8), 4) !== "57454250") {
                         throw new Error(`IMGX v3 authentication failed; output is not WebP; magic=${magic}`);
