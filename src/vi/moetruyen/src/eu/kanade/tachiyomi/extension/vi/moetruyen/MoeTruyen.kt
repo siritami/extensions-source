@@ -383,7 +383,7 @@ abstract class MoeTruyen : KeiSource() {
         val request = chain.request()
         val requestUrl = request.url.toString()
         val data = webViewImages[requestUrl]
-        if (request.url.host == WEBVIEW_IMAGE_HOST.toHttpUrl().host) {
+        if (request.url.host == BASE_HOST && request.url.encodedPath.startsWith(WEBVIEW_IMAGE_PATH)) {
             if (data == null) {
                 Log.e(LOG_TAG, "IMGX image delivery miss: url=$requestUrl; cached=${webViewImages.size}")
                 return@Interceptor chain.proceed(request)
@@ -470,6 +470,8 @@ abstract class MoeTruyen : KeiSource() {
         const val LOG_TAG = "MoeTruyen"
         const val WEBVIEW_BRIDGE_NAME = "MoeTruyenBridge"
         const val WEBVIEW_IMAGE_CACHE_SIZE = 100
-        const val WEBVIEW_IMAGE_HOST = "https://moetruyen-webview.invalid"
+        const val BASE_HOST = "moetruyen.net"
+        const val WEBVIEW_IMAGE_HOST = "https://moetruyen.net/__moetruyen_webview"
+        const val WEBVIEW_IMAGE_PATH = "/__moetruyen_webview/"
     }
 }
