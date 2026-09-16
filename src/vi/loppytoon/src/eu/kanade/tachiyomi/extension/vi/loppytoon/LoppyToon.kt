@@ -215,7 +215,8 @@ abstract class LoppyToon : KeiSource() {
         val chapterUrl = linkElement.absUrl("href").takeIf(String::isNotEmpty) ?: return@mapNotNull null
         SChapter.create().apply {
             setUrlWithoutDomain(chapterUrl)
-            name = element.selectFirst("h3")!!.text()
+            name = element.selectFirst("h3")?.text()?.takeIf(String::isNotBlank)
+                ?: linkElement.text().takeIf(String::isNotBlank)
             date_upload = element.selectFirst("span.chapter-date")?.text().toDate()
         }
     }
