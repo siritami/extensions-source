@@ -117,6 +117,10 @@ abstract class LoppyToon : KeiSource() {
             .addQueryParameter("sort", sort)
             .addQueryParameter("page", page.toString())
 
+        if (filters.firstInstanceOrNull<ExcludeAdultFilter>()?.state == true) {
+            url.addQueryParameter("exclude_adult", "1")
+        }
+
         if (selectedGenreIds.isNotEmpty()) {
             url.addQueryParameter("genres", selectedGenreIds.joinToString(","))
         }
@@ -256,17 +260,9 @@ abstract class LoppyToon : KeiSource() {
 
     override suspend fun fetchFilterData(): JsonElement {
         val document = client.get("$baseUrl/the-loai?type=1").asJsoup()
-        val targetCategories = listOf(
-            "Phân Loại",
-            "Thể Loại Chính",
-            "Bối Cảnh",
-            "Thiết Lập Nhân Vật",
-            "Cốt Truyện",
-        )
         val groups = document.select(".filter-table .frow").mapNotNull { row ->
             val label = row.selectFirst(".flabel")?.text()?.trim() ?: return@mapNotNull null
-            if (targetCategories.none { it.equals(label, ignoreCase = true) }) return@mapNotNull null
-            val isPhanLoai = label.equals("Phân Loại", ignoreCase = true)
+            val isPhanLoai = label.contains("Phân Loại", ignoreCase = true)
 
             val options = row.select(".fchips .gchip[data-id]").mapNotNull { chip ->
                 val id = chip.attr("data-id").trim()
@@ -278,12 +274,12 @@ abstract class LoppyToon : KeiSource() {
             if (options.isEmpty()) return@mapNotNull null
             FilterGroupData(label, options)
         }
-        return FilterData(groups).toJsonElement()
+        return groups.toJsonElement()
     }
 
     override fun getFilterList(data: JsonElement?): FilterList {
-        val filterData = data?.parseAs<FilterData>()
-        return getFilters(filterData)
+        val groups = runCatching { data?.parseAs<List<FilterGroupData>>() }.getOrNull()
+        return getFilters(groups)
     }
 
     // =============================== Related ==============================

@@ -4,15 +4,14 @@ import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import kotlinx.serialization.Serializable
 
-fun getFilters(data: FilterData?): FilterList = FilterList(
+fun getFilters(groups: List<FilterGroupData>?): FilterList = FilterList(
     buildList {
         add(SortFilter())
-        if (data == null || data.groups.isEmpty()) {
-            add(Filter.Header("Nhấn 'Đặt lại' để tải bộ lọc"))
-            return@buildList
-        }
-        for (group in data.groups) {
-            add(GenreGroup(group.name, group.options.map { Genre(it.name, it.id) }))
+        add(ExcludeAdultFilter())
+        if (!groups.isNullOrEmpty()) {
+            for (group in groups) {
+                add(GenreGroup(group.name, group.options.map { Genre(it.name, it.id) }))
+            }
         }
     },
 )
@@ -34,14 +33,11 @@ class SortFilter :
         ),
     )
 
+class ExcludeAdultFilter : Filter.CheckBox("Loại trừ 19+")
+
 class Genre(name: String, val id: String) : Filter.CheckBox(name)
 
 class GenreGroup(name: String, genres: List<Genre>) : Filter.Group<Genre>(name, genres)
-
-@Serializable
-class FilterData(
-    val groups: List<FilterGroupData> = emptyList(),
-)
 
 @Serializable
 class FilterGroupData(
