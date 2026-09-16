@@ -5,10 +5,6 @@
 
     const bridge = window.MoeTruyenBridge;
     const post = (value) => bridge.post(JSON.stringify(value));
-    const base64Url = (bytes) => btoa(String.fromCharCode(...bytes))
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "");
     const decodeBase64Url = (value) => Uint8Array.from(
         atob(value.replace(/-/g, "+").replace(/_/g, "/")),
         (char) => char.charCodeAt(0),
@@ -19,20 +15,6 @@
             chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 0x8000)));
         }
         return btoa(chunks.join(""));
-    };
-    const request = async (url, body) => {
-        const response = await fetch(url, {
-            method: "POST",
-            credentials: "same-origin",
-            cache: "no-store",
-            headers: { Accept: "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-        });
-        const payload = await response.json();
-        if (!response.ok || payload.ok !== true) {
-            throw new Error(payload.code || `HTTP ${response.status}`);
-        }
-        return payload;
     };
     const fnv1a = (bytes) => {
         let hash = 2166136261;
@@ -93,71 +75,13 @@
             .filter(Number.isSafeInteger);
         if (!pageIndexes.length) throw new Error("IMGX page indexes missing");
 
-        const inlineCode = [...document.scripts].map((script) => script.textContent || "").join("\n");
-        const bootstrapUrl = inlineCode.match(/bootstrapUrl:\s*["']([^"']+)["']/)?.[1];
-        const chapterId = Number(inlineCode.match(/chapterId:\s*(\d+)/)?.[1]);
-        const requestPath = root.dataset.readerImgxAccessUrl;
-        if (!bootstrapUrl || !Number.isSafeInteger(chapterId) || !requestPath) {
-            throw new Error("IMGX reader capability missing");
-        }
-
-        const readerCryptoUrl = new URL("/imgx-reader.js", location.href).href;
-        const readerCrypto = await import(readerCryptoUrl);
-        const channel = await readerCrypto.createImgxReaderChannel();
-        const bootstrapProof = base64Url(crypto.getRandomValues(new Uint8Array(32)));
-        const initialIndexes = JSON.parse(decodeURIComponent(root.dataset.readerImgxInitialPages || "%5B%5D"))
-            .map((page) => page.pageIndex);
-        const bootstrap = await request(bootstrapUrl, {
-            readerPublicKey: channel.publicKey,
-            bootstrapProof,
-            initialPageIndexes: initialIndexes,
-        });
-        const [material] = await channel.open(bootstrap.sealedCapability, bootstrapProof);
-        const initialPages = await channel.open(bootstrap.sealedInitialPages, bootstrapProof);
-        const pages = new Map(initialPages.map((page) => [page.pageIndex, page]));
-
-        const secret = decodeBase64Url(material.secret);
-        const signingKey = await crypto.subtle.importKey(
-            "raw",
-            secret,
-            { name: "HMAC", hash: "SHA-256" },
-            false,
-            ["sign"],
-        );
-        secret.fill(0);
-        const publicKeyBytes = decodeBase64Url(channel.publicKey);
-        const publicKeyHash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", publicKeyBytes))]
-            .map((byte) => byte.toString(16).padStart(2, "0"))
-            .join("");
-        let sequence = 0;
+        const runtime = globalThis.__IMGX_RUNTIME__?.take();
+        if (!runtime) throw new Error("IMGX reader runtime unavailable");
+        const pages = new Map();
 
         for (let offset = 0; offset < pageIndexes.length; offset += 10) {
-            const indexes = pageIndexes.slice(offset, offset + 10).filter((index) => !pages.has(index));
-            if (!indexes.length) continue;
-            const proof = {
-                version: readerCrypto.IMGX_PAGE_ACCESS_PROOF_VERSION,
-                readerInstanceId: material.readerInstanceId,
-                issuedAt: bootstrap.serverTime,
-                sequence: ++sequence,
-            };
-            const proofPayload = readerCrypto.buildImgxPageAccessClientProofPayload({
-                ...proof,
-                chapterId,
-                requestPath,
-                pageIndexes: indexes,
-                publicKeyHash,
-            });
-            proof.proof = base64Url(new Uint8Array(await crypto.subtle.sign(
-                "HMAC",
-                signingKey,
-                new TextEncoder().encode(proofPayload),
-            )));
-            const access = await request(requestPath, {
-                pageIndexes: indexes,
-                pageAccessProof: proof,
-                readerPublicKey: channel.publicKey,
-            });
-            const batch = await channel.open(access.sealedPages, proof.proof);
+            const indexes = pageIndexes.slice(offset, offset + 10);
+            const batch = await runtime.requestPageAccess(indexes);
             batch.forEach((page) => pages.set(page.pageIndex, page));
         }
 

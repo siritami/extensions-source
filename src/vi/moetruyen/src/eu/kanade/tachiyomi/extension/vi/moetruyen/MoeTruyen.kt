@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.extension.vi.moetruyen
 
 import android.util.Base64
+import android.webkit.WebResourceResponse
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -30,6 +31,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.io.ByteArrayInputStream
 import java.security.SecureRandom
 import java.time.LocalDate
 import java.time.ZoneId
@@ -314,6 +316,17 @@ abstract class MoeTruyen : KeiSource() {
 
         runWebView<Unit>(timeout = 90.seconds) {
             blockImages = true
+            interceptRequest { request ->
+                if (request.url.path == "/reader.js") {
+                    WebResourceResponse(
+                        "application/javascript",
+                        "UTF-8",
+                        ByteArrayInputStream(ByteArray(0)),
+                    )
+                } else {
+                    null
+                }
+            }
             jsBridge(WEBVIEW_BRIDGE_NAME) { message ->
                 val payload = message.parseAs<JsonObject>()
                 when (payload["type"]?.jsonPrimitive?.content) {
