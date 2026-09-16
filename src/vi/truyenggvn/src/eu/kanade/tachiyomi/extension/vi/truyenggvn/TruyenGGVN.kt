@@ -16,6 +16,7 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.tryParseDate
 import kotlinx.serialization.json.JsonElement
+import okhttp3.CacheControl
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -186,11 +187,13 @@ abstract class TruyenGGVN : KeiSource() {
     // =============================== Pages ================================
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
-        val document = client.get(getChapterUrl(chapter)).asJsoup()
-        return document.select("#chapter_content .page-chapter img").mapIndexed { index, img ->
-            val url = img.attr("abs:data-original").ifEmpty {
-                img.attr("abs:src")
-            }
+        val document = client.get(getChapterUrl(chapter), CacheControl.FORCE_NETWORK).asJsoup()
+        return document.select(".page-chapter img:not([src*='stress.gif'])").mapIndexedNotNull { index, element ->
+            val url = element.absUrl("data-original")
+                .ifEmpty { element.absUrl("data-cdn") }
+                .ifEmpty { element.absUrl("src") }
+                .takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
+
             Page(index, imageUrl = url)
         }
     }
