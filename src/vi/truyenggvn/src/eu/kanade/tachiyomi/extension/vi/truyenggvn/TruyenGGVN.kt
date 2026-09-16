@@ -174,15 +174,14 @@ abstract class TruyenGGVN : KeiSource() {
         }
     }
 
-    private fun parseChapterList(document: Document): List<SChapter> =
-        document.select(".works-chapter-list .works-chapter-item").mapNotNull { element ->
-            val anchor = element.selectFirst("a") ?: return@mapNotNull null
-            SChapter.create().apply {
-                setUrlWithoutDomain(anchor.absUrl("href"))
-                name = anchor.text().trim()
-                date_upload = dateFormat.tryParseDate(element.selectFirst(".time-chap")?.text()?.trim(), dateZone)
-            }
+    private fun parseChapterList(document: Document): List<SChapter> = document.select(".works-chapter-list .works-chapter-item").mapNotNull { element ->
+        val anchor = element.selectFirst("a") ?: return@mapNotNull null
+        SChapter.create().apply {
+            setUrlWithoutDomain(anchor.absUrl("href"))
+            name = anchor.text().trim()
+            date_upload = dateFormat.tryParseDate(element.selectFirst(".time-chap")?.text()?.trim(), dateZone)
         }
+    }
 
     // =============================== Pages ================================
 
@@ -200,15 +199,14 @@ abstract class TruyenGGVN : KeiSource() {
 
     override val supportsFilterFetching get() = true
 
-    override suspend fun fetchFilterData(): JsonElement =
-        client.get("$baseUrl/tim-kiem-nang-cao.html").asJsoup()
-            .select(".advsearch-form .genre-list .genre-item")
-            .mapNotNull { element ->
-                val id = element.selectFirst("span[data-id]")?.attr("data-id") ?: return@mapNotNull null
-                val name = element.text().trim()
-                GenreDto(name, id)
-            }
-            .toJsonElement()
+    override suspend fun fetchFilterData(): JsonElement = client.get("$baseUrl/tim-kiem-nang-cao.html").asJsoup()
+        .select(".advsearch-form .genre-list .genre-item")
+        .mapNotNull { element ->
+            val id = element.selectFirst("span[data-id]")?.attr("data-id") ?: return@mapNotNull null
+            val name = element.text().trim()
+            GenreDto(name, id)
+        }
+        .toJsonElement()
 
     override fun getFilterList(data: JsonElement?): FilterList {
         val genres = data?.parseAs<List<GenreDto>>()
@@ -230,4 +228,3 @@ abstract class TruyenGGVN : KeiSource() {
     private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
 }
-

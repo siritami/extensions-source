@@ -76,4 +76,3 @@ class SortByFilter :
     )
 
 class GenreList(state: List<Genre>) : Filter.Group<Genre>("Thể loại", state)
-
