@@ -309,6 +309,7 @@ abstract class MoeTruyen : KeiSource() {
     }
 
     private suspend fun fetchV4Pages(chapterUrl: String, document: Document, pageCount: Int): List<Page> {
+        Log.e(LOG_TAG, "IMGX diagnostic: bridge build active; chapter=$chapterUrl; expectedPages=$pageCount")
         val readerScript = client.get("$baseUrl/reader.js").body.string()
         val decoderPath = Regex("\\.\\./chunks/(v4-[A-Za-z0-9_-]+\\.js)")
             .find(readerScript)
@@ -366,6 +367,9 @@ abstract class MoeTruyen : KeiSource() {
 
         return pages.mapIndexed { index, data ->
             val bytes = data ?: throw IllegalStateException("IMGX page ${index + 1} missing")
+            if (index == 0) {
+                Log.e(LOG_TAG, "IMGX diagnostic: decoded pages ready; count=${pages.size}; firstBytes=${bytes.size}")
+            }
             val imageUrl = "$WEBVIEW_IMAGE_HOST/$runId/$index.webp"
             webViewImages[imageUrl] = bytes
             Page(index, imageUrl = imageUrl)
