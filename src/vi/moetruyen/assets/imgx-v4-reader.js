@@ -188,6 +188,15 @@
             }
             const payloadVersion = encrypted[4];
             const key = payloadVersion === 4 ? unwrapV4Key(page.grant, page.storageKey) : null;
+            const expectedUrl = page.downloadUrl.replace(/[?#].*$/, "");
+            if (expectedUrl.endsWith(`/media/${page.storageKey}`) === false && expectedUrl.endsWith(page.storageKey) === false) {
+                throw new Error([
+                    `IMGX grant/payload mismatch page=${order + 1}`,
+                    `storageKey=${page.storageKey}`,
+                    `downloadUrl=${page.downloadUrl}`,
+                    `imageId=${page.grant.imageId}`,
+                ].join("; "));
+            }
             try {
                 let webp;
                 try {
@@ -197,6 +206,10 @@
                             imageId: page.grant.imageId,
                             storageKey: page.storageKey,
                         });
+                    const magic = webp.byteLength >= 12 ? hexPreview(webp, 4) : "";
+                    if (magic !== "52494646" || hexPreview(webp.slice(8), 4) !== "57454250") {
+                        throw new Error(`IMGX v3 authentication failed; output is not WebP; magic=${magic}`);
+                    }
                 } catch (error) {
                     throw new Error([
                         `IMGX decode failed page=${order + 1}`,
