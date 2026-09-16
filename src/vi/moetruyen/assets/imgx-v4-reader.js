@@ -276,6 +276,18 @@
             if (!page?.downloadUrl || (!page?.grant?.wrappedV4Key && !page?.grant?.wrappedContentKey)) {
                 throw new Error(`IMGX grant missing for page ${order + 1}`);
             }
+            if (order < 3 || order === pageIndexes.length - 1) {
+                post({
+                    type: "grantDiagnostic",
+                    page: order + 1,
+                    pageIndex: page.pageIndex,
+                    storageKey: page.storageKey,
+                    downloadUrl: page.downloadUrl,
+                    imageId: page.grant.imageId,
+                    grantVersion: page.grant.version,
+                    algorithm: page.grant.algorithm,
+                });
+            }
             const encryptedResponse = await fetch(page.downloadUrl);
             const encrypted = new Uint8Array(await encryptedResponse.arrayBuffer());
             if (!encryptedResponse.ok) {

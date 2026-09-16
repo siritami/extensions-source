@@ -347,6 +347,16 @@ abstract class MoeTruyen : KeiSource() {
                         }
                     }
                     "done" -> resolve(Unit)
+                    "grantDiagnostic" -> {
+                        val page = payload["page"]?.jsonPrimitive?.content ?: "unknown"
+                        val pageIndex = payload["pageIndex"]?.jsonPrimitive?.content ?: "unknown"
+                        val storageKey = payload["storageKey"]?.jsonPrimitive?.content ?: "unknown"
+                        val downloadUrl = payload["downloadUrl"]?.jsonPrimitive?.content ?: "unknown"
+                        val imageId = payload["imageId"]?.jsonPrimitive?.content ?: "unknown"
+                        val grantVersion = payload["grantVersion"]?.jsonPrimitive?.content ?: "unknown"
+                        val algorithm = payload["algorithm"]?.jsonPrimitive?.content ?: "unknown"
+                        Log.e(LOG_TAG, "IMGX grant diagnostic: page=$page; pageIndex=$pageIndex; storageKey=$storageKey; downloadUrl=$downloadUrl; imageId=$imageId; version=$grantVersion; algorithm=$algorithm")
+                    }
                     "diagnostic" -> {
                         val message = payload["message"]?.jsonPrimitive?.content ?: "IMGX diagnostic"
                         val pages = payload["pages"]?.jsonPrimitive?.content ?: "unknown"
