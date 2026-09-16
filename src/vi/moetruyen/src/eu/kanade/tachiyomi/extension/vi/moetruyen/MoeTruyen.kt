@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.extension.vi.moetruyen
 
 import android.util.Base64
 import android.util.Log
+import android.webkit.CookieManager
 import android.webkit.WebResourceResponse
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -326,9 +327,19 @@ abstract class MoeTruyen : KeiSource() {
         val webViewScript = script.replace("__IMGX_DECODER_URL__", decoderUrl)
         val runId = randomHex(12)
         val pages = arrayOfNulls<ByteArray>(pageCount)
+        val webViewCookieManager = CookieManager.getInstance()
+        client.cookieJar.loadForRequest(chapterUrl.toHttpUrl()).forEach { cookie ->
+            webViewCookieManager.setCookie(baseUrl, "${cookie.name}=${cookie.value}; Path=/")
+        }
+        webViewCookieManager.flush()
+        val webViewHeaders = mapOf(
+            "Referer" to "$baseUrl/",
+            "Origin" to baseUrl,
+        )
+        val webViewCookieNames = client.cookieJar.loadForRequest(chapterUrl.toHttpUrl()).map { it.name }.sorted()
+        Log.e(LOG_TAG, "IMGX diagnostic: WebView session cookie names=$webViewCookieNames")
 
         runWebView<Unit>(timeout = 90.seconds) {
-            blockImages = true
             interceptRequest { request ->
                 if (request.url.toString().substringBefore('?') == "$baseUrl/reader.js") {
                     WebResourceResponse("application/javascript", "UTF-8", readerScriptForWebView.byteInputStream())
@@ -379,7 +390,7 @@ abstract class MoeTruyen : KeiSource() {
                     evaluateJs(webViewScript)
                 }
             }
-            loadUrl(chapterUrl)
+            loadUrl(chapterUrl, webViewHeaders)
         }
 
         return pages.mapIndexed { index, data ->
