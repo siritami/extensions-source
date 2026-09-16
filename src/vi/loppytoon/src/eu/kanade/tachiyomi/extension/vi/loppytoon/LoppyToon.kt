@@ -213,10 +213,14 @@ abstract class LoppyToon : KeiSource() {
     private fun parseChapters(document: Document): List<SChapter> = document.select("li.chapter-item, li.episode-item, a.chapter-item").mapNotNull { element ->
         val linkElement = if (element.tagName() == "a") element else element.selectFirst("div.episode-title a, a[href]") ?: return@mapNotNull null
         val chapterUrl = linkElement.absUrl("href").takeIf(String::isNotEmpty) ?: return@mapNotNull null
+        val chapterName = element.selectFirst("h3")?.text()?.takeIf(String::isNotBlank)
+            ?: linkElement.ownText().takeIf(String::isNotBlank)
+            ?: linkElement.text().takeIf(String::isNotBlank)
+            ?: return@mapNotNull null
+
         SChapter.create().apply {
             setUrlWithoutDomain(chapterUrl)
-            name = element.selectFirst("h3")?.text()?.takeIf(String::isNotBlank)
-                ?: linkElement.text().takeIf(String::isNotBlank)
+            name = chapterName
             date_upload = element.selectFirst("span.chapter-date")?.text().toDate()
         }
     }
