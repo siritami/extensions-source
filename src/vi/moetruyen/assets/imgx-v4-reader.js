@@ -64,7 +64,16 @@
     };
 
     try {
-        const root = document.querySelector("[data-reader-lazy-pages]");
+        const waitFor = async (predicate, timeout = 15000) => {
+            const deadline = performance.now() + timeout;
+            while (performance.now() < deadline) {
+                const value = predicate();
+                if (value) return value;
+                await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+            return null;
+        };
+        const root = await waitFor(() => document.querySelector("[data-reader-lazy-pages]"));
         if (!root) throw new Error("IMGX reader metadata missing");
 
         const media = JSON.parse(decodeURIComponent(root.dataset.readerImgxMedia || "%5B%5D"))
@@ -75,7 +84,7 @@
             .filter(Number.isSafeInteger);
         if (!pageIndexes.length) throw new Error("IMGX page indexes missing");
 
-        const runtime = globalThis.__IMGX_RUNTIME__?.take();
+        const runtime = (await waitFor(() => globalThis.__IMGX_RUNTIME__))?.take();
         if (!runtime) throw new Error("IMGX reader runtime unavailable");
         const pages = new Map();
 

@@ -328,7 +328,7 @@ abstract class MoeTruyen : KeiSource() {
                     "error" -> reject(Exception(payload["message"]?.jsonPrimitive?.content ?: "IMGX reader failed"))
                 }
             }
-            onPageFinished { url ->
+            onPageStarted { url ->
                 if (url.startsWith(chapterUrl)) {
                     evaluateJs(script)
                 }
