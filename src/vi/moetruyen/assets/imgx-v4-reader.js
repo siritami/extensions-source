@@ -1,4 +1,8 @@
 (async () => {
+    const injectionFlag = "moetruyenExtensionReader";
+    if (document.documentElement.dataset[injectionFlag]) return;
+    document.documentElement.dataset[injectionFlag] = "1";
+
     const bridge = window.MoeTruyenBridge;
     const post = (value) => bridge.post(JSON.stringify(value));
     const base64Url = (bytes) => btoa(String.fromCharCode(...bytes))
@@ -94,7 +98,8 @@
             throw new Error("IMGX reader capability missing");
         }
 
-        const readerCrypto = await import("/imgx-reader.js");
+        const readerCryptoUrl = new URL("/imgx-reader.js", location.href).href;
+        const readerCrypto = await import(readerCryptoUrl);
         const channel = await readerCrypto.createImgxReaderChannel();
         const bootstrapProof = base64Url(crypto.getRandomValues(new Uint8Array(32)));
         const initialIndexes = JSON.parse(decodeURIComponent(root.dataset.readerImgxInitialPages || "%5B%5D"))
@@ -160,7 +165,8 @@
         const readerScript = await (await fetch(readerScriptUrl)).text();
         const v4Path = readerScript.match(/\.\.\/chunks\/(v4-[A-Za-z0-9_-]+\.js)/)?.[1];
         if (!v4Path) throw new Error("IMGX v4 decoder missing");
-        const { decodeImgxV4 } = await import(`/chunks/${v4Path}`);
+        const decoderUrl = new URL(`/chunks/${v4Path}`, location.href).href;
+        const { decodeImgxV4 } = await import(decoderUrl);
 
         for (let order = 0; order < pageIndexes.length; order++) {
             const page = pages.get(pageIndexes[order]);
