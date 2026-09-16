@@ -85,8 +85,11 @@
         const root = document.querySelector("[data-reader-lazy-pages]");
         if (!root) throw new Error("IMGX reader metadata missing");
 
-        const pageIndexes = [...document.querySelectorAll("img.page-media[data-imgx-page-index]")]
-            .map((image) => Number(image.dataset.imgxPageIndex))
+        const media = JSON.parse(decodeURIComponent(root.dataset.readerImgxMedia || "%5B%5D"))
+            .filter((page) => page.storageKey !== "0.js" && !page.downloadUrl?.endsWith("/0.js"))
+            .sort((left, right) => left.pageNumber - right.pageNumber);
+        const pageIndexes = media
+            .map((page) => Number(page.pageIndex))
             .filter(Number.isSafeInteger);
         if (!pageIndexes.length) throw new Error("IMGX page indexes missing");
 

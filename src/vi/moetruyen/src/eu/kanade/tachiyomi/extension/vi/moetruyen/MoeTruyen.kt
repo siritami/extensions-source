@@ -287,7 +287,7 @@ abstract class MoeTruyen : KeiSource() {
         val readerPages = document.selectFirst("[data-reader-lazy-pages]")
 
         if (readerPages?.attr("data-reader-imgx-access-url")?.isNotBlank() == true) {
-            return fetchV4Pages(chapterUrl, allImages.size)
+            return fetchV4Pages(chapterUrl, (allImages.size - 1).coerceAtLeast(0))
         }
 
         return allImages
