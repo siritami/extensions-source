@@ -25,13 +25,14 @@ open class UriPartFilter(
     fun toUriPart() = vals[state].second
 }
 
-class SortFilter : UriPartFilter(
-    "Sắp xếp theo",
-    arrayOf(
-        "Mới nhất" to "newest",
-        "Xem nhiều nhất" to "views",
-    ),
-)
+class SortFilter :
+    UriPartFilter(
+        "Sắp xếp theo",
+        arrayOf(
+            "Mới nhất" to "newest",
+            "Xem nhiều nhất" to "views",
+        ),
+    )
 
 class Genre(name: String, val id: String) : Filter.CheckBox(name)
 

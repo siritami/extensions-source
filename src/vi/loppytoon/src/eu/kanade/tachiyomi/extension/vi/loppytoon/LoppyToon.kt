@@ -39,13 +39,11 @@ abstract class LoppyToon : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        parseMangaPage(client.get("$baseUrl/the-loai?type=1&sort=views&page=$page").asJsoup())
+    override suspend fun getPopularManga(page: Int): MangasPage = parseMangaPage(client.get("$baseUrl/the-loai?type=1&sort=views&page=$page").asJsoup())
 
     // =============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        parseMangaPage(client.get("$baseUrl/the-loai?page=$page").asJsoup())
+    override suspend fun getLatestUpdates(page: Int): MangasPage = parseMangaPage(client.get("$baseUrl/the-loai?page=$page").asJsoup())
 
     private fun parseMangaPage(document: Document): MangasPage {
         val mangaList = document.select("div.story-result-item, div.comic-item").mapNotNull(::mangaFromElement)
@@ -208,18 +206,17 @@ abstract class LoppyToon : KeiSource() {
         return chapters.distinctBy { it.url }
     }
 
-    private fun parseChapters(document: Document): List<SChapter> =
-        document.select("li.chapter-item, li.episode-item, a.chapter-item").mapNotNull { element ->
-            val linkElement = if (element.tagName() == "a") element else element.selectFirst("div.episode-title a, a[href]") ?: return@mapNotNull null
-            val chapterUrl = linkElement.absUrl("href").takeIf(String::isNotEmpty) ?: return@mapNotNull null
-            SChapter.create().apply {
-                setUrlWithoutDomain(chapterUrl)
-                name = element.selectFirst("h3")?.text()?.takeIf(String::isNotEmpty)
-                    ?: linkElement.text().takeIf(String::isNotEmpty)
-                    ?: "Chương"
-                date_upload = element.selectFirst("span.chapter-date")?.text().toDate()
-            }
+    private fun parseChapters(document: Document): List<SChapter> = document.select("li.chapter-item, li.episode-item, a.chapter-item").mapNotNull { element ->
+        val linkElement = if (element.tagName() == "a") element else element.selectFirst("div.episode-title a, a[href]") ?: return@mapNotNull null
+        val chapterUrl = linkElement.absUrl("href").takeIf(String::isNotEmpty) ?: return@mapNotNull null
+        SChapter.create().apply {
+            setUrlWithoutDomain(chapterUrl)
+            name = element.selectFirst("h3")?.text()?.takeIf(String::isNotEmpty)
+                ?: linkElement.text().takeIf(String::isNotEmpty)
+                ?: "Chương"
+            date_upload = element.selectFirst("span.chapter-date")?.text().toDate()
         }
+    }
 
     private fun String?.toDate(): Long {
         val value = this?.trim() ?: return 0L
