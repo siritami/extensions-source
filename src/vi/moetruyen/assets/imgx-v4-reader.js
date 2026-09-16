@@ -85,10 +85,7 @@
             batch.forEach((page) => pages.set(page.pageIndex, page));
         }
 
-        const readerScriptUrl = [...document.scripts]
-            .map((script) => script.src)
-            .find((url) => url.includes("/reader.js"));
-        if (!readerScriptUrl) throw new Error("IMGX reader script missing");
+        const readerScriptUrl = new URL("/reader.js", location.href).href;
         const readerScript = await (await fetch(readerScriptUrl)).text();
         const v4Path = readerScript.match(/\.\.\/chunks\/(v4-[A-Za-z0-9_-]+\.js)/)?.[1];
         if (!v4Path) throw new Error("IMGX v4 decoder missing");

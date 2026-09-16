@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.moetruyen
 
 import android.util.Base64
-import android.webkit.WebResourceResponse
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -31,7 +30,6 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.io.ByteArrayInputStream
 import java.security.SecureRandom
 import java.time.LocalDate
 import java.time.ZoneId
@@ -289,7 +287,7 @@ abstract class MoeTruyen : KeiSource() {
         val readerPages = document.selectFirst("[data-reader-lazy-pages]")
 
         if (readerPages?.attr("data-reader-imgx-access-url")?.isNotBlank() == true) {
-            return fetchV4Pages(chapterUrl, (allImages.size - 1).coerceAtLeast(0))
+            return fetchV4Pages(chapterUrl, document, (allImages.size - 1).coerceAtLeast(0))
         }
 
         return allImages
@@ -308,25 +306,18 @@ abstract class MoeTruyen : KeiSource() {
             .toList()
     }
 
-    private suspend fun fetchV4Pages(chapterUrl: String, pageCount: Int): List<Page> {
+    private suspend fun fetchV4Pages(chapterUrl: String, document: Document, pageCount: Int): List<Page> {
         val script = javaClass.getResource("/assets/imgx-v4-reader.js")?.readText()
             ?: throw IllegalStateException("imgx-v4-reader.js not found")
+        val readerHtml = document.clone().apply {
+            select("script[src*=/reader.js]").remove()
+            outputSettings().prettyPrint(false)
+        }.outerHtml()
         val runId = randomHex(12)
         val pages = arrayOfNulls<ByteArray>(pageCount)
 
         runWebView<Unit>(timeout = 90.seconds) {
             blockImages = true
-            interceptRequest { request ->
-                if (request.url.path == "/reader.js") {
-                    WebResourceResponse(
-                        "application/javascript",
-                        "UTF-8",
-                        ByteArrayInputStream(ByteArray(0)),
-                    )
-                } else {
-                    null
-                }
-            }
             jsBridge(WEBVIEW_BRIDGE_NAME) { message ->
                 val payload = message.parseAs<JsonObject>()
                 when (payload["type"]?.jsonPrimitive?.content) {
@@ -346,7 +337,7 @@ abstract class MoeTruyen : KeiSource() {
                     evaluateJs(script)
                 }
             }
-            loadUrl(chapterUrl)
+            loadData(chapterUrl, readerHtml)
         }
 
         return pages.mapIndexed { index, data ->
