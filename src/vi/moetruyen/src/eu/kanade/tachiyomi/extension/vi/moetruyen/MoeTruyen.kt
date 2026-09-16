@@ -317,10 +317,10 @@ abstract class MoeTruyen : KeiSource() {
             ?.get(1)
             ?: throw IllegalStateException("IMGX v4 decoder missing")
         val decoderUrl = "$baseUrl/chunks/$decoderPath"
-        val readerScriptForWebView = readerScript.replace(
-            "window.__IMGX_RUNTIME__?.take()||null",
-            "null",
-        )
+        val runtimeTakePattern = Regex("window\\.__IMGX_RUNTIME__\\?\\.take\\(\\)\\|\\|null")
+        val readerScriptForWebView = readerScript.replace(runtimeTakePattern, "null")
+        check(readerScriptForWebView != readerScript) { "IMGX reader runtime claim not found" }
+        Log.e(LOG_TAG, "IMGX diagnostic: official reader access script preserved; runtime claim disabled")
         val script = javaClass.getResource("/assets/imgx-v4-reader.js")?.readText()
             ?: throw IllegalStateException("imgx-v4-reader.js not found")
         val webViewScript = script.replace("__IMGX_DECODER_URL__", decoderUrl)
