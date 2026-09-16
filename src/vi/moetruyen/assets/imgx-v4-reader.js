@@ -32,6 +32,16 @@
     const hexPreview = (bytes, length = 16) => [...bytes.slice(0, length)]
         .map((byte) => byte.toString(16).padStart(2, "0"))
         .join("");
+    const webpDimensions = (bytes) => {
+        if (bytes.byteLength < 30 || hexPreview(bytes, 4) !== "52494646" ||
+            hexPreview(bytes.slice(8), 4) !== "57454250" ||
+            hexPreview(bytes.slice(12), 4) !== "56503858") {
+            return "unknown";
+        }
+        const width = 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16);
+        const height = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16);
+        return `${width}x${height}`;
+    };
     const digest = async (bytes) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
         .map((byte) => byte.toString(16).padStart(2, "0"))
         .join("");
@@ -198,7 +208,9 @@
                 decodedFingerprints.push({
                     page: order + 1,
                     storageKey: page.storageKey,
+                    expected: `${page.width || "?"}x${page.height || "?"}`,
                     bytes: webp.byteLength,
+                    dimensions: webpDimensions(webp),
                     head: hexPreview(webp),
                     sha256: await digest(webp),
                 });
