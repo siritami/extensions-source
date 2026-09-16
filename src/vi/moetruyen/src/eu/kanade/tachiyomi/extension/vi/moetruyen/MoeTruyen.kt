@@ -309,10 +309,6 @@ abstract class MoeTruyen : KeiSource() {
     private suspend fun fetchV4Pages(chapterUrl: String, document: Document, pageCount: Int): List<Page> {
         val script = javaClass.getResource("/assets/imgx-v4-reader.js")?.readText()
             ?: throw IllegalStateException("imgx-v4-reader.js not found")
-        val readerHtml = document.clone().apply {
-            select("script[src*=/reader.js]").remove()
-            outputSettings().prettyPrint(false)
-        }.outerHtml()
         val runId = randomHex(12)
         val pages = arrayOfNulls<ByteArray>(pageCount)
 
@@ -337,7 +333,7 @@ abstract class MoeTruyen : KeiSource() {
                     evaluateJs(script)
                 }
             }
-            loadData(chapterUrl, readerHtml)
+            loadUrl(chapterUrl)
         }
 
         return pages.mapIndexed { index, data ->
