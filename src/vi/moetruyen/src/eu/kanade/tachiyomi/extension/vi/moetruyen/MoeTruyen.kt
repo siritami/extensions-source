@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.extension.vi.moetruyen
 
 import android.util.Base64
 import android.util.Log
+import android.webkit.WebResourceResponse
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -308,13 +309,28 @@ abstract class MoeTruyen : KeiSource() {
     }
 
     private suspend fun fetchV4Pages(chapterUrl: String, document: Document, pageCount: Int): List<Page> {
+        val readerScript = client.get("$baseUrl/reader.js").body.string()
+        val decoderPath = Regex("\\.\\./chunks/(v4-[A-Za-z0-9_-]+\\.js)")
+            .find(readerScript)
+            ?.groupValues
+            ?.get(1)
+            ?: throw IllegalStateException("IMGX v4 decoder missing")
+        val decoderUrl = "$baseUrl/chunks/$decoderPath"
         val script = javaClass.getResource("/assets/imgx-v4-reader.js")?.readText()
             ?: throw IllegalStateException("imgx-v4-reader.js not found")
+        val webViewScript = script.replace("__IMGX_DECODER_URL__", decoderUrl)
         val runId = randomHex(12)
         val pages = arrayOfNulls<ByteArray>(pageCount)
 
         runWebView<Unit>(timeout = 90.seconds) {
             blockImages = true
+            interceptRequest { request ->
+                if (request.url.toString().substringBefore('?') == "$baseUrl/reader.js") {
+                    WebResourceResponse("application/javascript", "UTF-8", "".byteInputStream())
+                } else {
+                    null
+                }
+            }
             jsBridge(WEBVIEW_BRIDGE_NAME) { message ->
                 val payload = message.parseAs<JsonObject>()
                 when (payload["type"]?.jsonPrimitive?.content) {
@@ -336,7 +352,7 @@ abstract class MoeTruyen : KeiSource() {
             }
             onPageStarted { url ->
                 if (url.startsWith(chapterUrl)) {
-                    evaluateJs(script)
+                    evaluateJs(webViewScript)
                 }
             }
             loadUrl(chapterUrl)

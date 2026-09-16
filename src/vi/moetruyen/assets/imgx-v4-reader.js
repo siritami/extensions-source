@@ -1,10 +1,23 @@
 (async () => {
-    const injectionFlag = "moetruyenExtensionReader";
-    if (document.documentElement.dataset[injectionFlag]) return;
-    document.documentElement.dataset[injectionFlag] = "1";
-
     const bridge = window.MoeTruyenBridge;
     const post = (value) => bridge.post(JSON.stringify(value));
+    const waitFor = async (predicate, timeout = 15000) => {
+        const deadline = performance.now() + timeout;
+        while (performance.now() < deadline) {
+            const value = predicate();
+            if (value) return value;
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        return null;
+    };
+    const documentRoot = await waitFor(() => document.documentElement);
+    if (!documentRoot) {
+        post({ type: "error", message: "IMGX document root unavailable" });
+        return;
+    }
+    const injectionFlag = "moetruyenExtensionReader";
+    if (documentRoot.dataset[injectionFlag]) return;
+    documentRoot.dataset[injectionFlag] = "1";
     const decodeBase64Url = (value) => Uint8Array.from(
         atob(value.replace(/-/g, "+").replace(/_/g, "/")),
         (char) => char.charCodeAt(0),
@@ -67,15 +80,6 @@
     };
 
     try {
-        const waitFor = async (predicate, timeout = 15000) => {
-            const deadline = performance.now() + timeout;
-            while (performance.now() < deadline) {
-                const value = predicate();
-                if (value) return value;
-                await new Promise((resolve) => setTimeout(resolve, 0));
-            }
-            return null;
-        };
         const root = await waitFor(() => document.querySelector("[data-reader-lazy-pages]"));
         if (!root) throw new Error("IMGX reader metadata missing");
 
@@ -97,15 +101,7 @@
             batch.forEach((page) => pages.set(page.pageIndex, page));
         }
 
-        const readerScriptUrl = new URL("/reader.js", location.href).href;
-        const readerResponse = await fetch(readerScriptUrl);
-        if (!readerResponse.ok) {
-            throw new Error(`IMGX reader script HTTP ${readerResponse.status}`);
-        }
-        const readerScript = await readerResponse.text();
-        const v4Path = readerScript.match(/\.\.\/chunks\/(v4-[A-Za-z0-9_-]+\.js)/)?.[1];
-        if (!v4Path) throw new Error("IMGX v4 decoder missing");
-        const decoderUrl = new URL(`/chunks/${v4Path}`, location.href).href;
+        const decoderUrl = "__IMGX_DECODER_URL__";
         const { decodeImgxV4 } = await import(decoderUrl);
 
         for (let order = 0; order < pageIndexes.length; order++) {
