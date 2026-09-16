@@ -78,6 +78,61 @@
         wrapKey.fill(0);
         return wrapped;
     };
+    const unwrapContentKey = (grant, storageKey) => {
+        const wrapped = decodeBase64Url(grant.wrappedContentKey);
+        if (wrapped.byteLength !== 32) throw new Error("IMGX content grant invalid");
+        const grantString = [
+            "IMGX-GRANT-WRAP-v1",
+            grant.version,
+            grant.algorithm,
+            grant.imageId,
+            grant.issuedAt,
+            grant.expiresAt,
+            grant.nonce,
+            grant.keyNonce,
+            grant.signature,
+            String(storageKey || "").replace(/^\/+/, ""),
+        ].map((value) => value == null ? "" : String(value)).join(".");
+        const wrapKey = deriveWrapKey(grantString, wrapped.byteLength);
+        for (let index = 0; index < wrapped.byteLength; index++) wrapped[index] ^= wrapKey[index];
+        wrapKey.fill(0);
+        return wrapped;
+    };
+    const readUint32 = (bytes, offset) => new DataView(
+        bytes.buffer,
+        bytes.byteOffset,
+        bytes.byteLength,
+    ).getUint32(offset);
+    const decodeImgxV3 = async (encrypted, grant, storageKey) => {
+        if (encrypted.byteLength < 41 || encrypted[4] !== 3) {
+            throw new Error("IMGX v3 payload invalid");
+        }
+        const width = readUint32(encrypted, 5);
+        const height = readUint32(encrypted, 9);
+        if (!width || !height) throw new Error("IMGX v3 dimensions invalid");
+        const key = unwrapContentKey(grant, storageKey);
+        const iv = encrypted.slice(13, 25);
+        const ciphertext = encrypted.slice(25);
+        const aad = new TextEncoder().encode([
+            "IMGX-v3",
+            String(grant.imageId || "").trim(),
+            String(storageKey || "").replace(/^\/+/, ""),
+            width,
+            height,
+        ].join("."));
+        try {
+            const cryptoKey = await crypto.subtle.importKey("raw", key, "AES-GCM", false, ["decrypt"]);
+            return new Uint8Array(await crypto.subtle.decrypt(
+                { name: "AES-GCM", iv, additionalData: aad, tagLength: 128 },
+                cryptoKey,
+                ciphertext,
+            ));
+        } finally {
+            key.fill(0);
+            iv.fill(0);
+            ciphertext.fill(0);
+        }
+    };
 
     try {
         const root = await waitFor(() => document.querySelector("[data-reader-lazy-pages]"));
@@ -106,7 +161,7 @@
 
         for (let order = 0; order < pageIndexes.length; order++) {
             const page = pages.get(pageIndexes[order]);
-            if (!page?.downloadUrl || !page?.grant?.wrappedV4Key) {
+            if (!page?.downloadUrl || (!page?.grant?.wrappedV4Key && !page?.grant?.wrappedContentKey)) {
                 throw new Error(`IMGX grant missing for page ${order + 1}`);
             }
             const encryptedResponse = await fetch(page.downloadUrl);
@@ -114,17 +169,20 @@
             if (!encryptedResponse.ok) {
                 throw new Error(`IMGX page ${order + 1} HTTP ${encryptedResponse.status}`);
             }
-            const key = unwrapV4Key(page.grant, page.storageKey);
+            const payloadVersion = encrypted[4];
+            const key = payloadVersion === 4 ? unwrapV4Key(page.grant, page.storageKey) : null;
             try {
                 let webp;
                 try {
-                    webp = await decodeImgxV4(encrypted, key, {
-                        imageId: page.grant.imageId,
-                        storageKey: page.storageKey,
-                    });
+                    webp = payloadVersion === 3
+                        ? await decodeImgxV3(encrypted, page.grant, page.storageKey)
+                        : await decodeImgxV4(encrypted, key, {
+                            imageId: page.grant.imageId,
+                            storageKey: page.storageKey,
+                        });
                 } catch (error) {
                     throw new Error([
-                        `IMGX v4 decode failed page=${order + 1}`,
+                        `IMGX decode failed page=${order + 1}`,
                         `storageKey=${page.storageKey}`,
                         `status=${encryptedResponse.status}`,
                         `bytes=${encrypted.byteLength}`,
@@ -137,7 +195,7 @@
                 webp.fill(0);
             } finally {
                 encrypted.fill(0);
-                key.fill(0);
+                key?.fill(0);
             }
         }
         post({ type: "done", count: pageIndexes.length });
