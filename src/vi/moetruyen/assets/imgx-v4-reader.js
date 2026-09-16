@@ -210,14 +210,17 @@
             }
         }
         const uniqueFingerprints = new Set(decodedFingerprints.map((entry) => entry.sha256));
-        if (decodedFingerprints.length > 1 && uniqueFingerprints.size === 1) {
-            post({
-                type: "diagnostic",
-                message: "IMGX decoded pages are identical; possible site lock/banner response",
-                pages: decodedFingerprints.length,
-                fingerprint: decodedFingerprints[0],
-            });
-        }
+        post({
+            type: "diagnostic",
+            message: uniqueFingerprints.size === 1
+                ? "IMGX decoded pages are identical; possible site lock/banner response"
+                : "IMGX decoded page fingerprints collected",
+            pages: decodedFingerprints.length,
+            unique: uniqueFingerprints.size,
+            first: decodedFingerprints[0],
+            second: decodedFingerprints[1],
+            last: decodedFingerprints.at(-1),
+        });
         post({ type: "done", count: pageIndexes.length });
     } catch (error) {
         post({

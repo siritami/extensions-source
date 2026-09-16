@@ -346,8 +346,11 @@ abstract class MoeTruyen : KeiSource() {
                     "diagnostic" -> {
                         val message = payload["message"]?.jsonPrimitive?.content ?: "IMGX diagnostic"
                         val pages = payload["pages"]?.jsonPrimitive?.content ?: "unknown"
-                        val fingerprint = payload["fingerprint"]?.toString() ?: "unknown"
-                        Log.e(LOG_TAG, "IMGX diagnostic: $message; pages=$pages; fingerprint=$fingerprint")
+                        val unique = payload["unique"]?.jsonPrimitive?.content ?: "unknown"
+                        val first = payload["first"]?.toString() ?: "unknown"
+                        val second = payload["second"]?.toString() ?: "unknown"
+                        val last = payload["last"]?.toString() ?: "unknown"
+                        Log.e(LOG_TAG, "IMGX diagnostic: $message; pages=$pages; unique=$unique; first=$first; second=$second; last=$last")
                     }
                     "error" -> {
                         val message = payload["message"]?.jsonPrimitive?.content ?: "IMGX reader failed"
@@ -378,7 +381,7 @@ abstract class MoeTruyen : KeiSource() {
 
     private fun webViewImageInterceptor() = Interceptor { chain ->
         val request = chain.request()
-        val data = webViewImages.remove(request.url.toString())
+        val data = webViewImages[request.url.toString()]
             ?: return@Interceptor chain.proceed(request)
 
         Response.Builder()
