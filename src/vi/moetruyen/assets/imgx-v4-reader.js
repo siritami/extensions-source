@@ -319,6 +319,18 @@
                     intermediate = payloadVersion === 3
                         ? await decodeImgxV3(encrypted, page.grant, page.storageKey)
                         : encrypted;
+                    if (payloadVersion === 3 && order < 3) {
+                        post({
+                            type: "diagnostic",
+                            message: "IMGX v3 intermediate",
+                            pages: order + 1,
+                            unique: intermediate.byteLength,
+                            first: {
+                                head: hexPreview(intermediate),
+                                dimensions: webpDimensions(intermediate),
+                            },
+                        });
+                    }
                     if (payloadVersion === 3) {
                         webp = intermediate;
                         if (key) {
