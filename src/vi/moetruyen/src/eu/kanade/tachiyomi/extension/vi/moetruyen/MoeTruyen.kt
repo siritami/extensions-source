@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.moetruyen
 
+import android.webkit.CookieManager
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -13,6 +14,7 @@ import keiyoushi.source.KeiSource
 import keiyoushi.utils.asJsoup
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.runWebView
 import keiyoushi.utils.toJsonElement
 import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
@@ -34,6 +36,7 @@ import java.util.Locale
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -280,8 +283,12 @@ abstract class MoeTruyen : KeiSource() {
         val encryptedMedia = ImgxAccessClient.encryptedMedia(document)
 
         if (encryptedMedia.isNotEmpty()) {
+            val parsed = ImgxAccessClient.parseBootstrapConfig(document)
+            val bootstrapUrl = parsed.bootstrapUrl.ifBlank {
+                scrapeBootstrapUrl(chapterUrl)
+            }
             val access = ImgxAccessClient(client, baseUrl, chapterUrl, document)
-            val pages = access.fetchPages(encryptedMedia)
+            val pages = access.fetchPages(encryptedMedia, bootstrapUrl)
             pages.forEach { page ->
                 val grant = page.grant ?: throw IllegalStateException("IMGX grant missing page=${page.pageIndex + 1}")
                 imgxGrants[page.downloadUrl] = grant to page.storageKey
@@ -343,6 +350,40 @@ abstract class MoeTruyen : KeiSource() {
         .filterNot { element ->
             element.parents().any { parent -> parent.tagName().equals("noscript", ignoreCase = true) }
         }
+
+    // Site withholds reader-instance token from non-browser TLS. WebView is only used
+    // to read bootstrapUrl; grants and image decode stay in Kotlin.
+    private suspend fun scrapeBootstrapUrl(chapterUrl: String): String {
+        val webViewCookieManager = CookieManager.getInstance()
+        client.cookieJar.loadForRequest(chapterUrl.toHttpUrl()).forEach { cookie ->
+            webViewCookieManager.setCookie(baseUrl, "${cookie.name}=${cookie.value}; Path=/")
+        }
+        webViewCookieManager.flush()
+
+        val bootstrapUrl = runWebView<String>(timeout = 30.seconds) {
+            poll(500.milliseconds) {
+                evaluateJs(
+                    """
+                    (() => {
+                        const html = document.documentElement ? document.documentElement.innerHTML : "";
+                        const match = /bootstrapUrl:\s*"([^"]+)"/.exec(html);
+                        return match ? match[1] : "";
+                    })()
+                    """.trimIndent(),
+                ) { value ->
+                    val url = value?.trim('"').orEmpty()
+                    if (url.startsWith("/manga/")) {
+                        resolve(url)
+                    }
+                }
+            }
+            loadUrl(chapterUrl)
+        }
+
+        return bootstrapUrl.ifBlank {
+            throw IllegalStateException("IMGX document capability required")
+        }
+    }
 
     private val imgxGrantCacheSize = 100
     private val imgxGrants = Collections.synchronizedMap(
