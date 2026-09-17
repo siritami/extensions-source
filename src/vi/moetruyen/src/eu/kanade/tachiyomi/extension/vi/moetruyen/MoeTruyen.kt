@@ -356,8 +356,7 @@ abstract class MoeTruyen : KeiSource() {
     private val imgxGrantCacheSize = 100
     private val imgxGrants = Collections.synchronizedMap(
         object : LinkedHashMap<String, Pair<ImgxGrant, String>>(imgxGrantCacheSize, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<ImgxGrant, String>>?): Boolean =
-                size > imgxGrantCacheSize
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<ImgxGrant, String>>?): Boolean = size > imgxGrantCacheSize
         },
     )
 

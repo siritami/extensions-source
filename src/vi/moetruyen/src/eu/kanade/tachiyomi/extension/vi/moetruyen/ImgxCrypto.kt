@@ -13,10 +13,10 @@ import java.security.PublicKey
 import java.security.SecureRandom
 import java.security.spec.ECFieldFp
 import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECParameterSpec
 import java.security.spec.ECPoint
 import java.security.spec.ECPublicKeySpec
 import java.security.spec.EllipticCurve
-import java.security.spec.ECParameterSpec
 import javax.crypto.Cipher
 import javax.crypto.KeyAgreement
 import javax.crypto.Mac
@@ -28,8 +28,7 @@ internal object ImgxCrypto {
 
     fun randomBytes(size: Int): ByteArray = ByteArray(size).also(secureRandom::nextBytes)
 
-    fun base64UrlEncode(bytes: ByteArray): String =
-        Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+    fun base64UrlEncode(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
 
     fun base64UrlDecode(value: String): ByteArray {
         val normalized = value.replace('-', '+').replace('_', '/')
@@ -54,18 +53,16 @@ internal object ImgxCrypto {
         return result
     }
 
-    fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray =
-        Mac.getInstance("HmacSHA256").run {
-            init(SecretKeySpec(key, "HmacSHA256"))
-            doFinal(data)
-        }
+    fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray = Mac.getInstance("HmacSHA256").run {
+        init(SecretKeySpec(key, "HmacSHA256"))
+        doFinal(data)
+    }
 
-    fun aesGcmDecrypt(key: ByteArray, iv: ByteArray, aad: ByteArray, ciphertext: ByteArray): ByteArray =
-        Cipher.getInstance("AES/GCM/NoPadding").run {
-            init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
-            if (aad.isNotEmpty()) updateAAD(aad)
-            doFinal(ciphertext)
-        }
+    fun aesGcmDecrypt(key: ByteArray, iv: ByteArray, aad: ByteArray, ciphertext: ByteArray): ByteArray = Cipher.getInstance("AES/GCM/NoPadding").run {
+        init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+        if (aad.isNotEmpty()) updateAAD(aad)
+        doFinal(ciphertext)
+    }
 
     class EcdhKeyPair(
         private val privateKey: PrivateKey,
@@ -117,16 +114,14 @@ internal object ImgxCrypto {
         return ECParameterSpec(curve, g, n, 1)
     }
 
-    fun channelAad(ownPublic: String, peerPublic: String, proof: String): ByteArray =
-        """["imgx-reader-channel-v1","$ownPublic","$peerPublic","$proof"]""".toByteArray(Charsets.UTF_8)
+    fun channelAad(ownPublic: String, peerPublic: String, proof: String): ByteArray = """["imgx-reader-channel-v1","$ownPublic","$peerPublic","$proof"]""".toByteArray(Charsets.UTF_8)
 
-    fun deriveChannelKey(sharedSecret: ByteArray, proof: String): ByteArray =
-        hkdfSha256(
-            ikm = sharedSecret,
-            salt = proof.toByteArray(Charsets.UTF_8),
-            info = "imgx-reader-channel-v1".toByteArray(Charsets.UTF_8),
-            length = 32,
-        )
+    fun deriveChannelKey(sharedSecret: ByteArray, proof: String): ByteArray = hkdfSha256(
+        ikm = sharedSecret,
+        salt = proof.toByteArray(Charsets.UTF_8),
+        info = "imgx-reader-channel-v1".toByteArray(Charsets.UTF_8),
+        length = 32,
+    )
 
     fun openSealedPages(
         keyPair: EcdhKeyPair,
@@ -168,10 +163,9 @@ internal object ImgxCrypto {
         }
     }
 
-    fun publicKeyHash(publicKeyB64Url: String): String =
-        MessageDigest.getInstance("SHA-256")
-            .digest(base64UrlDecode(publicKeyB64Url))
-            .joinToString("") { "%02x".format(it) }
+    fun publicKeyHash(publicKeyB64Url: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(base64UrlDecode(publicKeyB64Url))
+        .joinToString("") { "%02x".format(it) }
 
     fun unwrapGrantKey(grant: ImgxGrant, storageKey: String, fieldName: String): ByteArray {
         val wrappedField = when (fieldName) {
@@ -367,8 +361,7 @@ internal object ImgxCrypto {
         return String(bytes, offset, 4, Charsets.US_ASCII)
     }
 
-    private fun readUint32(bytes: ByteArray, offset: Int): Int =
-        ByteBuffer.wrap(bytes, offset, 4).order(ByteOrder.BIG_ENDIAN).int
+    private fun readUint32(bytes: ByteArray, offset: Int): Int = ByteBuffer.wrap(bytes, offset, 4).order(ByteOrder.BIG_ENDIAN).int
 
     private const val GOLDEN = 2654435769L
 }
