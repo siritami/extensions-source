@@ -15,90 +15,13 @@
         post({ type: "error", message: "IMGX document root unavailable" });
         return;
     }
-    const injectionFlag = "moetruyenExtensionReader";
-    if (documentRoot.dataset[injectionFlag]) return;
-    documentRoot.dataset[injectionFlag] = "1";
+    if (documentRoot.dataset.moetruyenExtensionReader) return;
+    documentRoot.dataset.moetruyenExtensionReader = "1";
+
     const decodeBase64Url = (value) => Uint8Array.from(
         atob(value.replace(/-/g, "+").replace(/_/g, "/")),
         (char) => char.charCodeAt(0),
     );
-    const openSealedPages = async (channelKeyPair, sealed, proof) => {
-        if (!sealed || sealed.version !== "imgx-reader-channel-v1") {
-            throw new Error("IMGX sealed page channel invalid");
-        }
-        if (typeof proof !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(proof)) {
-            throw new Error("IMGX channel proof invalid");
-        }
-        const serverPublicBytes = decodeBase64Url(sealed.publicKey);
-        if (serverPublicBytes.byteLength !== 65 || serverPublicBytes[0] !== 4) {
-            throw new Error("IMGX channel public key invalid");
-        }
-        const serverPublicKey = await crypto.subtle.importKey(
-            "raw",
-            serverPublicBytes,
-            { name: "ECDH", namedCurve: "P-256" },
-            false,
-            [],
-        );
-        const sharedSecret = new Uint8Array(await crypto.subtle.deriveBits(
-            { name: "ECDH", public: serverPublicKey },
-            channelKeyPair.privateKey,
-            256,
-        ));
-        try {
-            const hkdfBaseKey = await crypto.subtle.importKey(
-                "raw",
-                sharedSecret,
-                "HKDF",
-                false,
-                ["deriveKey"],
-            );
-            const channelKey = await crypto.subtle.deriveKey(
-                {
-                    name: "HKDF",
-                    hash: "SHA-256",
-                    salt: new TextEncoder().encode(proof),
-                    info: new TextEncoder().encode("imgx-reader-channel-v1"),
-                },
-                hkdfBaseKey,
-                { name: "AES-GCM", length: 256 },
-                false,
-                ["decrypt"],
-            );
-            const iv = decodeBase64Url(sealed.iv);
-            const ciphertext = decodeBase64Url(sealed.ciphertext);
-            const publicKeyBytes = new Uint8Array(await crypto.subtle.exportKey(
-                "raw",
-                channelKeyPair.publicKey,
-            ));
-            const additionalData = new TextEncoder().encode(JSON.stringify([
-                "imgx-reader-channel-v1",
-                toBase64Url(publicKeyBytes),
-                sealed.publicKey,
-                proof,
-            ]));
-            const plaintext = new Uint8Array(await crypto.subtle.decrypt(
-                { name: "AES-GCM", iv, additionalData, tagLength: 128 },
-                channelKey,
-                ciphertext,
-            ));
-            try {
-                const pages = JSON.parse(new TextDecoder().decode(plaintext));
-                if (!Array.isArray(pages)) throw new Error("IMGX sealed pages invalid");
-                return pages;
-            } finally {
-                plaintext.fill(0);
-                ciphertext.fill(0);
-                iv.fill(0);
-            }
-        } finally {
-            sharedSecret.fill(0);
-        }
-    };
-    const toBase64Url = (bytes) => btoa(String.fromCharCode(...bytes))
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "");
     const toBase64 = (bytes) => {
         const chunks = [];
         for (let offset = 0; offset < bytes.byteLength; offset += 0x8000) {
@@ -106,25 +29,14 @@
         }
         return btoa(chunks.join(""));
     };
-    const hexPreview = (bytes, length = 16) => [...bytes.slice(0, length)]
+    const hexPreview = (bytes, length = 16) => [...bytes.subarray(0, length)]
         .map((byte) => byte.toString(16).padStart(2, "0"))
         .join("");
-    const webpDimensions = (bytes) => {
-        if (bytes.byteLength < 30 || hexPreview(bytes, 4) !== "52494646" ||
-            hexPreview(bytes.slice(8), 4) !== "57454250" ||
-            hexPreview(bytes.slice(12), 4) !== "56503858") {
-            return "unknown";
-        }
-        const width = 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16);
-        const height = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16);
-        return `${width}x${height}`;
-    };
-    const imgxDimensions = (bytes) => bytes.byteLength >= 13
-        ? `${new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(5)}x${new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(9)}`
-        : "unknown";
-    const digest = async (bytes) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
-        .map((byte) => byte.toString(16).padStart(2, "0"))
-        .join("");
+    const readUint32 = (bytes, offset) => new DataView(
+        bytes.buffer,
+        bytes.byteOffset,
+        bytes.byteLength,
+    ).getUint32(offset);
     const fnv1a = (bytes) => {
         let hash = 2166136261;
         for (const byte of bytes) {
@@ -140,62 +52,30 @@
         value ^= value << 5;
         return value >>> 0;
     };
-    const deriveWrapKey = (input, length = 32) => {
-        const output = new Uint8Array(length);
-        let hash = fnv1a(new TextEncoder().encode(input));
-        for (let index = 0; index < length; index++) {
+    const unwrapGrantKey = (grant, storageKey, fieldName) => {
+        const wrapped = decodeBase64Url(grant[fieldName]);
+        if (wrapped.byteLength !== 32) throw new Error(`IMGX ${fieldName} invalid`);
+        const grantString = [
+            "IMGX-GRANT-WRAP-v1",
+            grant.version,
+            grant.algorithm,
+            grant.imageId,
+            grant.issuedAt,
+            grant.expiresAt,
+            grant.nonce,
+            grant.keyNonce,
+            grant.signature,
+            String(storageKey || "").replace(/^\/+/, ""),
+        ].map((value) => value == null ? "" : String(value)).join(".");
+        let hash = fnv1a(new TextEncoder().encode(grantString));
+        for (let index = 0; index < wrapped.byteLength; index++) {
             if (index % 4 === 0) {
                 hash = xorshift32((hash + index + 2654435769) >>> 0);
             }
-            output[index] = (hash >>> ((index % 4) * 8)) & 0xff;
+            wrapped[index] ^= (hash >>> ((index % 4) * 8)) & 0xff;
         }
-        return output;
-    };
-    const unwrapV4Key = (grant, storageKey) => {
-        const wrapped = decodeBase64Url(grant.wrappedV4Key);
-        if (wrapped.byteLength !== 32) throw new Error("IMGX v4 grant invalid");
-        const grantString = [
-            "IMGX-GRANT-WRAP-v1",
-            grant.version,
-            grant.algorithm,
-            grant.imageId,
-            grant.issuedAt,
-            grant.expiresAt,
-            grant.nonce,
-            grant.keyNonce,
-            grant.signature,
-            String(storageKey || "").replace(/^\/+/, ""),
-        ].map((value) => value == null ? "" : String(value)).join(".");
-        const wrapKey = deriveWrapKey(grantString, wrapped.byteLength);
-        for (let index = 0; index < wrapped.byteLength; index++) wrapped[index] ^= wrapKey[index];
-        wrapKey.fill(0);
         return wrapped;
     };
-    const unwrapContentKey = (grant, storageKey) => {
-        const wrapped = decodeBase64Url(grant.wrappedContentKey);
-        if (wrapped.byteLength !== 32) throw new Error("IMGX content grant invalid");
-        const grantString = [
-            "IMGX-GRANT-WRAP-v1",
-            grant.version,
-            grant.algorithm,
-            grant.imageId,
-            grant.issuedAt,
-            grant.expiresAt,
-            grant.nonce,
-            grant.keyNonce,
-            grant.signature,
-            String(storageKey || "").replace(/^\/+/, ""),
-        ].map((value) => value == null ? "" : String(value)).join(".");
-        const wrapKey = deriveWrapKey(grantString, wrapped.byteLength);
-        for (let index = 0; index < wrapped.byteLength; index++) wrapped[index] ^= wrapKey[index];
-        wrapKey.fill(0);
-        return wrapped;
-    };
-    const readUint32 = (bytes, offset) => new DataView(
-        bytes.buffer,
-        bytes.byteOffset,
-        bytes.byteLength,
-    ).getUint32(offset);
     const decodeImgxV3 = async (encrypted, grant, storageKey) => {
         if (encrypted.byteLength < 41 || encrypted[4] !== 3) {
             throw new Error("IMGX v3 payload invalid");
@@ -203,9 +83,9 @@
         const width = readUint32(encrypted, 5);
         const height = readUint32(encrypted, 9);
         if (!width || !height) throw new Error("IMGX v3 dimensions invalid");
-        const key = unwrapContentKey(grant, storageKey);
-        const iv = encrypted.slice(13, 25);
-        const ciphertext = encrypted.slice(25);
+        const key = unwrapGrantKey(grant, storageKey, "wrappedContentKey");
+        const iv = encrypted.subarray(13, 25);
+        const ciphertext = encrypted.subarray(25);
         const aad = new TextEncoder().encode([
             "IMGX-v3",
             String(grant.imageId || "").trim(),
@@ -222,14 +102,11 @@
             ));
         } finally {
             key.fill(0);
-            iv.fill(0);
-            ciphertext.fill(0);
         }
     };
-    // Official decoy unwrap: protected pages are a WebP shell with an IMX4 chunk
-    // that holds the real IMGX v4 payload.
+    // Protected pages are a WebP shell with an IMX4 chunk holding the real IMGX v4 payload.
     const extractImx4FromWebp = (bytes) => {
-        if (bytes.byteLength < 12 || hexPreview(bytes, 4) !== "52494646" || hexPreview(bytes.slice(8), 4) !== "57454250") {
+        if (bytes.byteLength < 12 || hexPreview(bytes, 4) !== "52494646" || hexPreview(bytes.subarray(8), 4) !== "57454250") {
             return null;
         }
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -249,7 +126,12 @@
                 throw new Error("IMGX WebP chunk truncated");
             }
             if (hexPreview(bytes.subarray(offset, offset + 4)) === "494d5834") {
-                if (payload || size <= 78 || hexPreview(bytes.subarray(offset + 8, offset + 12)) !== "494d4758" || bytes[offset + 12] !== 4) {
+                if (
+                    payload ||
+                    size <= 78 ||
+                    hexPreview(bytes.subarray(offset + 8, offset + 12)) !== "494d4758" ||
+                    bytes[offset + 12] !== 4
+                ) {
                     throw new Error("IMGX protected chunk invalid");
                 }
                 payload = bytes.slice(offset + 8, dataEnd);
@@ -262,7 +144,7 @@
         const context = { imageId: grant.imageId, storageKey };
         const version = encrypted[4];
         if (version === 4) {
-            const key = unwrapV4Key(grant, storageKey);
+            const key = unwrapGrantKey(grant, storageKey, "wrappedV4Key");
             try {
                 return await decodeImgxV4(encrypted, key, context);
             } finally {
@@ -278,7 +160,7 @@
             return intermediate;
         }
         try {
-            const key = unwrapV4Key(grant, storageKey);
+            const key = unwrapGrantKey(grant, storageKey, "wrappedV4Key");
             try {
                 return await decodeImgxV4(imx4, key, context);
             } finally {
@@ -337,26 +219,12 @@
             });
         }
 
-        const decoderUrl = "__IMGX_DECODER_URL__";
-        const { decodeImgxV4 } = await import(decoderUrl);
-        const decodedFingerprints = [];
+        const { decodeImgxV4 } = await import("__IMGX_DECODER_URL__");
 
         for (let order = 0; order < pageIndexes.length; order++) {
             const page = pages.get(pageIndexes[order]);
             if (!page?.downloadUrl || (!page?.grant?.wrappedV4Key && !page?.grant?.wrappedContentKey)) {
                 throw new Error(`IMGX grant missing for page ${order + 1}`);
-            }
-            if (order < 3 || order === pageIndexes.length - 1) {
-                post({
-                    type: "grantDiagnostic",
-                    page: order + 1,
-                    pageIndex: page.pageIndex,
-                    storageKey: page.storageKey,
-                    downloadUrl: page.downloadUrl,
-                    imageId: page.grant.imageId,
-                    grantVersion: page.grant.version,
-                    algorithm: page.grant.algorithm,
-                });
             }
             const encryptedResponse = await fetch(page.downloadUrl);
             const encrypted = new Uint8Array(await encryptedResponse.arrayBuffer());
@@ -364,7 +232,7 @@
                 throw new Error(`IMGX page ${order + 1} HTTP ${encryptedResponse.status}`);
             }
             const expectedUrl = page.downloadUrl.replace(/[?#].*$/, "");
-            if (expectedUrl.endsWith(`/media/${page.storageKey}`) === false && expectedUrl.endsWith(page.storageKey) === false) {
+            if (!expectedUrl.endsWith(`/media/${page.storageKey}`) && !expectedUrl.endsWith(page.storageKey)) {
                 throw new Error([
                     `IMGX grant/payload mismatch page=${order + 1}`,
                     `storageKey=${page.storageKey}`,
@@ -377,7 +245,7 @@
                 try {
                     webp = await decodeProtectedPage(encrypted, page.grant, page.storageKey, decodeImgxV4);
                     const magic = webp.byteLength >= 12 ? hexPreview(webp, 4) : "";
-                    if (magic !== "52494646" || hexPreview(webp.slice(8), 4) !== "57454250") {
+                    if (magic !== "52494646" || hexPreview(webp.subarray(8), 4) !== "57454250") {
                         throw new Error(`IMGX decode output is not WebP; magic=${magic}`);
                     }
                 } catch (error) {
@@ -386,52 +254,15 @@
                         `storageKey=${page.storageKey}`,
                         `status=${encryptedResponse.status}`,
                         `bytes=${encrypted.byteLength}`,
-                        `head=${hexPreview(encrypted)}`,
                         `error=${error?.message || String(error)}`,
-                        `stack=${error?.stack || "none"}`,
                     ].join("; "));
                 }
-                if (order < 3 || order === pageIndexes.length - 1) {
-                    post({
-                        type: "diagnostic",
-                        message: "IMGX decoded page",
-                        pages: order + 1,
-                        unique: webp.byteLength,
-                        first: {
-                            head: hexPreview(webp),
-                            dimensions: webpDimensions(webp),
-                        },
-                    });
-                }
-                decodedFingerprints.push({
-                    page: order + 1,
-                    storageKey: page.storageKey,
-                    pageIndex: page.pageIndex,
-                    encryptedDimensions: imgxDimensions(encrypted),
-                    expected: `${page.width || "?"}x${page.height || "?"}`,
-                    bytes: webp.byteLength,
-                    dimensions: webpDimensions(webp),
-                    head: hexPreview(webp),
-                    sha256: await digest(webp),
-                });
                 post({ type: "page", index: order, data: toBase64(webp) });
                 webp.fill(0);
             } finally {
                 encrypted.fill(0);
             }
         }
-        const uniqueFingerprints = new Set(decodedFingerprints.map((entry) => entry.sha256));
-        post({
-            type: "diagnostic",
-            message: uniqueFingerprints.size === 1
-                ? "IMGX decoded pages are identical; possible site lock/banner response"
-                : "IMGX decoded page fingerprints collected",
-            pages: decodedFingerprints.length,
-            unique: uniqueFingerprints.size,
-            first: decodedFingerprints[0],
-            second: decodedFingerprints[1],
-            last: decodedFingerprints.at(-1),
-        });
         post({ type: "done", count: pageIndexes.length });
     } catch (error) {
         post({

@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.moetruyen
 
 import android.util.Base64
-import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.WebResourceResponse
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -290,7 +289,7 @@ abstract class MoeTruyen : KeiSource() {
         val readerPages = document.selectFirst("[data-reader-lazy-pages]")
 
         if (readerPages?.attr("data-reader-imgx-access-url")?.isNotBlank() == true) {
-            return fetchV4Pages(chapterUrl, document, (allImages.size - 1).coerceAtLeast(0))
+            return fetchV4Pages(chapterUrl, (allImages.size - 1).coerceAtLeast(0))
         }
 
         return allImages
@@ -309,8 +308,7 @@ abstract class MoeTruyen : KeiSource() {
             .toList()
     }
 
-    private suspend fun fetchV4Pages(chapterUrl: String, document: Document, pageCount: Int): List<Page> {
-        Log.e(LOG_TAG, "IMGX diagnostic: bridge build active; chapter=$chapterUrl; expectedPages=$pageCount")
+    private suspend fun fetchV4Pages(chapterUrl: String, pageCount: Int): List<Page> {
         val readerScript = client.get("$baseUrl/reader.js").body.string()
         val decoderPath = Regex("\\.\\./chunks/(v4-[A-Za-z0-9_-]+\\.js)")
             .find(readerScript)
@@ -318,10 +316,12 @@ abstract class MoeTruyen : KeiSource() {
             ?.get(1)
             ?: throw IllegalStateException("IMGX v4 decoder missing")
         val decoderUrl = "$baseUrl/chunks/$decoderPath"
-        val runtimeTakePattern = Regex("window\\.__IMGX_RUNTIME__\\?\\.take\\(\\)\\|\\|null")
-        val readerScriptForWebView = readerScript.replace(runtimeTakePattern, "null")
+        // Official reader claims the runtime once; keep the handoff free for our bridge.
+        val readerScriptForWebView = readerScript.replace(
+            Regex("window\\.__IMGX_RUNTIME__\\?\\.take\\(\\)\\|\\|null"),
+            "null",
+        )
         check(readerScriptForWebView != readerScript) { "IMGX reader runtime claim not found" }
-        Log.e(LOG_TAG, "IMGX diagnostic: official reader access script preserved; runtime claim disabled")
         val script = javaClass.getResource("/assets/imgx-v4-reader.js")?.readText()
             ?: throw IllegalStateException("imgx-v4-reader.js not found")
         val webViewScript = script.replace("__IMGX_DECODER_URL__", decoderUrl)
@@ -336,8 +336,6 @@ abstract class MoeTruyen : KeiSource() {
             "Referer" to "$baseUrl/",
             "Origin" to baseUrl,
         )
-        val webViewCookieNames = client.cookieJar.loadForRequest(chapterUrl.toHttpUrl()).map { it.name }.sorted()
-        Log.e(LOG_TAG, "IMGX diagnostic: WebView session cookie names=$webViewCookieNames")
 
         runWebView<Unit>(timeout = 90.seconds) {
             interceptRequest { request ->
@@ -358,29 +356,8 @@ abstract class MoeTruyen : KeiSource() {
                         }
                     }
                     "done" -> resolve(Unit)
-                    "grantDiagnostic" -> {
-                        val page = payload["page"]?.jsonPrimitive?.content ?: "unknown"
-                        val pageIndex = payload["pageIndex"]?.jsonPrimitive?.content ?: "unknown"
-                        val storageKey = payload["storageKey"]?.jsonPrimitive?.content ?: "unknown"
-                        val downloadUrl = payload["downloadUrl"]?.jsonPrimitive?.content ?: "unknown"
-                        val imageId = payload["imageId"]?.jsonPrimitive?.content ?: "unknown"
-                        val grantVersion = payload["grantVersion"]?.jsonPrimitive?.content ?: "unknown"
-                        val algorithm = payload["algorithm"]?.jsonPrimitive?.content ?: "unknown"
-                        Log.e(LOG_TAG, "IMGX grant diagnostic: page=$page; pageIndex=$pageIndex; storageKey=$storageKey; downloadUrl=$downloadUrl; imageId=$imageId; version=$grantVersion; algorithm=$algorithm")
-                    }
-                    "diagnostic" -> {
-                        val message = payload["message"]?.jsonPrimitive?.content ?: "IMGX diagnostic"
-                        val pages = payload["pages"]?.jsonPrimitive?.content ?: "unknown"
-                        val unique = payload["unique"]?.jsonPrimitive?.content ?: "unknown"
-                        val first = payload["first"]?.toString() ?: "unknown"
-                        val second = payload["second"]?.toString() ?: "unknown"
-                        val last = payload["last"]?.toString() ?: "unknown"
-                        Log.e(LOG_TAG, "IMGX diagnostic: $message; pages=$pages; unique=$unique; first=$first; second=$second; last=$last")
-                    }
                     "error" -> {
                         val message = payload["message"]?.jsonPrimitive?.content ?: "IMGX reader failed"
-                        val stack = payload["stack"]?.jsonPrimitive?.content ?: "none"
-                        Log.e(LOG_TAG, "IMGX reader error: $message; stack=$stack")
                         reject(Exception(message))
                     }
                 }
@@ -395,9 +372,6 @@ abstract class MoeTruyen : KeiSource() {
 
         return pages.mapIndexed { index, data ->
             val bytes = data ?: throw IllegalStateException("IMGX page ${index + 1} missing")
-            if (index == 0) {
-                Log.e(LOG_TAG, "IMGX diagnostic: decoded pages ready; count=${pages.size}; firstBytes=${bytes.size}")
-            }
             val imageUrl = "$WEBVIEW_IMAGE_HOST/$runId/$index.webp"
             webViewImages[imageUrl] = bytes
             Page(index, imageUrl = imageUrl)
@@ -406,15 +380,7 @@ abstract class MoeTruyen : KeiSource() {
 
     private fun webViewImageInterceptor() = Interceptor { chain ->
         val request = chain.request()
-        val requestUrl = request.url.toString()
-        val data = webViewImages[requestUrl]
-        if (request.url.host == BASE_HOST && request.url.encodedPath.startsWith(WEBVIEW_IMAGE_PATH)) {
-            if (data == null) {
-                Log.e(LOG_TAG, "IMGX image delivery miss: url=$requestUrl; cached=${webViewImages.size}")
-                return@Interceptor chain.proceed(request)
-            }
-            Log.e(LOG_TAG, "IMGX image delivery hit: url=$requestUrl; bytes=${data.size}")
-        }
+        val data = webViewImages[request.url.toString()]
         if (data == null) return@Interceptor chain.proceed(request)
 
         Response.Builder()
@@ -492,11 +458,8 @@ abstract class MoeTruyen : KeiSource() {
     private val secureRandom = SecureRandom()
 
     private companion object {
-        const val LOG_TAG = "MoeTruyen"
         const val WEBVIEW_BRIDGE_NAME = "MoeTruyenBridge"
         const val WEBVIEW_IMAGE_CACHE_SIZE = 100
-        const val BASE_HOST = "moetruyen.net"
         const val WEBVIEW_IMAGE_HOST = "https://moetruyen.net/__moetruyen_webview"
-        const val WEBVIEW_IMAGE_PATH = "/__moetruyen_webview/"
     }
 }
