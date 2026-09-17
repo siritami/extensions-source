@@ -15,7 +15,6 @@ import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.serialization.json.JsonElement
-import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
@@ -43,14 +42,6 @@ abstract class MoeTruyen : KeiSource() {
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         addInterceptor(imgxInterceptor())
         rateLimit(3)
-    }
-
-    override fun Headers.Builder.configureHeaders(): Headers.Builder = apply {
-        // The site only embeds reader bootstrap capability for browser-like clients.
-        set("Accept-Language", "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7")
-        set("Sec-CH-UA", "\"Chromium\";v=\"151\", \"Not A(Brand\";v=\"24\"")
-        set("Sec-CH-UA-Mobile", "?1")
-        set("Sec-CH-UA-Platform", "\"Android\"")
     }
 
     // ============================== Popular ===============================
