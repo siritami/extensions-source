@@ -1,5 +1,5 @@
 (async () => {
-    const bridge = window.MoeTruyenBridge;
+    const bridge = window.__IMGX_BRIDGE__;
     const post = (value) => bridge.post(JSON.stringify(value));
     const waitFor = async (predicate, timeout = 15000) => {
         const deadline = performance.now() + timeout;
@@ -257,7 +257,7 @@
                         `error=${error?.message || String(error)}`,
                     ].join("; "));
                 }
-                post({ type: "page", index: order, data: toBase64(webp) });
+                post({ type: "page", index: order, downloadUrl: page.downloadUrl, data: toBase64(webp) });
                 webp.fill(0);
             } finally {
                 encrypted.fill(0);

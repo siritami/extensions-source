@@ -34,7 +34,6 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
-import java.security.SecureRandom
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -310,7 +309,6 @@ abstract class MoeTruyen : KeiSource() {
             .toList()
     }
 
-    // Older chapters keep a page-access URL plus a 0.js placeholder, but serve plain WebP pages.
     private fun hasEncryptedReaderMedia(readerPages: Element): Boolean {
         val accessUrl = readerPages.attr("data-reader-imgx-access-url")
         if (accessUrl.isBlank()) return false
@@ -334,7 +332,6 @@ abstract class MoeTruyen : KeiSource() {
             ?.get(1)
             ?: throw IllegalStateException("IMGX v4 decoder missing")
         val decoderUrl = "$baseUrl/chunks/$decoderPath"
-        // Official reader claims the runtime once; keep the handoff free for our bridge.
         val readerScriptForWebView = readerScript.replace(
             Regex("window\\.__IMGX_RUNTIME__\\?\\.take\\(\\)\\|\\|null"),
             "null",
@@ -342,18 +339,20 @@ abstract class MoeTruyen : KeiSource() {
         check(readerScriptForWebView != readerScript) { "IMGX reader runtime claim not found" }
         val script = javaClass.getResource("/assets/imgx-v4-reader.js")?.readText()
             ?: throw IllegalStateException("imgx-v4-reader.js not found")
-        val webViewScript = script.replace("__IMGX_DECODER_URL__", decoderUrl)
-        val runId = randomHex(12)
+        val pool = ('a'..'z') + ('A'..'Z')
+        val bridgeName = (1..(10..20).random())
+            .map { pool.random() }
+            .joinToString("")
+        val webViewScript = script
+            .replace("__IMGX_DECODER_URL__", decoderUrl)
+            .replace("__IMGX_BRIDGE__", bridgeName)
         val pages = arrayOfNulls<ByteArray>(pageCount)
+        val downloadUrls = arrayOfNulls<String>(pageCount)
         val webViewCookieManager = CookieManager.getInstance()
         client.cookieJar.loadForRequest(chapterUrl.toHttpUrl()).forEach { cookie ->
             webViewCookieManager.setCookie(baseUrl, "${cookie.name}=${cookie.value}; Path=/")
         }
         webViewCookieManager.flush()
-        val webViewHeaders = mapOf(
-            "Referer" to "$baseUrl/",
-            "Origin" to baseUrl,
-        )
 
         runWebView<Unit>(timeout = 90.seconds) {
             interceptRequest { request ->
@@ -363,14 +362,16 @@ abstract class MoeTruyen : KeiSource() {
                     null
                 }
             }
-            jsBridge(WEBVIEW_BRIDGE_NAME) { message ->
+            jsBridge(bridgeName) { message ->
                 val payload = message.parseAs<JsonObject>()
                 when (payload["type"]?.jsonPrimitive?.content) {
                     "page" -> {
                         val index = payload["index"]!!.jsonPrimitive.int
                         val data = payload["data"]!!.jsonPrimitive.content
+                        val downloadUrl = payload["downloadUrl"]?.jsonPrimitive?.content
                         if (index in pages.indices) {
                             pages[index] = Base64.decode(data, Base64.DEFAULT)
+                            downloadUrls[index] = downloadUrl
                         }
                     }
                     "done" -> resolve(Unit)
@@ -385,12 +386,13 @@ abstract class MoeTruyen : KeiSource() {
                     evaluateJs(webViewScript)
                 }
             }
-            loadUrl(chapterUrl, webViewHeaders)
+            loadUrl(chapterUrl)
         }
 
         return pages.mapIndexed { index, data ->
             val bytes = data ?: throw IllegalStateException("IMGX page ${index + 1} missing")
-            val imageUrl = "$WEBVIEW_IMAGE_HOST/$runId/$index.webp"
+            val imageUrl = downloadUrls[index]
+                ?: throw IllegalStateException("IMGX page ${index + 1} download URL missing")
             webViewImages[imageUrl] = bytes
             Page(index, imageUrl = imageUrl)
         }
@@ -417,12 +419,6 @@ abstract class MoeTruyen : KeiSource() {
         .filterNot { element ->
             element.parents().any { parent -> parent.tagName().equals("noscript", ignoreCase = true) }
         }
-
-    private fun randomHex(size: Int): String {
-        val bytes = ByteArray(size)
-        secureRandom.nextBytes(bytes)
-        return bytes.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
-    }
 
     private val webViewImages = Collections.synchronizedMap(
         object : LinkedHashMap<String, ByteArray>(WEBVIEW_IMAGE_CACHE_SIZE, 0.75f, true) {
@@ -473,12 +469,9 @@ abstract class MoeTruyen : KeiSource() {
     private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val numberRegex = Regex("""\d+""")
-    private val secureRandom = SecureRandom()
 
     private companion object {
-        const val WEBVIEW_BRIDGE_NAME = "MoeTruyenBridge"
         const val WEBVIEW_IMAGE_CACHE_SIZE = 100
-        const val WEBVIEW_IMAGE_HOST = "https://moetruyen.net/__moetruyen_webview"
     }
 }
 
