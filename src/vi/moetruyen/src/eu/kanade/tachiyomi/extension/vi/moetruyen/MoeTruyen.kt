@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.moetruyen
 
 import android.util.Base64
-import android.webkit.CookieManager
 import android.webkit.WebResourceResponse
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -348,11 +347,6 @@ abstract class MoeTruyen : KeiSource() {
             .replace("__IMGX_BRIDGE__", bridgeName)
         val pages = arrayOfNulls<ByteArray>(pageCount)
         val downloadUrls = arrayOfNulls<String>(pageCount)
-        val webViewCookieManager = CookieManager.getInstance()
-        client.cookieJar.loadForRequest(chapterUrl.toHttpUrl()).forEach { cookie ->
-            webViewCookieManager.setCookie(baseUrl, "${cookie.name}=${cookie.value}; Path=/")
-        }
-        webViewCookieManager.flush()
 
         runWebView<Unit>(timeout = 90.seconds) {
             interceptRequest { request ->
@@ -421,8 +415,8 @@ abstract class MoeTruyen : KeiSource() {
         }
 
     private val webViewImages = Collections.synchronizedMap(
-        object : LinkedHashMap<String, ByteArray>(WEBVIEW_IMAGE_CACHE_SIZE, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ByteArray>?): Boolean = size > WEBVIEW_IMAGE_CACHE_SIZE
+        object : LinkedHashMap<String, ByteArray>(100, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ByteArray>?): Boolean = size > 100
         },
     )
 
@@ -470,13 +464,9 @@ abstract class MoeTruyen : KeiSource() {
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val numberRegex = Regex("""\d+""")
 
-    private companion object {
-        const val WEBVIEW_IMAGE_CACHE_SIZE = 100
-    }
+    @Serializable
+    private class ReaderMediaEntry(
+        val storageKey: String,
+        val downloadUrl: String,
+    )
 }
-
-@Serializable
-private class ReaderMediaEntry(
-    val storageKey: String,
-    val downloadUrl: String,
-)
