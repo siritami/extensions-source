@@ -18,6 +18,7 @@ import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.runWebView
 import keiyoushi.utils.toJsonElement
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.int
@@ -32,6 +33,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.net.URLDecoder
 import java.security.SecureRandom
 import java.time.LocalDate
 import java.time.ZoneId
@@ -288,7 +290,7 @@ abstract class MoeTruyen : KeiSource() {
         val allImages = readerImages(document)
         val readerPages = document.selectFirst("[data-reader-lazy-pages]")
 
-        if (readerPages?.attr("data-reader-imgx-access-url")?.isNotBlank() == true) {
+        if (readerPages != null && hasEncryptedReaderMedia(readerPages)) {
             return fetchV4Pages(chapterUrl, (allImages.size - 1).coerceAtLeast(0))
         }
 
@@ -306,6 +308,22 @@ abstract class MoeTruyen : KeiSource() {
                 Page(index, imageUrl = imageUrl)
             }
             .toList()
+    }
+
+    // Older chapters keep a page-access URL plus a 0.js placeholder, but serve plain WebP pages.
+    private fun hasEncryptedReaderMedia(readerPages: Element): Boolean {
+        val accessUrl = readerPages.attr("data-reader-imgx-access-url")
+        if (accessUrl.isBlank()) return false
+        val mediaJson = readerPages.attr("data-reader-imgx-media")
+            .ifBlank { return false }
+        val media = runCatching {
+            URLDecoder.decode(mediaJson, Charsets.UTF_8.name()).parseAs<List<ReaderMediaEntry>>()
+        }.getOrDefault(emptyList())
+        return media.any { entry ->
+            entry.storageKey.startsWith("chapters/") &&
+                !entry.storageKey.endsWith("/0.js") &&
+                !entry.downloadUrl.endsWith("/0.js")
+        }
     }
 
     private suspend fun fetchV4Pages(chapterUrl: String, pageCount: Int): List<Page> {
@@ -463,3 +481,9 @@ abstract class MoeTruyen : KeiSource() {
         const val WEBVIEW_IMAGE_HOST = "https://moetruyen.net/__moetruyen_webview"
     }
 }
+
+@Serializable
+private class ReaderMediaEntry(
+    val storageKey: String,
+    val downloadUrl: String,
+)
