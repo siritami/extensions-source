@@ -104,7 +104,6 @@
             key.fill(0);
         }
     };
-    // Protected pages are a WebP shell with an IMX4 chunk holding the real IMGX v4 payload.
     const extractImx4FromWebp = (bytes) => {
         if (bytes.byteLength < 12 || hexPreview(bytes, 4) !== "52494646" || hexPreview(bytes.subarray(8), 4) !== "57454250") {
             return null;
