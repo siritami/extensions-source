@@ -226,6 +226,68 @@
             ciphertext.fill(0);
         }
     };
+    // Official decoy unwrap: protected pages are a WebP shell with an IMX4 chunk
+    // that holds the real IMGX v4 payload.
+    const extractImx4FromWebp = (bytes) => {
+        if (bytes.byteLength < 12 || hexPreview(bytes, 4) !== "52494646" || hexPreview(bytes.slice(8), 4) !== "57454250") {
+            return null;
+        }
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        if (view.getUint32(4, true) + 8 !== bytes.byteLength) {
+            throw new Error("IMGX WebP container invalid");
+        }
+        let payload = null;
+        let chunks = 0;
+        for (let offset = 12; offset < bytes.byteLength;) {
+            if (++chunks > 1024 || offset + 8 > bytes.byteLength) {
+                throw new Error("IMGX WebP chunks invalid");
+            }
+            const size = view.getUint32(offset + 4, true);
+            const dataEnd = offset + 8 + size;
+            const paddedEnd = dataEnd + (size & 1);
+            if (paddedEnd > bytes.byteLength) {
+                throw new Error("IMGX WebP chunk truncated");
+            }
+            if (hexPreview(bytes.subarray(offset, offset + 4)) === "494d5834") {
+                if (payload || size <= 78 || hexPreview(bytes.subarray(offset + 8, offset + 12)) !== "494d4758" || bytes[offset + 12] !== 4) {
+                    throw new Error("IMGX protected chunk invalid");
+                }
+                payload = bytes.slice(offset + 8, dataEnd);
+            }
+            offset = paddedEnd;
+        }
+        return payload;
+    };
+    const decodeProtectedPage = async (encrypted, grant, storageKey, decodeImgxV4) => {
+        const context = { imageId: grant.imageId, storageKey };
+        const version = encrypted[4];
+        if (version === 4) {
+            const key = unwrapV4Key(grant, storageKey);
+            try {
+                return await decodeImgxV4(encrypted, key, context);
+            } finally {
+                key.fill(0);
+            }
+        }
+        if (version !== 3) {
+            throw new Error(`IMGX version unsupported: ${version}`);
+        }
+        const intermediate = await decodeImgxV3(encrypted, grant, storageKey);
+        const imx4 = extractImx4FromWebp(intermediate);
+        if (!imx4) {
+            return intermediate;
+        }
+        try {
+            const key = unwrapV4Key(grant, storageKey);
+            try {
+                return await decodeImgxV4(imx4, key, context);
+            } finally {
+                key.fill(0);
+            }
+        } finally {
+            intermediate.fill(0);
+        }
+    };
 
     try {
         const root = await waitFor(() => document.querySelector("[data-reader-lazy-pages]"));
@@ -301,8 +363,6 @@
             if (!encryptedResponse.ok) {
                 throw new Error(`IMGX page ${order + 1} HTTP ${encryptedResponse.status}`);
             }
-            const payloadVersion = encrypted[4];
-            const key = page.grant?.wrappedV4Key ? unwrapV4Key(page.grant, page.storageKey) : null;
             const expectedUrl = page.downloadUrl.replace(/[?#].*$/, "");
             if (expectedUrl.endsWith(`/media/${page.storageKey}`) === false && expectedUrl.endsWith(page.storageKey) === false) {
                 throw new Error([
@@ -314,44 +374,11 @@
             }
             try {
                 let webp;
-                let intermediate;
                 try {
-                    intermediate = payloadVersion === 3
-                        ? await decodeImgxV3(encrypted, page.grant, page.storageKey)
-                        : encrypted;
-                    if (payloadVersion === 3 && order < 3) {
-                        post({
-                            type: "diagnostic",
-                            message: "IMGX v3 intermediate",
-                            pages: order + 1,
-                            unique: intermediate.byteLength,
-                            first: {
-                                head: hexPreview(intermediate),
-                                dimensions: webpDimensions(intermediate),
-                            },
-                        });
-                    }
-                    if (payloadVersion === 3) {
-                        webp = intermediate;
-                        if (key) {
-                            try {
-                                webp = await decodeImgxV4(intermediate, key, {
-                                    imageId: page.grant.imageId,
-                                    storageKey: page.storageKey,
-                                });
-                            } catch (error) {
-                                if (!String(error?.message || error).includes("IMGX v4 file invalid")) throw error;
-                            }
-                        }
-                    } else {
-                        webp = await decodeImgxV4(intermediate, key, {
-                            imageId: page.grant.imageId,
-                            storageKey: page.storageKey,
-                        });
-                    }
+                    webp = await decodeProtectedPage(encrypted, page.grant, page.storageKey, decodeImgxV4);
                     const magic = webp.byteLength >= 12 ? hexPreview(webp, 4) : "";
                     if (magic !== "52494646" || hexPreview(webp.slice(8), 4) !== "57454250") {
-                        throw new Error(`IMGX v3 authentication failed; output is not WebP; magic=${magic}`);
+                        throw new Error(`IMGX decode output is not WebP; magic=${magic}`);
                     }
                 } catch (error) {
                     throw new Error([
@@ -363,8 +390,18 @@
                         `error=${error?.message || String(error)}`,
                         `stack=${error?.stack || "none"}`,
                     ].join("; "));
-                } finally {
-                    if (intermediate && intermediate !== encrypted && intermediate !== webp) intermediate.fill(0);
+                }
+                if (order < 3 || order === pageIndexes.length - 1) {
+                    post({
+                        type: "diagnostic",
+                        message: "IMGX decoded page",
+                        pages: order + 1,
+                        unique: webp.byteLength,
+                        first: {
+                            head: hexPreview(webp),
+                            dimensions: webpDimensions(webp),
+                        },
+                    });
                 }
                 decodedFingerprints.push({
                     page: order + 1,
@@ -381,7 +418,6 @@
                 webp.fill(0);
             } finally {
                 encrypted.fill(0);
-                key?.fill(0);
             }
         }
         const uniqueFingerprints = new Set(decodedFingerprints.map((entry) => entry.sha256));
