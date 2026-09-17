@@ -3,12 +3,6 @@ package eu.kanade.tachiyomi.extension.vi.moetruyen
 import kotlinx.serialization.Serializable
 
 @Serializable
-class GenreOption(
-    val name: String,
-    val id: String,
-)
-
-@Serializable
 class ReaderMediaEntry(
     val pageIndex: Int,
     val storageKey: String,
