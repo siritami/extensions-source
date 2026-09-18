@@ -17,8 +17,17 @@ internal class ImgxAccessClient(
     private val keyPair = ImgxCrypto.generateEcdhP256()
     private var sequence = 0L
 
-    suspend fun fetchPages(media: List<ReaderMediaEntry>): List<ImgxPageAccess> {
-        val config = parseBootstrapConfig(document)
+    suspend fun fetchPages(
+        media: List<ReaderMediaEntry>,
+        bootstrapUrlOverride: String? = null,
+    ): List<ImgxPageAccess> {
+        val parsed = parseBootstrapConfig(document)
+        val bootstrapUrl = bootstrapUrlOverride?.takeIf { it.isNotBlank() }
+            ?: parsed.bootstrapUrl
+        require(bootstrapUrl.isNotBlank()) {
+            "IMGX document capability required"
+        }
+        val config = parsed.copy(bootstrapUrl = bootstrapUrl)
         val bootstrapProof = ImgxCrypto.base64UrlEncode(ImgxCrypto.randomBytes(32))
         val bootstrap = client.post(
             "$baseUrl${config.bootstrapUrl}",
@@ -114,9 +123,6 @@ internal class ImgxAccessClient(
                 ?: throw IllegalStateException("IMGX chapter id missing")
             val bootstrapUrl = Regex("""bootstrapUrl:\s*"([^"]*)"""").find(script)?.groupValues?.get(1)
                 .orEmpty()
-            require(bootstrapUrl.isNotBlank()) {
-                "IMGX document capability required"
-            }
             val initialIndexes = Regex("""initialIndexes:\s*\[([^\]]*)\]""").find(script)
                 ?.groupValues
                 ?.get(1)

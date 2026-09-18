@@ -13,6 +13,7 @@ import keiyoushi.source.KeiSource
 import keiyoushi.utils.asJsoup
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.runWebView
 import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.tryParseDate
 import kotlinx.serialization.json.JsonElement
@@ -34,6 +35,7 @@ import java.util.Locale
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -272,8 +274,13 @@ abstract class MoeTruyen : KeiSource() {
         val encryptedMedia = ImgxAccessClient.encryptedMedia(document)
 
         if (encryptedMedia.isNotEmpty()) {
+            val parsed = ImgxAccessClient.parseBootstrapConfig(document)
+            // Site omits reader-instance token for non-browser TLS; scrape it once in WebView.
+            val bootstrapUrl = parsed.bootstrapUrl.ifBlank {
+                scrapeBootstrapUrl(chapterUrl)
+            }
             val access = ImgxAccessClient(client, baseUrl, chapterUrl, document)
-            val pages = access.fetchPages(encryptedMedia)
+            val pages = access.fetchPages(encryptedMedia, bootstrapUrl)
             pages.forEach { page ->
                 val grant = page.grant
                     ?: throw IllegalStateException("IMGX grant missing page=${page.pageIndex + 1}")
@@ -297,6 +304,32 @@ abstract class MoeTruyen : KeiSource() {
                 Page(index, imageUrl = imageUrl)
             }
             .toList()
+    }
+
+    // One-shot WebView load only to read bootstrapUrl. Grants + decode stay in Kotlin.
+    private suspend fun scrapeBootstrapUrl(chapterUrl: String): String {
+        val bootstrapUrl = runWebView<String>(timeout = 30.seconds) {
+            poll(500.milliseconds) {
+                evaluateJs(
+                    """
+                    (() => {
+                        const html = document.documentElement ? document.documentElement.innerHTML : "";
+                        const match = /bootstrapUrl:\s*"([^"]+)"/.exec(html);
+                        return match ? match[1] : "";
+                    })()
+                    """.trimIndent(),
+                ) { value ->
+                    val url = value.trim('"')
+                    if (url.startsWith("/manga/")) {
+                        resolve(url)
+                    }
+                }
+            }
+            loadUrl(chapterUrl)
+        }
+        return bootstrapUrl.ifBlank {
+            throw IllegalArgumentException("IMGX document capability required")
+        }
     }
 
     private fun imgxInterceptor() = Interceptor { chain ->
