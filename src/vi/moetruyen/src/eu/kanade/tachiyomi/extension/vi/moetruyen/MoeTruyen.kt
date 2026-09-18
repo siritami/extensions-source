@@ -262,8 +262,7 @@ abstract class MoeTruyen : KeiSource() {
         return (Clock.System.now() - duration).toEpochMilliseconds()
     }
 
-    private fun parseAbsoluteDate(date: String?): Long =
-        dateFormat.tryParseDate(date, dateZone)
+    private fun parseAbsoluteDate(date: String?): Long = dateFormat.tryParseDate(date, dateZone)
 
     // ============================== Pages =================================
 
@@ -342,8 +341,7 @@ abstract class MoeTruyen : KeiSource() {
 
     private val imgxGrants = Collections.synchronizedMap(
         object : LinkedHashMap<String, Pair<ImgxGrant, String>>(100, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<ImgxGrant, String>>?): Boolean =
-                size > 100
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<ImgxGrant, String>>?): Boolean = size > 100
         },
     )
 
