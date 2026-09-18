@@ -159,7 +159,10 @@ internal object ImgxCrypto {
                 channelAad(keyPair.publicKey, sealed.publicKey, proof),
                 base64UrlDecode(sealed.ciphertext),
             )
-            return String(plain, Charsets.UTF_8).parseAs()
+            // Official channel.open returns a JSON array; capability is the first element.
+            val list = String(plain, Charsets.UTF_8).parseAs<List<ReaderCapability>>()
+            return list.firstOrNull()
+                ?: throw IllegalStateException("IMGX capability empty")
         } finally {
             shared.fill(0)
         }
