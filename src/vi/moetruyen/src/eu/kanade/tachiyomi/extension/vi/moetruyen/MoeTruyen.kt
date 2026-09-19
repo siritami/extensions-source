@@ -271,6 +271,12 @@ abstract class MoeTruyen : KeiSource() {
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val chapterUrl = "$baseUrl${chapter.url}"
         val document = client.get(chapterUrl).asJsoup()
+        val readerPages = document.selectFirst("[data-reader-lazy-pages]")
+        if (readerPages != null) {
+            Log.e("MoeTruyen", "pages: lazy-pages attrs=${readerPages.attributes().joinToString(" ") { "${it.key}=${it.value.take(120)}" }}")
+        } else {
+            Log.e("MoeTruyen", "pages: no [data-reader-lazy-pages] element")
+        }
         val encryptedMedia = ImgxAccessClient.encryptedMedia(document)
         val plainImages = readerImages(document)
         Log.e("MoeTruyen", "pages: url=$chapterUrl encrypted=${encryptedMedia.size} plain=${plainImages.size}")

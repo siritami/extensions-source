@@ -156,10 +156,13 @@ internal class ImgxAccessClient(
 
         fun encryptedMedia(document: Document): List<ReaderMediaEntry> {
             val root = document.selectFirst("[data-reader-lazy-pages]") ?: return emptyList()
-            val mediaJson = root.attr("data-reader-imgx-media").ifBlank { return emptyList() }
+            val mediaJson = root.attr("data-reader-imgx-media")
+            Log.e("MoeTruyen", "access: raw media attr len=${mediaJson.length} value=${mediaJson.take(300)}")
+            if (mediaJson.isBlank()) return emptyList()
             val media = runCatching {
                 URLDecoder.decode(mediaJson, Charsets.UTF_8.name()).parseAs<List<ReaderMediaEntry>>()
             }.getOrDefault(emptyList())
+            Log.e("MoeTruyen", "access: parsed media count=${media.size} keys=${media.take(5).map { it.storageKey }}")
             return media.filter { entry ->
                 entry.storageKey.startsWith("chapters/") &&
                     !entry.storageKey.endsWith("/0.js") &&
