@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.extension.vi.moetruyen
+package eu.kanade.tachiyomi.extension.vi.moetruyen.cipher
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder

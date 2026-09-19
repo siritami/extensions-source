@@ -1,6 +1,10 @@
 package eu.kanade.tachiyomi.extension.vi.moetruyen
 
 import android.util.Base64
+import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.AesGcmSiv
+import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.AesSiv
+import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.Aegis128l
+import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.Aegis256
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.readIntBigEndian
 import java.math.BigInteger
@@ -433,6 +437,20 @@ internal object ImgxCrypto {
                 7 -> {
                     // AES-GCM-SIV: nonce=body[0..12], ciphertext+tag=body[12..]
                     AesGcmSiv.decrypt(contentKey, body.copyOfRange(0, 12), body.copyOfRange(12, body.size), contentAad)
+                }
+                8 -> {
+                    // AES-SIV (RFC 5297): HKDF(contentKey, "IMGX-v4.p08") → 64B key; body=tag||ct
+                    val sivKey = hkdfSha256(
+                        ikm = contentKey,
+                        salt = ByteArray(32),
+                        info = "IMGX-v4.p08".toByteArray(Charsets.UTF_8),
+                        length = 64,
+                    )
+                    try {
+                        AesSiv.decrypt(sivKey, body, contentAad)
+                    } finally {
+                        sivKey.fill(0)
+                    }
                 }
                 9 -> {
                     // AEGIS-256: nonce=body[0..32], ciphertext+tag=body[32..]
