@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.moetruyen
 
+import android.util.Log
 import keiyoushi.network.post
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
@@ -19,6 +20,7 @@ internal class ImgxAccessClient(
 
     suspend fun fetchPages(media: List<ReaderMediaEntry>): List<ImgxPageAccess> {
         val config = parseBootstrapConfig(document)
+        Log.e("MoeTruyen", "access: bootstrap=${config.bootstrapUrl} path=${config.requestPath} chapterId=${config.chapterId}")
         val bootstrapProof = ImgxCrypto.base64UrlEncode(ImgxCrypto.randomBytes(32))
         val bootstrap = client.post(
             "$baseUrl${config.bootstrapUrl}",
@@ -29,6 +31,7 @@ internal class ImgxAccessClient(
                 initialPageIndexes = config.initialIndexes,
             ).toJsonRequestBody(),
         ).parseAs<BootstrapResponse>()
+        Log.e("MoeTruyen", "access: bootstrap ok=${bootstrap.ok} code=${bootstrap.code} chapterId=${bootstrap.chapterId}")
 
         require(bootstrap.ok && bootstrap.sealedCapability != null) {
             "IMGX bootstrap failed: ${bootstrap.code ?: "unknown"}"
@@ -80,6 +83,7 @@ internal class ImgxAccessClient(
                     readerPublicKey = keyPair.publicKey,
                 ).toJsonRequestBody(),
             ).parseAs<PageAccessResponse>()
+            Log.e("MoeTruyen", "access: page-access indexes=$indexes ok=${response.ok} code=${response.code}")
 
             require(response.ok && response.sealedPages != null) {
                 "IMGX page access failed: ${response.code ?: "unknown"}"

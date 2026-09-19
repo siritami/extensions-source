@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.moetruyen
 
+import android.util.Log
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -271,10 +272,20 @@ abstract class MoeTruyen : KeiSource() {
         val chapterUrl = "$baseUrl${chapter.url}"
         val document = client.get(chapterUrl).asJsoup()
         val encryptedMedia = ImgxAccessClient.encryptedMedia(document)
+        val plainImages = readerImages(document)
+        Log.e("MoeTruyen", "pages: url=$chapterUrl encrypted=${encryptedMedia.size} plain=${plainImages.size}")
 
         if (encryptedMedia.isNotEmpty()) {
+            try {
+                val parsed = ImgxAccessClient.parseBootstrapConfig(document)
+                Log.e("MoeTruyen", "pages: bootstrapUrl=${parsed.bootstrapUrl} requestPath=${parsed.requestPath}")
+            } catch (e: Exception) {
+                Log.e("MoeTruyen", "pages: parseBootstrapConfig failed: ${e.message}")
+            }
+
             val access = ImgxAccessClient(client, baseUrl, chapterUrl, document)
             val pages = access.fetchPages(encryptedMedia)
+            Log.e("MoeTruyen", "pages: grants returned=${pages.size}")
             pages.forEach { page ->
                 val grant = page.grant
                     ?: throw IllegalStateException("IMGX grant missing page=${page.pageIndex + 1}")
@@ -285,7 +296,7 @@ abstract class MoeTruyen : KeiSource() {
                 .mapIndexed { index, page -> Page(index, imageUrl = page.downloadUrl) }
         }
 
-        return readerImages(document)
+        val result = plainImages
             .asSequence()
             .map { element ->
                 element.absUrl("data-src").ifEmpty { element.absUrl("src") }
@@ -298,6 +309,8 @@ abstract class MoeTruyen : KeiSource() {
                 Page(index, imageUrl = imageUrl)
             }
             .toList()
+        Log.e("MoeTruyen", "pages: plain result=${result.size}")
+        return result
     }
 
     private fun imgxInterceptor() = Interceptor { chain ->
