@@ -14,10 +14,14 @@ internal object ChaCha20Poly1305 {
     private fun rotl(x: Int, n: Int): Int = (x shl n) or (x ushr (32 - n))
 
     private fun quarterRound(s: IntArray, a: Int, b: Int, c: Int, d: Int) {
-        s[a] += s[b]; s[d] = rotl(s[d] xor s[a], 16)
-        s[c] += s[d]; s[b] = rotl(s[b] xor s[c], 12)
-        s[a] += s[b]; s[d] = rotl(s[d] xor s[a], 8)
-        s[c] += s[d]; s[b] = rotl(s[b] xor s[c], 7)
+        s[a] += s[b]
+        s[d] = rotl(s[d] xor s[a], 16)
+        s[c] += s[d]
+        s[b] = rotl(s[b] xor s[c], 12)
+        s[a] += s[b]
+        s[d] = rotl(s[d] xor s[a], 8)
+        s[c] += s[d]
+        s[b] = rotl(s[b] xor s[c], 7)
     }
 
     private fun chachaBlock(key: ByteArray, counter: Int, nonce: ByteArray): ByteArray {
