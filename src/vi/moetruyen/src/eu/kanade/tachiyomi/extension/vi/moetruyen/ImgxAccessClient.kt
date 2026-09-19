@@ -18,9 +18,21 @@ internal class ImgxAccessClient(
     private val keyPair = ImgxCrypto.generateEcdhP256()
     private var sequence = 0L
 
-    suspend fun fetchPages(media: List<ReaderMediaEntry>): List<ImgxPageAccess> {
+    suspend fun fetchPages(
+        media: List<ReaderMediaEntry>,
+        totalPages: Int = 0,
+    ): List<ImgxPageAccess> {
         val config = parseBootstrapConfig(document)
-        Log.e("MoeTruyen", "access: bootstrap=${config.bootstrapUrl} path=${config.requestPath} chapterId=${config.chapterId}")
+        Log.e("MoeTruyen", "access: bootstrap=${config.bootstrapUrl} path=${config.requestPath} chapterId=${config.chapterId} media=${media.size} totalPages=$totalPages")
+
+        // When media JSON is empty, build indexes from totalPages
+        val pageIndexes = if (media.isNotEmpty()) {
+            media.map { it.pageIndex }
+        } else {
+            (0 until totalPages).toList()
+        }
+        Log.e("MoeTruyen", "access: requesting ${pageIndexes.size} pages")
+
         val bootstrapProof = ImgxCrypto.base64UrlEncode(ImgxCrypto.randomBytes(32))
         val bootstrap = client.post(
             "$baseUrl${config.bootstrapUrl}",
@@ -49,11 +61,7 @@ internal class ImgxAccessClient(
             }
         }
 
-        val remaining = media
-            .map { it.pageIndex }
-            .filterNot { it in granted }
-            .distinct()
-
+        val remaining = pageIndexes.filterNot { it in granted }
         remaining.chunked(10).forEach { indexes ->
             sequence += 1
             val material = buildProofMaterial(
@@ -94,7 +102,11 @@ internal class ImgxAccessClient(
             }
         }
 
-        return media.mapNotNull { entry -> granted[entry.pageIndex] }
+        return if (media.isNotEmpty()) {
+            media.mapNotNull { entry -> granted[entry.pageIndex] }
+        } else {
+            pageIndexes.mapNotNull { idx -> granted[idx] }
+        }
     }
 
     // POSTs need cors-style Sec-Fetch + cookies from the HTML page load.

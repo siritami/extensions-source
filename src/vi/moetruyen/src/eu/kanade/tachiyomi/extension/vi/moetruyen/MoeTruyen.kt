@@ -272,25 +272,17 @@ abstract class MoeTruyen : KeiSource() {
         val chapterUrl = "$baseUrl${chapter.url}"
         val document = client.get(chapterUrl).asJsoup()
         val readerPages = document.selectFirst("[data-reader-lazy-pages]")
-        if (readerPages != null) {
-            Log.e("MoeTruyen", "pages: lazy-pages attrs=${readerPages.attributes().joinToString(" ") { "${it.key}=${it.value.take(120)}" }}")
-        } else {
-            Log.e("MoeTruyen", "pages: no [data-reader-lazy-pages] element")
-        }
         val encryptedMedia = ImgxAccessClient.encryptedMedia(document)
-        val plainImages = readerImages(document)
-        Log.e("MoeTruyen", "pages: url=$chapterUrl encrypted=${encryptedMedia.size} plain=${plainImages.size}")
 
-        if (encryptedMedia.isNotEmpty()) {
-            try {
-                val parsed = ImgxAccessClient.parseBootstrapConfig(document)
-                Log.e("MoeTruyen", "pages: bootstrapUrl=${parsed.bootstrapUrl} requestPath=${parsed.requestPath}")
-            } catch (e: Exception) {
-                Log.e("MoeTruyen", "pages: parseBootstrapConfig failed: ${e.message}")
-            }
+        // IMGX active but media JSON empty → site loads pages via access API only
+        val totalPages = readerPages?.attr("data-reader-total-pages")?.toIntOrNull() ?: 0
+        val accessUrl = readerPages?.attr("data-reader-imgx-access-url").orEmpty()
+        val isImgx = accessUrl.isNotBlank()
+        Log.e("MoeTruyen", "pages: url=$chapterUrl encrypted=${encryptedMedia.size} isImgx=$isImgx totalPages=$totalPages")
 
+        if (isImgx && (encryptedMedia.isNotEmpty() || totalPages > 0)) {
             val access = ImgxAccessClient(client, baseUrl, chapterUrl, document)
-            val pages = access.fetchPages(encryptedMedia)
+            val pages = access.fetchPages(encryptedMedia, totalPages)
             Log.e("MoeTruyen", "pages: grants returned=${pages.size}")
             pages.forEach { page ->
                 val grant = page.grant
@@ -302,24 +294,13 @@ abstract class MoeTruyen : KeiSource() {
                 .mapIndexed { index, page -> Page(index, imageUrl = page.downloadUrl) }
         }
 
+        val plainImages = readerImages(document)
         val result = plainImages
             .asSequence()
-            .map { element ->
-                val dataSrc = element.absUrl("data-src")
-                val src = element.absUrl("src")
-                val chosen = dataSrc.ifEmpty { src }
-                if (plainImages.indexOf(element) < 3) {
-                    Log.e("MoeTruyen", "pages: img data-src=$dataSrc src=$src chosen=$chosen")
-                }
-                chosen
-            }
-            .filter { imageUrl ->
-                imageUrl.isNotBlank() && !imageUrl.startsWith("data:")
-            }
+            .map { element -> element.absUrl("data-src").ifEmpty { element.absUrl("src") } }
+            .filter { it.isNotBlank() && !it.startsWith("data:") }
             .distinct()
-            .mapIndexed { index, imageUrl ->
-                Page(index, imageUrl = imageUrl)
-            }
+            .mapIndexed { index, imageUrl -> Page(index, imageUrl = imageUrl) }
             .toList()
         Log.e("MoeTruyen", "pages: plain result=${result.size}")
         return result
