@@ -67,8 +67,7 @@ internal object AesSiv {
         return out
     }
 
-    private fun xorBytes(a: ByteArray, b: ByteArray): ByteArray =
-        ByteArray(a.size) { i -> (a[i].toInt() xor b[i].toInt()).toByte() }
+    private fun xorBytes(a: ByteArray, b: ByteArray): ByteArray = ByteArray(a.size) { i -> (a[i].toInt() xor b[i].toInt()).toByte() }
 
     /** S2V(K, S1..Sn) with a single associated-data component + plaintext. */
     private fun s2v(key: ByteArray, aad: ByteArray?, plaintext: ByteArray): ByteArray {
