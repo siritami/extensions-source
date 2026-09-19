@@ -67,6 +67,22 @@ class ImgxGrant(
     val wrappedContentKey: String? = null,
     val wrappedV4Key: String? = null,
     val decodeKey: String? = null,
+    val channelKeys: ChannelKeys? = null,
+)
+
+@Serializable
+class ChannelKeys(
+    val version: String,
+    val iv: String,
+    val ciphertext: String,
+)
+
+@Serializable
+class DecryptedChannelKeys(
+    val decodeKey: String? = null,
+    val wrappedDecodeKey: String? = null,
+    val wrappedContentKey: String? = null,
+    val wrappedV4Key: String? = null,
 )
 
 @Serializable

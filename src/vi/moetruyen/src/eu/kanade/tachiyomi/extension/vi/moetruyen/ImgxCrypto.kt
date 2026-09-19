@@ -139,9 +139,63 @@ internal object ImgxCrypto {
                 channelAad(keyPair.publicKey, sealed.publicKey, proof),
                 base64UrlDecode(sealed.ciphertext),
             )
-            return String(plain, Charsets.UTF_8).parseAs()
+            val pages = String(plain, Charsets.UTF_8).parseAs<List<ImgxPageAccess>>()
+            return pages.map { page ->
+                val grant = page.grant ?: return@map page
+                val ck = grant.channelKeys ?: return@map page
+                val decrypted = openChannelKeys(keyPair, sealed, proof, shared, page, ck)
+                ImgxPageAccess(
+                    pageIndex = page.pageIndex,
+                    storageKey = page.storageKey,
+                    downloadUrl = page.downloadUrl,
+                    width = page.width,
+                    height = page.height,
+                    grant = ImgxGrant(
+                        version = grant.version,
+                        algorithm = grant.algorithm,
+                        imageId = grant.imageId,
+                        issuedAt = grant.issuedAt,
+                        expiresAt = grant.expiresAt,
+                        nonce = grant.nonce,
+                        keyNonce = grant.keyNonce,
+                        signature = grant.signature,
+                        wrappedDecodeKey = decrypted.wrappedDecodeKey ?: grant.wrappedDecodeKey,
+                        wrappedContentKey = decrypted.wrappedContentKey ?: grant.wrappedContentKey,
+                        wrappedV4Key = decrypted.wrappedV4Key ?: grant.wrappedV4Key,
+                        decodeKey = decrypted.decodeKey ?: grant.decodeKey,
+                        channelKeys = null,
+                    ),
+                )
+            }
         } finally {
             shared.fill(0)
+        }
+    }
+
+    private fun openChannelKeys(
+        keyPair: EcdhKeyPair,
+        sealed: SealedChannel,
+        proof: String,
+        shared: ByteArray,
+        page: ImgxPageAccess,
+        ck: ChannelKeys,
+    ): DecryptedChannelKeys {
+        require(ck.version == "IMGX-READER-PAGE-KEY-v1") { "IMGX page key version unsupported: ${ck.version}" }
+        val pageKey = hkdfSha256(
+            shared,
+            proof.toByteArray(Charsets.UTF_8),
+            "IMGX-READER-PAGE-KEY-v1".toByteArray(Charsets.UTF_8),
+            32,
+        )
+        try {
+            val grant = page.grant!!
+            // AAD matches official: JSON.stringify([version, [ownPub, serverPub, proof], pageIndex, storageKey, imageId, issuedAt, expiresAt, nonce, grantSignature])
+            val aad = """["${ck.version}",["${keyPair.publicKey}","${sealed.publicKey}","$proof"],${page.pageIndex},"${page.storageKey}","${grant.imageId.orEmpty()}",${grant.issuedAt},${grant.expiresAt},"${grant.nonce.orEmpty()}","${grant.signature.orEmpty()}"]"""
+                .toByteArray(Charsets.UTF_8)
+            val plain = aesGcmDecrypt(pageKey, base64UrlDecode(ck.iv), aad, base64UrlDecode(ck.ciphertext))
+            return String(plain, Charsets.UTF_8).parseAs()
+        } finally {
+            pageKey.fill(0)
         }
     }
 
@@ -245,7 +299,7 @@ internal object ImgxCrypto {
             4 -> {
                 val key = unwrapGrantKey(grant, storageKey, "wrappedV4Key")
                 try {
-                    decodeImgxV4P01(encrypted, key, grant.imageId.orEmpty(), storageKey)
+                    decodeImgxV4(encrypted, key, grant.imageId.orEmpty(), storageKey)
                 } finally {
                     key.fill(0)
                 }
@@ -273,7 +327,7 @@ internal object ImgxCrypto {
         try {
             val key = unwrapGrantKey(grant, storageKey, "wrappedV4Key")
             try {
-                return decodeImgxV4P01(imx4, key, grant.imageId.orEmpty(), storageKey)
+                return decodeImgxV4(imx4, key, grant.imageId.orEmpty(), storageKey)
             } finally {
                 key.fill(0)
             }
@@ -342,7 +396,7 @@ internal object ImgxCrypto {
         return payload
     }
 
-    private fun decodeImgxV4P01(
+    private fun decodeImgxV4(
         payload: ByteArray,
         key: ByteArray,
         imageId: String,
@@ -372,14 +426,16 @@ internal object ImgxCrypto {
                 header.copyOfRange(57, 78),
             )
             val profile = envelope[0].toInt()
-            require(profile == 1) { "IMGX v4 profile unsupported: p0$profile" }
             val body = payload.copyOfRange(78, payload.size)
-            return aesGcmDecrypt(
-                contentKey,
-                body.copyOfRange(0, 12),
-                header + contextJson,
-                body.copyOfRange(12, body.size),
-            )
+            val contentAad = header + contextJson
+            return when (profile) {
+                1 -> aesGcmDecrypt(contentKey, body.copyOfRange(0, 12), contentAad, body.copyOfRange(12, body.size))
+                9 -> {
+                    // AEGIS-256: nonce=body[0..32], ciphertext+tag=body[32..]
+                    Aegis256.decrypt(contentKey, body.copyOfRange(0, 32), body.copyOfRange(32, body.size), contentAad)
+                }
+                else -> throw IllegalStateException("IMGX v4 profile unsupported: p0$profile")
+            }
         } finally {
             envelopeKey.fill(0)
             contentKey.fill(0)
