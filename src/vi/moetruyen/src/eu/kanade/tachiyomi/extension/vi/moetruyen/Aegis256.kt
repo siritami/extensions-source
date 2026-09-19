@@ -43,7 +43,7 @@ internal object Aegis256 {
 
     /** AESRound(in, rk) = SubBytes + ShiftRows + MixColumns + AddRoundKey */
     private fun aesRound(input: ByteArray, roundKey: ByteArray): ByteArray {
-        val s = ByteArray(16) { SBOX[input[it].toInt() and 0xFF] }
+        val s = ByteArray(16) { SBOX[input[it].toInt() and 0xFF].toByte() }
         // ShiftRows
         val sr = ByteArray(16)
         sr[0] = s[0]
