@@ -46,10 +46,22 @@ internal object Aegis256 {
         val s = ByteArray(16) { SBOX[input[it].toInt() and 0xFF] }
         // ShiftRows
         val sr = ByteArray(16)
-        sr[0] = s[0]; sr[4] = s[4]; sr[8] = s[8]; sr[12] = s[12]
-        sr[1] = s[5]; sr[5] = s[9]; sr[9] = s[13]; sr[13] = s[1]
-        sr[2] = s[10]; sr[6] = s[14]; sr[10] = s[2]; sr[14] = s[6]
-        sr[3] = s[15]; sr[7] = s[3]; sr[11] = s[7]; sr[15] = s[11]
+        sr[0] = s[0]
+        sr[4] = s[4]
+        sr[8] = s[8]
+        sr[12] = s[12]
+        sr[1] = s[5]
+        sr[5] = s[9]
+        sr[9] = s[13]
+        sr[13] = s[1]
+        sr[2] = s[10]
+        sr[6] = s[14]
+        sr[10] = s[2]
+        sr[14] = s[6]
+        sr[3] = s[15]
+        sr[7] = s[3]
+        sr[11] = s[7]
+        sr[15] = s[11]
         // MixColumns
         val out = ByteArray(16)
         for (c in 0 until 4) {
@@ -102,8 +114,12 @@ internal object Aegis256 {
         val s3 = aesRound(s[2], s[3])
         val s4 = aesRound(s[3], s[4])
         val s5 = aesRound(s[4], s[5])
-        s[0] = s0; s[1] = s1; s[2] = s2
-        s[3] = s3; s[4] = s4; s[5] = s5
+        s[0] = s0
+        s[1] = s1
+        s[2] = s2
+        s[3] = s3
+        s[4] = s4
+        s[5] = s5
     }
 
     private fun dec(s: Array<ByteArray>, ci: ByteArray): ByteArray {
