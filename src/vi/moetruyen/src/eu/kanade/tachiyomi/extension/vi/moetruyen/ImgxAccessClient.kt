@@ -33,6 +33,13 @@ internal class ImgxAccessClient(
         }
         Log.e("MoeTruyen", "access: requesting ${pageIndexes.size} pages")
 
+        if (config.bootstrapUrl.isBlank()) {
+            throw IllegalStateException(
+                "IMGX document capability required — site withheld reader-instance token " +
+                    "(path=${config.requestPath} chapterId=${config.chapterId} pages=${pageIndexes.size})",
+            )
+        }
+
         val bootstrapProof = ImgxCrypto.base64UrlEncode(ImgxCrypto.randomBytes(32))
         val bootstrap = client.post(
             "$baseUrl${config.bootstrapUrl}",
@@ -128,27 +135,41 @@ internal class ImgxAccessClient(
             val script = document.select("script")
                 .map { it.data() }
                 .firstOrNull { it.contains("createImgxReaderAccess") }
-                ?: throw IllegalStateException("IMGX reader bootstrap missing")
-            val requestPath = Regex("""requestPath:\s*"([^"]+)"""").find(script)?.groupValues?.get(1)
-                ?: throw IllegalStateException("IMGX request path missing")
-            val chapterId = Regex("""chapterId:\s*(\d+)""").find(script)?.groupValues?.get(1)?.toLongOrNull()
-                ?: throw IllegalStateException("IMGX chapter id missing")
-            val bootstrapUrl = Regex("""bootstrapUrl:\s*"([^"]*)"""").find(script)?.groupValues?.get(1)
-                .orEmpty()
-            require(bootstrapUrl.isNotBlank()) {
-                "IMGX document capability required"
+
+            if (script != null) {
+                val requestPath = Regex("""requestPath:\s*"([^"]+)"""").find(script)?.groupValues?.get(1)
+                    ?: throw IllegalStateException("IMGX request path missing from script")
+                val chapterId = Regex("""chapterId:\s*(\d+)""").find(script)?.groupValues?.get(1)?.toLongOrNull()
+                    ?: throw IllegalStateException("IMGX chapter id missing from script")
+                val bootstrapUrl = Regex("""bootstrapUrl:\s*"([^"]*)"""").find(script)?.groupValues?.get(1)
+                    .orEmpty()
+                val initialIndexes = Regex("""initialIndexes:\s*\[([^\]]*)\]""").find(script)
+                    ?.groupValues
+                    ?.get(1)
+                    ?.split(',')
+                    ?.mapNotNull { it.trim().takeIf { v -> v.isNotEmpty() }?.toInt() }
+                    .orEmpty()
+                Log.e("MoeTruyen", "access: config from script bootstrap=$bootstrapUrl path=$requestPath chapterId=$chapterId")
+                return ReaderBootstrapConfig(requestPath, chapterId, bootstrapUrl, initialIndexes)
             }
-            val initialIndexes = Regex("""initialIndexes:\s*\[([^\]]*)\]""").find(script)
-                ?.groupValues
-                ?.get(1)
-                ?.split(',')
-                ?.mapNotNull { it.trim().takeIf { value -> value.isNotEmpty() }?.toInt() }
-                .orEmpty()
+
+            // Script withheld — construct from data attributes
+            Log.e("MoeTruyen", "access: createImgxReaderAccess script not found, using data attributes")
+            val root = document.selectFirst("[data-reader-lazy-pages]")
+                ?: throw IllegalStateException("IMGX reader metadata missing")
+            val accessUrl = root.attr("data-reader-imgx-access-url")
+            if (accessUrl.isBlank()) throw IllegalStateException("IMGX access URL missing")
+            val trackToken = root.attr("data-reader-view-track-token")
+            val chapterId = trackToken.substringBefore('.').toLongOrNull()
+                ?: throw IllegalStateException("IMGX chapter id missing from track token")
+            val totalPages = root.attr("data-reader-total-pages").toIntOrNull() ?: 0
+            Log.e("MoeTruyen", "access: from attrs path=$accessUrl chapterId=$chapterId totalPages=$totalPages")
+            // bootstrapUrl is not in HTML for non-browser clients — we'll try the page-access endpoint directly
             return ReaderBootstrapConfig(
-                requestPath = requestPath,
+                requestPath = accessUrl,
                 chapterId = chapterId,
-                bootstrapUrl = bootstrapUrl,
-                initialIndexes = initialIndexes,
+                bootstrapUrl = "",
+                initialIndexes = if (totalPages > 0) listOf(totalPages - 1) else emptyList(),
             )
         }
 
