@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.Aegis256
 import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.AesCbcHmac
 import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.AesGcmSiv
 import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.AesSiv
+import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.ChaCha20Poly1305
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.readIntBigEndian
 import java.math.BigInteger
@@ -435,6 +436,10 @@ internal object ImgxCrypto {
             val contentAad = header + contextJson
             return when (profile) {
                 1 -> aesGcmDecrypt(contentKey, body.copyOfRange(0, 12), contentAad, body.copyOfRange(12, body.size))
+                2 -> {
+                    // ChaCha20-Poly1305 IETF: nonce=body[0..12], ct+tag=body[12..]
+                    ChaCha20Poly1305.decrypt(contentKey, body.copyOfRange(0, 12), body.copyOfRange(12, body.size), contentAad)
+                }
                 6 -> {
                     // AES-CBC + HMAC-SHA512; HKDF(contentKey, "IMGX-v4.p06") → 64B key
                     val p06Key = hkdfSha256(
