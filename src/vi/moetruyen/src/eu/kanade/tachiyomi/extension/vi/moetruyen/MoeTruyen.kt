@@ -234,7 +234,20 @@ abstract class MoeTruyen : KeiSource() {
     private fun parseChapterList(document: Document): List<SChapter> = document.select("ul.chapter-list li.chapter a.chapter-link").map { element ->
         SChapter.create().apply {
             setUrlWithoutDomain(element.absUrl("href"))
-            name = element.selectFirst(".chapter-num")!!.text()
+
+            val chapterNum = element.selectFirst(".chapter-num")?.text()?.trim().orEmpty()
+            val chapterTitle = element.selectFirst(".chapter-title")?.text()?.trim().orEmpty()
+            // Site uses .chapter-lock-icon (comment icon) when a chapter needs a prior-chapter comment.
+            val isLocked = element.selectFirst(".chapter-lock-icon") != null ||
+                element.selectFirst("[title*='bình luận']") != null
+            name = buildString {
+                if (isLocked) append("🔒 ")
+                append(chapterNum)
+                if (chapterTitle.isNotBlank() && !chapterNum.contains(chapterTitle)) {
+                    if (chapterNum.isNotBlank()) append(" - ")
+                    append(chapterTitle)
+                }
+            }
 
             val chapterTime = element.selectFirst(".chapter-time")
             val relativeDate = chapterTime?.text()
@@ -303,7 +316,21 @@ abstract class MoeTruyen : KeiSource() {
             .mapIndexed { index, imageUrl -> Page(index, imageUrl = imageUrl) }
             .toList()
         Log.e("MoeTruyen", "pages: plain result=${result.size}")
+        if (result.isEmpty()) {
+            lockedChapterReason(document)?.let { throw IllegalStateException(it) }
+        }
         return result
+    }
+
+    private fun lockedChapterReason(document: Document): String? {
+        val note = document.selectFirst(".reader-note")?.text()?.trim().orEmpty()
+        val bridge = document.selectFirst(".reader-chapter-bridge__title")?.text()?.trim().orEmpty()
+        val combined = listOf(note, bridge).filter { it.isNotBlank() }.joinToString(" — ")
+        if (combined.isBlank()) return null
+        if (listOf("bình luận", "tăng tương tác", "đăng nhập", "mở đọc", "mở chương", "trả phí", "VIP").none { combined.contains(it, ignoreCase = true) }) {
+            return null
+        }
+        return "Chapter locked on site: $combined"
     }
 
     private fun imgxInterceptor() = Interceptor { chain ->
