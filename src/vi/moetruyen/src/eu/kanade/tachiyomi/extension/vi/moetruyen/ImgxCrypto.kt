@@ -430,6 +430,10 @@ internal object ImgxCrypto {
             val contentAad = header + contextJson
             return when (profile) {
                 1 -> aesGcmDecrypt(contentKey, body.copyOfRange(0, 12), contentAad, body.copyOfRange(12, body.size))
+                7 -> {
+                    // AES-GCM-SIV: nonce=body[0..12], ciphertext+tag=body[12..]
+                    AesGcmSiv.decrypt(contentKey, body.copyOfRange(0, 12), body.copyOfRange(12, body.size), contentAad)
+                }
                 9 -> {
                     // AEGIS-256: nonce=body[0..32], ciphertext+tag=body[32..]
                     Aegis256.decrypt(contentKey, body.copyOfRange(0, 32), body.copyOfRange(32, body.size), contentAad)
