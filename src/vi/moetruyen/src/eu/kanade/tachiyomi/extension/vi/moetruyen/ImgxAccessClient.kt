@@ -132,43 +132,44 @@ internal class ImgxAccessClient(
         private const val PROOF_VERSION = "imgx-page-access-proof-v3"
 
         fun parseBootstrapConfig(document: Document): ReaderBootstrapConfig {
-            val script = document.select("script")
-                .map { it.data() }
-                .firstOrNull { it.contains("createImgxReaderAccess") }
+            // Search all inline scripts + full HTML for bootstrap config.
+            // The site may not always include a createImgxReaderAccess script block.
+            val allText = document.select("script").joinToString("\n") { it.data() } +
+                "\n" + document.html()
 
-            if (script != null) {
-                val requestPath = Regex("""requestPath:\s*"([^"]+)"""").find(script)?.groupValues?.get(1)
-                    ?: throw IllegalStateException("IMGX request path missing from script")
-                val chapterId = Regex("""chapterId:\s*(\d+)""").find(script)?.groupValues?.get(1)?.toLongOrNull()
-                    ?: throw IllegalStateException("IMGX chapter id missing from script")
-                val bootstrapUrl = Regex("""bootstrapUrl:\s*"([^"]*)"""").find(script)?.groupValues?.get(1)
-                    .orEmpty()
-                val initialIndexes = Regex("""initialIndexes:\s*\[([^\]]*)\]""").find(script)
-                    ?.groupValues
-                    ?.get(1)
-                    ?.split(',')
-                    ?.mapNotNull { it.trim().takeIf { v -> v.isNotEmpty() }?.toInt() }
-                    .orEmpty()
-                Log.e("MoeTruyen", "access: config from script bootstrap=$bootstrapUrl path=$requestPath chapterId=$chapterId")
+            val requestPath = Regex("""requestPath:\s*"([^"]+)"""").find(allText)?.groupValues?.get(1)
+            val chapterId = Regex("""chapterId:\s*(\d+)""").find(allText)?.groupValues?.get(1)?.toLongOrNull()
+            val bootstrapUrl = Regex("""bootstrapUrl:\s*"([^"]*)"""").find(allText)?.groupValues?.get(1)
+                .orEmpty()
+            val initialIndexes = Regex("""initialIndexes:\s*\[([^\]]*)\]""").find(allText)
+                ?.groupValues
+                ?.get(1)
+                ?.split(',')
+                ?.mapNotNull { it.trim().takeIf { v -> v.isNotEmpty() }?.toInt() }
+                .orEmpty()
+
+            Log.e("MoeTruyen", "access: parsed bootstrap=$bootstrapUrl path=$requestPath chapterId=$chapterId")
+
+            if (requestPath != null && chapterId != null) {
                 return ReaderBootstrapConfig(requestPath, chapterId, bootstrapUrl, initialIndexes)
             }
 
-            // Script withheld — construct from data attributes
-            Log.e("MoeTruyen", "access: createImgxReaderAccess script not found, using data attributes")
+            // Fallback: construct from data attributes
+            Log.e("MoeTruyen", "access: script patterns incomplete, using data attributes")
             val root = document.selectFirst("[data-reader-lazy-pages]")
                 ?: throw IllegalStateException("IMGX reader metadata missing")
             val accessUrl = root.attr("data-reader-imgx-access-url")
             if (accessUrl.isBlank()) throw IllegalStateException("IMGX access URL missing")
             val trackToken = root.attr("data-reader-view-track-token")
-            val chapterId = trackToken.substringBefore('.').toLongOrNull()
-                ?: throw IllegalStateException("IMGX chapter id missing from track token")
+            val attrChapterId = trackToken.substringBefore('.').toLongOrNull()
+                ?: chapterId
+                ?: throw IllegalStateException("IMGX chapter id missing")
             val totalPages = root.attr("data-reader-total-pages").toIntOrNull() ?: 0
-            Log.e("MoeTruyen", "access: from attrs path=$accessUrl chapterId=$chapterId totalPages=$totalPages")
-            // bootstrapUrl is not in HTML for non-browser clients — we'll try the page-access endpoint directly
+            Log.e("MoeTruyen", "access: from attrs path=$accessUrl chapterId=$attrChapterId totalPages=$totalPages")
             return ReaderBootstrapConfig(
                 requestPath = accessUrl,
-                chapterId = chapterId,
-                bootstrapUrl = "",
+                chapterId = attrChapterId,
+                bootstrapUrl = bootstrapUrl,
                 initialIndexes = if (totalPages > 0) listOf(totalPages - 1) else emptyList(),
             )
         }
