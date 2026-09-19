@@ -40,10 +40,22 @@ internal object Aegis128l {
     private fun aesRound(input: ByteArray, roundKey: ByteArray): ByteArray {
         val s = ByteArray(16) { SBOX[input[it].toInt() and 0xFF].toByte() }
         val sr = ByteArray(16)
-        sr[0] = s[0]; sr[4] = s[4]; sr[8] = s[8]; sr[12] = s[12]
-        sr[1] = s[5]; sr[5] = s[9]; sr[9] = s[13]; sr[13] = s[1]
-        sr[2] = s[10]; sr[6] = s[14]; sr[10] = s[2]; sr[14] = s[6]
-        sr[3] = s[15]; sr[7] = s[3]; sr[11] = s[7]; sr[15] = s[11]
+        sr[0] = s[0]
+        sr[4] = s[4]
+        sr[8] = s[8]
+        sr[12] = s[12]
+        sr[1] = s[5]
+        sr[5] = s[9]
+        sr[9] = s[13]
+        sr[13] = s[1]
+        sr[2] = s[10]
+        sr[6] = s[14]
+        sr[10] = s[2]
+        sr[14] = s[6]
+        sr[3] = s[15]
+        sr[7] = s[3]
+        sr[11] = s[7]
+        sr[15] = s[11]
         val out = ByteArray(16)
         for (c in 0 until 4) {
             val i = c * 4
@@ -115,9 +127,11 @@ internal object Aegis128l {
         return if (tagLen == 32) {
             val t0 = ByteArray(16)
             val t1 = ByteArray(16)
-            for (i in 0 until 4) for (j in 0 until 16) {
-                t0[j] = (t0[j].toInt() xor s[i][j].toInt()).toByte()
-                t1[j] = (t1[j].toInt() xor s[i + 4][j].toInt()).toByte()
+            for (i in 0 until 4) {
+                for (j in 0 until 16) {
+                    t0[j] = (t0[j].toInt() xor s[i][j].toInt()).toByte()
+                    t1[j] = (t1[j].toInt() xor s[i + 4][j].toInt()).toByte()
+                }
             }
             t0 + t1
         } else {
