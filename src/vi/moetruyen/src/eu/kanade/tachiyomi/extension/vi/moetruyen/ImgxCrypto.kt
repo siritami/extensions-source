@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.extension.vi.moetruyen
 import android.util.Base64
 import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.Aegis128l
 import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.Aegis256
+import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.AesCbcHmac
 import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.AesGcmSiv
 import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.AesSiv
 import keiyoushi.utils.parseAs
@@ -434,6 +435,20 @@ internal object ImgxCrypto {
             val contentAad = header + contextJson
             return when (profile) {
                 1 -> aesGcmDecrypt(contentKey, body.copyOfRange(0, 12), contentAad, body.copyOfRange(12, body.size))
+                6 -> {
+                    // AES-CBC + HMAC-SHA512; HKDF(contentKey, "IMGX-v4.p06") → 64B key
+                    val p06Key = hkdfSha256(
+                        ikm = contentKey,
+                        salt = ByteArray(32),
+                        info = "IMGX-v4.p06".toByteArray(Charsets.UTF_8),
+                        length = 64,
+                    )
+                    try {
+                        AesCbcHmac.decrypt(p06Key, body, contentAad)
+                    } finally {
+                        p06Key.fill(0)
+                    }
+                }
                 7 -> {
                     // AES-GCM-SIV: nonce=body[0..12], ciphertext+tag=body[12..]
                     AesGcmSiv.decrypt(contentKey, body.copyOfRange(0, 12), body.copyOfRange(12, body.size), contentAad)
