@@ -299,7 +299,13 @@ abstract class MoeTruyen : KeiSource() {
         val result = plainImages
             .asSequence()
             .map { element ->
-                element.absUrl("data-src").ifEmpty { element.absUrl("src") }
+                val dataSrc = element.absUrl("data-src")
+                val src = element.absUrl("src")
+                val chosen = dataSrc.ifEmpty { src }
+                if (plainImages.indexOf(element) < 3) {
+                    Log.e("MoeTruyen", "pages: img data-src=$dataSrc src=$src chosen=$chosen")
+                }
+                chosen
             }
             .filter { imageUrl ->
                 imageUrl.isNotBlank() && !imageUrl.startsWith("data:")
@@ -348,10 +354,18 @@ abstract class MoeTruyen : KeiSource() {
             .build()
     }
 
-    private fun readerImages(document: Document): List<Element> = document.select("img.page-media")
-        .filterNot { element ->
+    private fun readerImages(document: Document): List<Element> {
+        val all = document.select("img.page-media")
+        val outsideNoscript = all.filterNot { element ->
             element.parents().any { parent -> parent.tagName().equals("noscript", ignoreCase = true) }
         }
+        Log.e("MoeTruyen", "pages: img.page-media total=${all.size} outsideNoscript=${outsideNoscript.size}")
+        if (outsideNoscript.isNotEmpty()) {
+            val first = outsideNoscript.first()
+            Log.e("MoeTruyen", "pages: first img attrs=${first.attributes().joinToString(" ") { "${it.key}=${it.value.take(80)}" }}")
+        }
+        return outsideNoscript
+    }
 
     private val imgxGrants = Collections.synchronizedMap(
         object : LinkedHashMap<String, Pair<ImgxGrant, String>>(100, 0.75f, true) {
