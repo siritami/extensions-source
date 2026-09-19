@@ -93,11 +93,16 @@ internal class ImgxAccessClient(
         return media.mapNotNull { entry -> granted[entry.pageIndex] }
     }
 
+    // POSTs need cors-style Sec-Fetch + cookies from the HTML page load.
+    // OkHttp cookie jar sends imgx_document + bfang.sid automatically.
     private fun jsonHeaders(): Headers = Headers.Builder()
         .set("Accept", "application/json")
         .set("Content-Type", "application/json")
         .set("Origin", baseUrl)
         .set("Referer", chapterUrl)
+        .set("Sec-Fetch-Dest", "empty")
+        .set("Sec-Fetch-Mode", "cors")
+        .set("Sec-Fetch-Site", "same-origin")
         .build()
 
     companion object {
