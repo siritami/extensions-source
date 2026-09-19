@@ -438,6 +438,15 @@ internal object ImgxCrypto {
                     // AEGIS-256: nonce=body[0..32], ciphertext+tag=body[32..]
                     Aegis256.decrypt(contentKey, body.copyOfRange(0, 32), body.copyOfRange(32, body.size), contentAad)
                 }
+                10 -> {
+                    // AEGIS-128L: key=contentKey[0..16], nonce=body[0..16], ct+tag=body[16..]
+                    Aegis128l.decrypt(
+                        contentKey.copyOfRange(0, 16),
+                        body.copyOfRange(0, 16),
+                        body.copyOfRange(16, body.size),
+                        contentAad,
+                    )
+                }
                 else -> throw IllegalStateException("IMGX v4 profile unsupported: p0$profile")
             }
         } finally {
