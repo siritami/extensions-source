@@ -5,11 +5,11 @@ import java.nio.ByteOrder
 
 /**
  * AEGIS-256 AEAD for IMGX v4 profile p09.
- * Verified against IETF draft-irtf-cfrg-aegis-aead + libsodium output.
- * State: 6 x 128-bit blocks. Tag: 256-bit (32 bytes).
+ * Matches libsodium aegis256 (site) — 16-byte tags, first half of the 256-bit tag.
  */
 internal object Aegis256 {
-    private const val TAG_LEN = 32
+    // Site uses libsodium aegis256 with 16-byte tags (not the draft's 32-byte default).
+    private const val TAG_LEN = 16
     private const val BLOCK = 16
     private const val STATE_BLOCKS = 6
 
@@ -183,11 +183,11 @@ internal object Aegis256 {
             update(s, v)
         }
 
-        // Verify tag
-        val expected = finalize(s, aad.size * 8L, msgLen * 8L)
+        // Verify tag. Full AEGIS-256 tag is 32 bytes; libsodium keeps the first 16.
+        val expectedFull = finalize(s, aad.size * 8L, msgLen * 8L)
         val provided = ciphertext.copyOfRange(msgLen, msgLen + TAG_LEN)
         var diff = 0
-        for (j in 0 until TAG_LEN) diff = diff or (expected[j].toInt() xor provided[j].toInt())
+        for (j in 0 until TAG_LEN) diff = diff or (expectedFull[j].toInt() xor provided[j].toInt())
         require(diff == 0) { "AEGIS-256 authentication failed" }
         return msg
     }

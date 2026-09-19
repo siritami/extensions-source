@@ -328,7 +328,17 @@ abstract class MoeTruyen : KeiSource() {
                 .body(encrypted.toResponseBody(response.body.contentType()))
                 .build()
         }
-        val webp = ImgxCrypto.decodeProtectedPage(encrypted, grant, storageKey)
+        val webp = try {
+            ImgxCrypto.decodeProtectedPage(encrypted, grant, storageKey)
+        } catch (e: Exception) {
+            Log.e("MoeTruyen", "imgx decode fail url=${request.url} err=${e.message}")
+            throw e
+        }
+        if (webp.size < 12 || webp[0] != 0x52.toByte() || webp[1] != 0x49.toByte()) {
+            Log.e("MoeTruyen", "imgx decode non-webp len=${webp.size} head=${webp.take(12).joinToString(" ") { "%02x".format(it) }}")
+        } else {
+            Log.e("MoeTruyen", "imgx decode ok len=${webp.size}")
+        }
         Response.Builder()
             .request(request)
             .protocol(Protocol.HTTP_1_1)
