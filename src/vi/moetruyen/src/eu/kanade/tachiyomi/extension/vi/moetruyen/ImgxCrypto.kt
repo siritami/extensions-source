@@ -1,0 +1,428 @@
+package eu.kanade.tachiyomi.extension.vi.moetruyen
+
+import android.util.Base64
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.readIntBigEndian
+import java.math.BigInteger
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.security.KeyFactory
+import java.security.KeyPairGenerator
+import java.security.MessageDigest
+import java.security.PrivateKey
+import java.security.PublicKey
+import java.security.SecureRandom
+import java.security.spec.ECFieldFp
+import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECParameterSpec
+import java.security.spec.ECPoint
+import java.security.spec.ECPublicKeySpec
+import java.security.spec.EllipticCurve
+import javax.crypto.Cipher
+import javax.crypto.KeyAgreement
+import javax.crypto.Mac
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
+
+internal object ImgxCrypto {
+    private val secureRandom = SecureRandom()
+    private const val GOLDEN = 2654435769L
+
+    fun randomBytes(size: Int): ByteArray = ByteArray(size).also(secureRandom::nextBytes)
+
+    fun base64UrlEncode(bytes: ByteArray): String =
+        Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+
+    fun base64UrlDecode(value: String): ByteArray {
+        val normalized = value.replace('-', '+').replace('_', '/')
+        val padded = normalized + "=".repeat((4 - normalized.length % 4) % 4)
+        return Base64.decode(padded, Base64.DEFAULT)
+    }
+
+    fun hkdfSha256(ikm: ByteArray, salt: ByteArray, info: ByteArray, length: Int): ByteArray {
+        val prk = hmacSha256(if (salt.isEmpty()) ByteArray(32) else salt, ikm)
+        val result = ByteArray(length)
+        var previous = ByteArray(0)
+        var offset = 0
+        var counter = 1
+        while (offset < length) {
+            val input = previous + info + byteArrayOf(counter.toByte())
+            previous = hmacSha256(prk, input)
+            val toCopy = minOf(previous.size, length - offset)
+            previous.copyInto(result, offset, 0, toCopy)
+            offset += toCopy
+            counter += 1
+        }
+        return result
+    }
+
+    fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray =
+        Mac.getInstance("HmacSHA256").run {
+            init(SecretKeySpec(key, "HmacSHA256"))
+            doFinal(data)
+        }
+
+    fun aesGcmDecrypt(key: ByteArray, iv: ByteArray, aad: ByteArray, ciphertext: ByteArray): ByteArray =
+        Cipher.getInstance("AES/GCM/NoPadding").run {
+            init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+            if (aad.isNotEmpty()) updateAAD(aad)
+            doFinal(ciphertext)
+        }
+
+    class EcdhKeyPair(
+        private val privateKey: PrivateKey,
+        private val publicKeyBytes: ByteArray,
+    ) {
+        val publicKey: String get() = base64UrlEncode(publicKeyBytes)
+
+        fun deriveSharedSecret(peerPublicKeyBytes: ByteArray): ByteArray {
+            val peer = decodeUncompressedP256(peerPublicKeyBytes)
+            return KeyAgreement.getInstance("ECDH").run {
+                init(privateKey)
+                doPhase(peer, true)
+                generateSecret()
+            }
+        }
+    }
+
+    fun generateEcdhP256(): EcdhKeyPair {
+        val keyPair = KeyPairGenerator.getInstance("EC").run {
+            initialize(ECGenParameterSpec("secp256r1"))
+            generateKeyPair()
+        }
+        val encoded = keyPair.public.encoded
+        val point = encoded.copyOfRange(encoded.size - 65, encoded.size)
+        return EcdhKeyPair(keyPair.private, point)
+    }
+
+    private fun decodeUncompressedP256(bytes: ByteArray): PublicKey {
+        require(bytes.size == 65 && bytes[0] == 0x04.toByte()) { "IMGX channel public key invalid" }
+        val x = BigInteger(1, bytes.copyOfRange(1, 33))
+        val y = BigInteger(1, bytes.copyOfRange(33, 65))
+        return KeyFactory.getInstance("EC").generatePublic(ECPublicKeySpec(ECPoint(x, y), p256Spec()))
+    }
+
+    private fun p256Spec(): ECParameterSpec {
+        val field = ECFieldFp(
+            BigInteger("FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF", 16),
+        )
+        val curve = EllipticCurve(
+            field,
+            BigInteger("FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFC", 16),
+            BigInteger("5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B", 16),
+        )
+        val g = ECPoint(
+            BigInteger("6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296", 16),
+            BigInteger("4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5", 16),
+        )
+        val n = BigInteger("FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", 16)
+        return ECParameterSpec(curve, g, n, 1)
+    }
+
+    fun channelAad(ownPublic: String, peerPublic: String, proof: String): ByteArray =
+        """["imgx-reader-channel-v1","$ownPublic","$peerPublic","$proof"]""".toByteArray(Charsets.UTF_8)
+
+    fun deriveChannelKey(sharedSecret: ByteArray, proof: String): ByteArray =
+        hkdfSha256(
+            ikm = sharedSecret,
+            salt = proof.toByteArray(Charsets.UTF_8),
+            info = "imgx-reader-channel-v1".toByteArray(Charsets.UTF_8),
+            length = 32,
+        )
+
+    fun openSealedPages(
+        keyPair: EcdhKeyPair,
+        sealed: SealedChannel,
+        proof: String,
+    ): List<ImgxPageAccess> {
+        require(sealed.version == "imgx-reader-channel-v1") { "IMGX sealed page channel invalid" }
+        val shared = keyPair.deriveSharedSecret(base64UrlDecode(sealed.publicKey))
+        try {
+            val plain = aesGcmDecrypt(
+                deriveChannelKey(shared, proof),
+                base64UrlDecode(sealed.iv),
+                channelAad(keyPair.publicKey, sealed.publicKey, proof),
+                base64UrlDecode(sealed.ciphertext),
+            )
+            return String(plain, Charsets.UTF_8).parseAs()
+        } finally {
+            shared.fill(0)
+        }
+    }
+
+    fun openSealedCapability(
+        keyPair: EcdhKeyPair,
+        sealed: SealedChannel,
+        proof: String,
+    ): ReaderCapability {
+        require(sealed.version == "imgx-reader-channel-v1") { "IMGX sealed channel invalid" }
+        val shared = keyPair.deriveSharedSecret(base64UrlDecode(sealed.publicKey))
+        try {
+            val plain = aesGcmDecrypt(
+                deriveChannelKey(shared, proof),
+                base64UrlDecode(sealed.iv),
+                channelAad(keyPair.publicKey, sealed.publicKey, proof),
+                base64UrlDecode(sealed.ciphertext),
+            )
+            val list = String(plain, Charsets.UTF_8).parseAs<List<ReaderCapability>>()
+            return list.firstOrNull()
+                ?: throw IllegalStateException("IMGX capability empty")
+        } finally {
+            shared.fill(0)
+        }
+    }
+
+    fun publicKeyHash(publicKeyB64Url: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(base64UrlDecode(publicKeyB64Url))
+            .joinToString("") { "%02x".format(it) }
+
+    fun unwrapGrantKey(grant: ImgxGrant, storageKey: String, fieldName: String): ByteArray {
+        val wrappedField = when (fieldName) {
+            "wrappedV4Key" -> grant.wrappedV4Key
+            "wrappedContentKey" -> grant.wrappedContentKey
+            "wrappedDecodeKey" -> grant.wrappedDecodeKey
+            else -> null
+        } ?: throw IllegalStateException("IMGX $fieldName missing")
+        val wrapped = base64UrlDecode(wrappedField)
+        require(wrapped.size == 32) { "IMGX $fieldName invalid" }
+        val grantString = listOf(
+            "IMGX-GRANT-WRAP-v1",
+            grant.version?.toString().orEmpty(),
+            grant.algorithm.orEmpty(),
+            grant.imageId.orEmpty(),
+            grant.issuedAt?.toString().orEmpty(),
+            grant.expiresAt?.toString().orEmpty(),
+            grant.nonce.orEmpty(),
+            grant.keyNonce.orEmpty(),
+            grant.signature.orEmpty(),
+            storageKey.trimStart('/'),
+        ).joinToString(".")
+        val wrapKey = deriveWrapKey(grantString, 32)
+        for (i in wrapped.indices) {
+            wrapped[i] = (wrapped[i].toInt() xor wrapKey[i].toInt()).toByte()
+        }
+        wrapKey.fill(0)
+        return wrapped
+    }
+
+    private fun unwrapDecodeKey(grant: ImgxGrant, storageKey: String): ByteArray {
+        if (grant.wrappedDecodeKey != null) {
+            return unwrapGrantKey(grant, storageKey, "wrappedDecodeKey")
+        }
+        val raw = grant.decodeKey ?: throw IllegalStateException("IMGX decode key missing")
+        return base64UrlDecode(raw)
+    }
+
+    private fun deriveWrapKey(input: String, length: Int): ByteArray {
+        val output = ByteArray(length)
+        var hash = fnv1a(input.toByteArray(Charsets.UTF_8))
+        for (index in 0 until length) {
+            if (index % 4 == 0) {
+                hash = xorshift32(hash + index + GOLDEN)
+            }
+            output[index] = ((hash ushr ((index % 4) * 8)) and 0xFF).toInt().toByte()
+        }
+        return output
+    }
+
+    private fun fnv1a(bytes: ByteArray): Long {
+        var hash = 2166136261L
+        for (b in bytes) {
+            hash = hash xor (b.toLong() and 0xFF)
+            hash = (hash * 16777619L) and 0xFFFFFFFFL
+        }
+        return if (hash == 0L) GOLDEN else hash
+    }
+
+    private fun xorshift32(input: Long): Long {
+        var value = input and 0xFFFFFFFFL
+        value = value xor ((value shl 13) and 0xFFFFFFFFL)
+        value = value xor (value ushr 17)
+        value = value xor ((value shl 5) and 0xFFFFFFFFL)
+        return value and 0xFFFFFFFFL
+    }
+
+    fun decodeProtectedPage(encrypted: ByteArray, grant: ImgxGrant, storageKey: String): ByteArray {
+        require(encrypted.size > 13 && fourCc(encrypted, 0) == "IMGX") { "IMGX magic invalid" }
+        return when (val version = encrypted[4].toInt()) {
+            2 -> decodeImgxV2(encrypted, grant, storageKey)
+            3 -> decodeImgxV3Path(encrypted, grant, storageKey)
+            4 -> {
+                val key = unwrapGrantKey(grant, storageKey, "wrappedV4Key")
+                try {
+                    decodeImgxV4P01(encrypted, key, grant.imageId.orEmpty(), storageKey)
+                } finally {
+                    key.fill(0)
+                }
+            }
+            else -> throw IllegalStateException("IMGX version unsupported: $version")
+        }
+    }
+
+    private fun decodeImgxV2(encrypted: ByteArray, grant: ImgxGrant, storageKey: String): ByteArray {
+        val payload = encrypted.copyOfRange(13, encrypted.size)
+        val key = unwrapDecodeKey(grant, storageKey)
+        try {
+            unshuffleBytes(payload, key)
+            xorDecryptBytes(payload, key)
+            return payload
+        } finally {
+            key.fill(0)
+        }
+    }
+
+    private fun decodeImgxV3Path(encrypted: ByteArray, grant: ImgxGrant, storageKey: String): ByteArray {
+        val intermediate = decodeImgxV3(encrypted, grant, storageKey)
+        val imx4 = extractImx4FromWebp(intermediate)
+        if (imx4 == null) return intermediate
+        try {
+            val key = unwrapGrantKey(grant, storageKey, "wrappedV4Key")
+            try {
+                return decodeImgxV4P01(imx4, key, grant.imageId.orEmpty(), storageKey)
+            } finally {
+                key.fill(0)
+            }
+        } finally {
+            intermediate.fill(0)
+        }
+    }
+
+    private fun decodeImgxV3(encrypted: ByteArray, grant: ImgxGrant, storageKey: String): ByteArray {
+        require(encrypted.size > 41 && encrypted[4].toInt() == 3) { "IMGX v3 payload invalid" }
+        val width = encrypted.readIntBigEndian(5)
+        val height = encrypted.readIntBigEndian(9)
+        require(width > 0 && height > 0) { "IMGX v3 dimensions invalid" }
+        val key = unwrapGrantKey(grant, storageKey, "wrappedContentKey")
+        try {
+            val aad = listOf(
+                "IMGX-v3",
+                grant.imageId.orEmpty().trim(),
+                storageKey.trimStart('/'),
+                width.toString(),
+                height.toString(),
+            ).joinToString(".").toByteArray(Charsets.UTF_8)
+            return aesGcmDecrypt(
+                key,
+                encrypted.copyOfRange(13, 25),
+                aad,
+                encrypted.copyOfRange(25, encrypted.size),
+            )
+        } finally {
+            key.fill(0)
+        }
+    }
+
+    private fun extractImx4FromWebp(bytes: ByteArray): ByteArray? {
+        if (bytes.size < 12 || fourCc(bytes, 0) != "RIFF" || fourCc(bytes, 8) != "WEBP") return null
+        val view = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        if (view.getInt(4).toLong() + 8 != bytes.size.toLong()) {
+            throw IllegalStateException("IMGX WebP container invalid")
+        }
+        var payload: ByteArray? = null
+        var chunks = 0
+        var offset = 12
+        while (offset < bytes.size) {
+            if (++chunks > 1024 || offset + 8 > bytes.size) {
+                throw IllegalStateException("IMGX WebP chunks invalid")
+            }
+            val size = view.getInt(offset + 4)
+            val dataEnd = offset + 8 + size
+            val paddedEnd = dataEnd + (size and 1)
+            if (paddedEnd > bytes.size) {
+                throw IllegalStateException("IMGX WebP chunk truncated")
+            }
+            if (fourCc(bytes, offset) == "IMX4") {
+                if (
+                    payload != null ||
+                    size <= 78 ||
+                    fourCc(bytes, offset + 8) != "IMGX" ||
+                    bytes[offset + 12].toInt() != 4
+                ) {
+                    throw IllegalStateException("IMGX protected chunk invalid")
+                }
+                payload = bytes.copyOfRange(offset + 8, dataEnd)
+            }
+            offset = paddedEnd
+        }
+        return payload
+    }
+
+    private fun decodeImgxV4P01(
+        payload: ByteArray,
+        key: ByteArray,
+        imageId: String,
+        storageKey: String,
+    ): ByteArray {
+        require(
+            payload.size > 78 &&
+                fourCc(payload, 0) == "IMGX" &&
+                payload[4].toInt() == 4,
+        ) { "IMGX v4 file invalid" }
+        val header = payload.copyOfRange(0, 78)
+        val derived = hkdfSha256(
+            ikm = key,
+            salt = header.copyOfRange(13, 45),
+            info = "IMGX-v4.envelope".toByteArray(Charsets.UTF_8),
+            length = 64,
+        )
+        val envelopeKey = derived.copyOfRange(0, 32)
+        val contentKey = derived.copyOfRange(32, 64)
+        try {
+            val contextJson = """["IMGX-v4","$imageId","${storageKey.trimStart('/')}"]"""
+                .toByteArray(Charsets.UTF_8)
+            val envelope = aesGcmDecrypt(
+                envelopeKey,
+                header.copyOfRange(45, 57),
+                header.copyOfRange(0, 57) + contextJson,
+                header.copyOfRange(57, 78),
+            )
+            val profile = envelope[0].toInt()
+            require(profile == 1) { "IMGX v4 profile unsupported: p0$profile" }
+            val body = payload.copyOfRange(78, payload.size)
+            return aesGcmDecrypt(
+                contentKey,
+                body.copyOfRange(0, 12),
+                header + contextJson,
+                body.copyOfRange(12, body.size),
+            )
+        } finally {
+            envelopeKey.fill(0)
+            contentKey.fill(0)
+            derived.fill(0)
+        }
+    }
+
+    private fun seedFromKey(key: ByteArray): Long {
+        val seed = key.readIntBigEndian(0).toLong() and 0xFFFFFFFFL
+        return if (seed == 0L) GOLDEN else seed
+    }
+
+    private fun unshuffleBytes(data: ByteArray, key: ByteArray) {
+        val indices = IntArray(data.size)
+        var seed = seedFromKey(key)
+        for (i in data.size - 1 downTo 1) {
+            seed = xorshift32(seed)
+            indices[i] = (seed % (i + 1)).toInt()
+        }
+        for (i in 1 until data.size) {
+            val j = indices[i]
+            if (i != j) {
+                val tmp = data[i]
+                data[i] = data[j]
+                data[j] = tmp
+            }
+        }
+    }
+
+    private fun xorDecryptBytes(data: ByteArray, key: ByteArray) {
+        for (i in data.indices) {
+            data[i] = (data[i].toInt() xor key[i % key.size].toInt()).toByte()
+        }
+    }
+
+    private fun fourCc(bytes: ByteArray, offset: Int): String {
+        if (offset + 4 > bytes.size) return ""
+        return String(bytes, offset, 4, Charsets.US_ASCII)
+    }
+}
