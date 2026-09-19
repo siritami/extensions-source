@@ -45,8 +45,8 @@ abstract class MoeTruyen : KeiSource() {
         rateLimit(3)
     }
 
-    // Minimum browser headers the site checks before emitting bootstrapUrl.
-    override fun Headers.Builder.configureHeaders(): Headers.Builder = apply {
+    // Add only the headers the site checks beyond KeiSource defaults.
+    override fun Headers.Builder.configureHeaders(): Headers.Builder = super.configureHeaders().apply {
         set("Sec-CH-UA-Platform", "\"Windows\"")
         set("Sec-Fetch-Dest", "document")
         set("Sec-Fetch-Mode", "navigate")
