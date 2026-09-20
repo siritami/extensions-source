@@ -189,12 +189,24 @@ internal class ImgxAccessClient(
         }
 
         fun encryptedMedia(document: Document): List<ReaderMediaEntry> {
-            val root = document.selectFirst("[data-reader-lazy-pages]") ?: return emptyList()
-            val mediaJson = root.attr("data-reader-imgx-media")
+            val root = document.selectFirst("[data-reader-lazy-pages]")
+            val mediaJson = root?.attr("data-reader-imgx-media").orEmpty()
             Log.e("MoeTruyen", "access: raw media attr len=${mediaJson.length} value=${mediaJson.take(300)}")
-            if (mediaJson.isBlank()) return emptyList()
+            val decoded = if (mediaJson.isBlank()) {
+                // Some chapters only embed media in the worker INIT script.
+                val scriptMedia = Regex("""media:\s*(\[[\s\S]*?\])\s*,\s*\n\s*connection:""")
+                    .find(document.html())
+                    ?.groupValues
+                    ?.get(1)
+                    .orEmpty()
+                Log.e("MoeTruyen", "access: script media len=${scriptMedia.length} head=${scriptMedia.take(200)}")
+                scriptMedia
+            } else {
+                runCatching { URLDecoder.decode(mediaJson, Charsets.UTF_8.name()) }.getOrDefault(mediaJson)
+            }
+            if (decoded.isBlank()) return emptyList()
             val media = runCatching {
-                URLDecoder.decode(mediaJson, Charsets.UTF_8.name()).parseAs<List<ReaderMediaEntry>>()
+                decoded.parseAs<List<ReaderMediaEntry>>()
             }.getOrDefault(emptyList())
             Log.e("MoeTruyen", "access: parsed media count=${media.size} keys=${media.take(5).map { it.storageKey }}")
             return media.filter { entry ->

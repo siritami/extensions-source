@@ -291,35 +291,61 @@ abstract class MoeTruyen : KeiSource() {
         val totalPages = readerPages?.attr("data-reader-total-pages")?.toIntOrNull() ?: 0
         val accessUrl = readerPages?.attr("data-reader-imgx-access-url").orEmpty()
         val isImgx = accessUrl.isNotBlank()
-        Log.e("MoeTruyen", "pages: url=$chapterUrl encrypted=${encryptedMedia.size} isImgx=$isImgx totalPages=$totalPages")
+        val plainUrls = plainPageUrls(document)
+        Log.e("MoeTruyen", "pages: url=$chapterUrl encrypted=${encryptedMedia.size} isImgx=$isImgx totalPages=$totalPages plain=${plainUrls.size}")
 
-        if (isImgx && (encryptedMedia.isNotEmpty() || totalPages > 0)) {
-            val access = ImgxAccessClient(client, baseUrl, chapterUrl, document)
-            val pages = access.fetchPages(encryptedMedia, totalPages)
-            Log.e("MoeTruyen", "pages: grants returned=${pages.size}")
-            pages.forEach { page ->
-                val grant = page.grant
-                    ?: throw IllegalStateException("IMGX grant missing page=${page.pageIndex + 1}")
-                imgxGrants[page.downloadUrl] = grant to page.storageKey
+        // Some chapters SSR real WebP URLs even when IMGX metadata is present.
+        // Access API then returns 400 "No pages requested" — prefer usable plain URLs.
+        val hasRealPlain = plainUrls.any { isRealPageUrl(it) }
+        val shouldTryImgx = isImgx && (
+            encryptedMedia.any { isRealPageUrl(it.storageKey) || isRealPageUrl(it.downloadUrl) } ||
+                (!hasRealPlain && totalPages > 0)
+            )
+
+        if (shouldTryImgx) {
+            try {
+                val access = ImgxAccessClient(client, baseUrl, chapterUrl, document)
+                val pages = access.fetchPages(encryptedMedia, totalPages)
+                    .filter { isRealPageUrl(it.storageKey) && isRealPageUrl(it.downloadUrl) }
+                Log.e("MoeTruyen", "pages: grants returned=${pages.size}")
+                if (pages.isNotEmpty()) {
+                    pages.forEach { page ->
+                        val grant = page.grant
+                            ?: throw IllegalStateException("IMGX grant missing page=${page.pageIndex + 1}")
+                        imgxGrants[page.downloadUrl] = grant to page.storageKey
+                    }
+                    return pages
+                        .sortedBy { it.pageIndex }
+                        .mapIndexed { index, page -> Page(index, imageUrl = page.downloadUrl) }
+                }
+            } catch (e: Exception) {
+                Log.e("MoeTruyen", "pages: imgx access failed url=$chapterUrl err=${e.message}")
+                if (!hasRealPlain) throw e
             }
-            return pages
-                .sortedBy { it.pageIndex }
-                .mapIndexed { index, page -> Page(index, imageUrl = page.downloadUrl) }
         }
 
-        val plainImages = readerImages(document)
-        val result = plainImages
-            .asSequence()
-            .map { element -> element.absUrl("data-src").ifEmpty { element.absUrl("src") } }
-            .filter { it.isNotBlank() && !it.startsWith("data:") }
+        val result = plainUrls
+            .filter { isRealPageUrl(it) }
             .distinct()
             .mapIndexed { index, imageUrl -> Page(index, imageUrl = imageUrl) }
-            .toList()
         Log.e("MoeTruyen", "pages: plain result=${result.size}")
         if (result.isEmpty()) {
             lockedChapterReason(document)?.let { throw IllegalStateException(it) }
         }
         return result
+    }
+
+    private fun isRealPageUrl(url: String?): Boolean {
+        if (url.isNullOrBlank()) return false
+        if (url.startsWith("data:")) return false
+        val path = url.substringBefore('?')
+        return !path.endsWith("/0.js") && !path.endsWith("/0.js/")
+    }
+
+    private fun plainPageUrls(document: Document): List<String> {
+        return readerImages(document)
+            .map { element -> element.absUrl("data-src").ifEmpty { element.absUrl("src") } }
+            .filter { it.isNotBlank() && !it.startsWith("data:") }
     }
 
     private fun lockedChapterReason(document: Document): String? {
