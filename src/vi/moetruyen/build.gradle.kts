@@ -16,6 +16,7 @@ keiyoushi {
 
     source {
         lang = "vi"
+        id = 8689080191405841403
         baseUrl {
             mirrors(
                 "https://moetruyen.net",
