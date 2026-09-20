@@ -342,11 +342,9 @@ abstract class MoeTruyen : KeiSource() {
         return !path.endsWith("/0.js") && !path.endsWith("/0.js/")
     }
 
-    private fun plainPageUrls(document: Document): List<String> {
-        return readerImages(document)
-            .map { element -> element.absUrl("data-src").ifEmpty { element.absUrl("src") } }
-            .filter { it.isNotBlank() && !it.startsWith("data:") }
-    }
+    private fun plainPageUrls(document: Document): List<String> = readerImages(document)
+        .map { element -> element.absUrl("data-src").ifEmpty { element.absUrl("src") } }
+        .filter { it.isNotBlank() && !it.startsWith("data:") }
 
     private fun lockedChapterReason(document: Document): String? {
         val note = document.selectFirst(".reader-note")?.text()?.trim().orEmpty()
