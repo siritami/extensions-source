@@ -294,7 +294,8 @@ abstract class MoeTruyen : KeiSource() {
 
         val directUrls = protectedPages.map { page ->
             page.primaryUrl?.trim()?.takeIf { url ->
-                url.startsWith("http://") || url.startsWith("https://")
+                (url.startsWith("http://") || url.startsWith("https://")) &&
+                    !isImgxPayloadUrl(url)
             }
         }
         if (protectedPages.isNotEmpty() && directUrls.all { it != null }) {
@@ -328,7 +329,10 @@ abstract class MoeTruyen : KeiSource() {
 
     private fun isImgxPayloadUrl(url: String): Boolean {
         val path = url.substringBefore('?').substringBefore('#')
-        return path.endsWith("/0.js") || path.endsWith(".js")
+        return path.endsWith("/0.js") ||
+            path.endsWith(".js") ||
+            path.contains("/i.truyen.moe/") ||
+            path.contains("i.truyen.moe")
     }
 
     private fun parseReaderMedia(document: Document, readerPages: Element?): List<ReaderMediaEntry> {
@@ -471,12 +475,13 @@ abstract class MoeTruyen : KeiSource() {
             if (!isDecodedImage(bytes)) {
                 throw IllegalStateException("IMGX page ${index + 1} is not a decoded image")
             }
-            val imageUrl = downloadUrls[index]
-                ?: throw IllegalStateException("IMGX page ${index + 1} download URL missing")
+            val imageUrl = decodedImageUrl(index)
             webViewImages[imageUrl] = bytes
             Page(index, imageUrl = imageUrl)
         }
     }
+
+    private fun decodedImageUrl(index: Int): String = "https://moetruyen.local/decoded/$index"
 
     private fun isDecodedImage(bytes: ByteArray): Boolean {
         if (bytes.size < 12) return false
@@ -498,10 +503,17 @@ abstract class MoeTruyen : KeiSource() {
 
     private fun webViewImageInterceptor() = Interceptor { chain ->
         val request = chain.request()
-        val data = webViewImages[request.url.toString()]
-        if (data == null) return@Interceptor chain.proceed(request)
+        val requestUrl = request.url.toString()
+        val isDecodedHost = request.url.host == "moetruyen.local"
+        val data = webViewImages[requestUrl]
+        if (data == null) {
+            if (isDecodedHost) {
+                throw IllegalStateException("Decoded page missing from cache: $requestUrl")
+            }
+            return@Interceptor chain.proceed(request)
+        }
         if (!isDecodedImage(data)) {
-            throw IllegalStateException("Refusing to serve IMGX payload as image: ${request.url}")
+            throw IllegalStateException("Refusing to serve IMGX payload as image: $requestUrl")
         }
 
         val mediaType = detectImageMediaType(data)
