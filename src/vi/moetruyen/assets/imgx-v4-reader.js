@@ -299,10 +299,12 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ pageIndexes: indexes }),
             });
+            const bodyText = await response.text();
+            post({ type: "log", message: `page-access HTTP ${response.status} body=${bodyText.slice(0, 400)}` });
             if (!response.ok) {
                 throw new Error(`IMGX page-access failed: HTTP ${response.status}`);
             }
-            const payload = await response.json();
+            const payload = JSON.parse(bodyText);
             const granted = Array.isArray(payload)
                 ? payload
                 : (payload?.pages || payload?.sealedPages || payload?.data || []);
