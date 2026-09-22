@@ -420,10 +420,8 @@ abstract class MoeTruyen : KeiSource() {
 
         val readerScript = client.get("$baseUrl/reader.js").body.string()
         val decoderPath = v4DecoderRegex.find(readerScript)?.groupValues?.get(1)
-            ?: throw IllegalStateException(
-                "IMGX decoder missing and primaryUrl unavailable — chapter uses the protected IMGX worker",
-            )
-        val decoderUrl = "$baseUrl/chunks/$decoderPath"
+        android.util.Log.e("MoeTruyenDbg", "decoderPath=$decoderPath")
+        val decoderUrl = decoderPath?.let { "$baseUrl/chunks/$it" } ?: ""
         val readerScriptForWebView = readerScript.replace(runtimeClaimRegex, "null")
         val script = javaClass.getResource("/assets/imgx-v4-reader.js")?.readText()
             ?: throw IllegalStateException("imgx-v4-reader.js not found")

@@ -194,6 +194,9 @@
             return decodeImgxV2(encrypted, grant, storageKey);
         }
         if (version === 4) {
+            if (typeof decodeImgxV4 !== "function") {
+                throw new Error("IMGX v4 decoder unavailable");
+            }
             const key = unwrapGrantKey(grant, storageKey, "wrappedV4Key");
             try {
                 return await decodeImgxV4(encrypted, key, context);
@@ -329,7 +332,15 @@
             });
         }
 
-        const { decodeImgxV4 } = await import("__IMGX_DECODER_URL__");
+        let decodeImgxV4 = null;
+        const decoderUrl = "__IMGX_DECODER_URL__";
+        if (decoderUrl && !decoderUrl.startsWith("__")) {
+            try {
+                ({ decodeImgxV4 } = await import(decoderUrl));
+            } catch (e) {
+                post({ type: "log", message: `v4 decoder import failed: ${e.message}` });
+            }
+        }
 
         for (let order = 0; order < pageIndexes.length; order++) {
             const page = pages.get(pageIndexes[order]);
