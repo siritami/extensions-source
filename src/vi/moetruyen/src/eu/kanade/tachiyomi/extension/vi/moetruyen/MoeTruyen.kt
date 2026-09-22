@@ -312,14 +312,12 @@ abstract class MoeTruyen : KeiSource() {
             }
     }
 
-    private fun resolvePlainImageUrl(element: Element): String? {
-        return sequenceOf(
-            element.absUrl("data-src"),
-            element.absUrl("src"),
-            element.absUrl("data-lazy-original-src"),
-        ).firstOrNull { url ->
-            url.startsWith("http://") || url.startsWith("https://")
-        }
+    private fun resolvePlainImageUrl(element: Element): String? = sequenceOf(
+        element.absUrl("data-src"),
+        element.absUrl("src"),
+        element.absUrl("data-lazy-original-src"),
+    ).firstOrNull { url ->
+        url.startsWith("http://") || url.startsWith("https://")
     }
 
     private fun parseReaderMedia(document: Document, readerPages: Element?): List<ReaderMediaEntry> {
