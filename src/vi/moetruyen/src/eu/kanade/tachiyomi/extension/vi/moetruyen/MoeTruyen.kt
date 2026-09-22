@@ -292,9 +292,13 @@ abstract class MoeTruyen : KeiSource() {
             .filter(::isRealProtectedPage)
             .sortedBy { it.pageIndex }
 
-        val directPages = protectedPages.map { it.primaryUrl?.trim()?.takeIf(String::isNotBlank) }
-        if (protectedPages.isNotEmpty() && directPages.all { it != null }) {
-            return directPages.filterNotNull().mapIndexed { index, imageUrl ->
+        val directUrls = protectedPages.map { page ->
+            page.primaryUrl?.trim()?.takeIf { url ->
+                url.startsWith("http://") || url.startsWith("https://")
+            }
+        }
+        if (protectedPages.isNotEmpty() && directUrls.all { it != null }) {
+            return directUrls.filterNotNull().mapIndexed { index, imageUrl ->
                 Page(index, imageUrl = imageUrl)
             }
         }
@@ -317,7 +321,14 @@ abstract class MoeTruyen : KeiSource() {
         element.absUrl("src"),
         element.absUrl("data-lazy-original-src"),
     ).firstOrNull { url ->
-        url.startsWith("http://") || url.startsWith("https://")
+        (url.startsWith("http://") || url.startsWith("https://")) &&
+            !url.startsWith("data:") &&
+            !isImgxPayloadUrl(url)
+    }
+
+    private fun isImgxPayloadUrl(url: String): Boolean {
+        val path = url.substringBefore('?').substringBefore('#')
+        return path.endsWith("/0.js") || path.endsWith(".js")
     }
 
     private fun parseReaderMedia(document: Document, readerPages: Element?): List<ReaderMediaEntry> {
@@ -457,6 +468,9 @@ abstract class MoeTruyen : KeiSource() {
 
         return pages.mapIndexed { index, data ->
             val bytes = data ?: throw IllegalStateException("IMGX page ${index + 1} missing")
+            if (!isDecodedImage(bytes)) {
+                throw IllegalStateException("IMGX page ${index + 1} is not a decoded image")
+            }
             val imageUrl = downloadUrls[index]
                 ?: throw IllegalStateException("IMGX page ${index + 1} download URL missing")
             webViewImages[imageUrl] = bytes
@@ -464,21 +478,53 @@ abstract class MoeTruyen : KeiSource() {
         }
     }
 
+    private fun isDecodedImage(bytes: ByteArray): Boolean {
+        if (bytes.size < 12) return false
+        if (bytes[0] == 'I'.code.toByte() && bytes[1] == 'M'.code.toByte() &&
+            bytes[2] == 'G'.code.toByte() && bytes[3] == 'X'.code.toByte()
+        ) {
+            return false
+        }
+        val isPng = bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() &&
+            bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte()
+        val isJpeg = bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()
+        val isGif = bytes[0] == 'G'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte()
+        val isWebp = bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() &&
+            bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
+            bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte() &&
+            bytes[10] == 'B'.code.toByte() && bytes[11] == 'P'.code.toByte()
+        return isPng || isJpeg || isGif || isWebp
+    }
+
     private fun webViewImageInterceptor() = Interceptor { chain ->
         val request = chain.request()
         val data = webViewImages[request.url.toString()]
         if (data == null) return@Interceptor chain.proceed(request)
+        if (!isDecodedImage(data)) {
+            throw IllegalStateException("Refusing to serve IMGX payload as image: ${request.url}")
+        }
 
+        val mediaType = detectImageMediaType(data)
         Response.Builder()
             .request(request)
             .protocol(Protocol.HTTP_1_1)
             .code(200)
             .message("OK")
-            .header("Content-Type", "image/webp")
+            .header("Content-Type", mediaType)
             .header("Content-Length", data.size.toString())
             .header("Cache-Control", "no-store")
-            .body(data.toResponseBody("image/webp".toMediaType()))
+            .body(data.toResponseBody(mediaType.toMediaType()))
             .build()
+    }
+
+    private fun detectImageMediaType(bytes: ByteArray): String = when {
+        bytes.size >= 4 && bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() &&
+            bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte() -> "image/png"
+        bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() &&
+            bytes[2] == 0xFF.toByte() -> "image/jpeg"
+        bytes.size >= 3 && bytes[0] == 'G'.code.toByte() && bytes[1] == 'I'.code.toByte() &&
+            bytes[2] == 'F'.code.toByte() -> "image/gif"
+        else -> "image/webp"
     }
 
     private fun readerImages(document: Document): List<Element> = document.select("img.page-media")
