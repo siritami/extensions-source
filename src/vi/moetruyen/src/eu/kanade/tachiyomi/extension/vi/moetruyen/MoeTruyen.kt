@@ -17,6 +17,7 @@ import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.runWebView
 import keiyoushi.utils.toJsonElement
+import keiyoushi.utils.toJsonString
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -285,68 +286,141 @@ abstract class MoeTruyen : KeiSource() {
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val chapterUrl = "$baseUrl${chapter.url}"
         val document = client.get(chapterUrl).asJsoup()
-        val allImages = readerImages(document)
         val readerPages = document.selectFirst("[data-reader-lazy-pages]")
+        val media = parseReaderMedia(document, readerPages)
+        val protectedPages = media
+            .filter(::isRealProtectedPage)
+            .sortedBy { it.pageIndex }
 
-        if (readerPages != null && hasEncryptedReaderMedia(readerPages)) {
-            return fetchV4Pages(chapterUrl, (allImages.size - 1).coerceAtLeast(0))
+        val directPages = protectedPages.map { it.primaryUrl?.trim()?.takeIf(String::isNotBlank) }
+        if (protectedPages.isNotEmpty() && directPages.all { it != null }) {
+            return directPages.filterNotNull().mapIndexed { index, imageUrl ->
+                Page(index, imageUrl = imageUrl)
+            }
         }
 
-        return allImages
-            .asSequence()
-            .map { element ->
-                element.absUrl("data-src").ifEmpty { element.absUrl("src") }
-            }
-            .filter { imageUrl ->
-                imageUrl.isNotBlank() && !imageUrl.startsWith("data:")
-            }
+        if (protectedPages.isNotEmpty()) {
+            val initialIndexes = parseInitialIndexes(document, readerPages)
+            return fetchV4Pages(chapterUrl, protectedPages, initialIndexes)
+        }
+
+        return readerImages(document)
+            .mapNotNull(::resolvePlainImageUrl)
             .distinct()
-            .toList()
             .mapIndexed { index, imageUrl ->
                 Page(index, imageUrl = imageUrl)
             }
-            .toList()
     }
 
-    private fun hasEncryptedReaderMedia(readerPages: Element): Boolean {
-        val accessUrl = readerPages.attr("data-reader-imgx-access-url")
-        if (accessUrl.isBlank()) return false
-        val mediaJson = readerPages.attr("data-reader-imgx-media")
-            .ifBlank { return false }
-        val media = runCatching {
-            URLDecoder.decode(mediaJson, Charsets.UTF_8.name()).parseAs<List<ReaderMediaEntry>>()
-        }.getOrDefault(emptyList())
-        return media.any { entry ->
-            entry.storageKey.startsWith("chapters/") &&
-                !entry.storageKey.endsWith("/0.js") &&
-                !entry.downloadUrl.endsWith("/0.js")
+    private fun resolvePlainImageUrl(element: Element): String? {
+        return sequenceOf(
+            element.absUrl("data-src"),
+            element.absUrl("src"),
+            element.absUrl("data-lazy-original-src"),
+        ).firstOrNull { url ->
+            url.startsWith("http://") || url.startsWith("https://")
         }
     }
 
-    private suspend fun fetchV4Pages(chapterUrl: String, pageCount: Int): List<Page> {
+    private fun parseReaderMedia(document: Document, readerPages: Element?): List<ReaderMediaEntry> {
+        val attributeJson = readerPages?.attr("data-reader-imgx-media")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { runCatching { URLDecoder.decode(it, Charsets.UTF_8.name()) }.getOrNull() }
+
+        val scriptJson = document.select("script:not([src])")
+            .map { it.data() }
+            .firstOrNull { it.contains(mediaScriptMarker) && it.contains("\"storageKey\"") }
+            ?.let { extractJsonArrayAfter(it, mediaScriptMarker) }
+
+        val json = attributeJson ?: scriptJson ?: return emptyList()
+        return runCatching { json.parseAs<List<ReaderMediaEntry>>() }.getOrDefault(emptyList())
+    }
+
+    private fun parseInitialIndexes(document: Document, readerPages: Element?): List<Int> {
+        val attributeJson = readerPages?.attr("data-reader-imgx-initial-pages")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { runCatching { URLDecoder.decode(it, Charsets.UTF_8.name()) }.getOrNull() }
+
+        val scriptJson = document.select("script:not([src])")
+            .map { it.data() }
+            .firstOrNull { it.contains(initialIndexesScriptMarker) }
+            ?.let { extractJsonArrayAfter(it, initialIndexesScriptMarker) }
+
+        val json = attributeJson ?: scriptJson ?: return emptyList()
+        runCatching { json.parseAs<List<Int>>() }.getOrNull()?.let { return it }
+        return runCatching { json.parseAs<List<ReaderInitialPage>>() }
+            .getOrDefault(emptyList())
+            .mapNotNull { it.pageIndex }
+    }
+
+    private fun extractJsonArrayAfter(script: String, marker: String): String? {
+        val markerIndex = script.indexOf(marker)
+        if (markerIndex < 0) return null
+        val arrayStart = script.indexOf('[', markerIndex + marker.length)
+        if (arrayStart < 0) return null
+
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for (index in arrayStart until script.length) {
+            val char = script[index]
+            if (escaped) {
+                escaped = false
+                continue
+            }
+            when {
+                char == '\\' && inString -> escaped = true
+                char == '"' -> inString = !inString
+                !inString && char == '[' -> depth++
+                !inString && char == ']' -> {
+                    depth--
+                    if (depth == 0) return script.substring(arrayStart, index + 1)
+                }
+            }
+        }
+        return null
+    }
+
+    private fun isRealProtectedPage(entry: ReaderMediaEntry): Boolean {
+        val storageKey = entry.storageKey
+        val downloadUrl = entry.downloadUrl
+        return entry.pageIndex >= 0 &&
+            storageKey.startsWith("chapters/") &&
+            !storageKey.endsWith("/0.js") &&
+            !downloadUrl.endsWith("/0.js")
+    }
+
+    private suspend fun fetchV4Pages(
+        chapterUrl: String,
+        protectedPages: List<ReaderMediaEntry>,
+        initialIndexes: List<Int>,
+    ): List<Page> {
+        if (protectedPages.isEmpty()) {
+            throw IllegalStateException("IMGX protected pages missing")
+        }
+
         val readerScript = client.get("$baseUrl/reader.js").body.string()
-        val decoderPath = Regex("\\.\\./chunks/(v4-[A-Za-z0-9_-]+\\.js)")
-            .find(readerScript)
-            ?.groupValues
-            ?.get(1)
-            ?: throw IllegalStateException("IMGX v4 decoder missing")
+        val decoderPath = v4DecoderRegex.find(readerScript)?.groupValues?.get(1)
+            ?: throw IllegalStateException(
+                "IMGX decoder missing and primaryUrl unavailable — chapter uses the protected IMGX worker",
+            )
         val decoderUrl = "$baseUrl/chunks/$decoderPath"
-        val readerScriptForWebView = readerScript.replace(
-            Regex("window\\.__IMGX_RUNTIME__\\?\\.take\\(\\)\\|\\|null"),
-            "null",
-        )
-        check(readerScriptForWebView != readerScript) { "IMGX reader runtime claim not found" }
+        val readerScriptForWebView = readerScript.replace(runtimeClaimRegex, "null")
         val script = javaClass.getResource("/assets/imgx-v4-reader.js")?.readText()
             ?: throw IllegalStateException("imgx-v4-reader.js not found")
         val pool = ('a'..'z') + ('A'..'Z')
         val bridgeName = (1..(10..20).random())
             .map { pool.random() }
             .joinToString("")
+        val mediaJson = protectedPages.toJsonString()
+        val initialIndexesJson = initialIndexes.toJsonString()
         val webViewScript = script
             .replace("__IMGX_DECODER_URL__", decoderUrl)
             .replace("__IMGX_BRIDGE__", bridgeName)
-        val pages = arrayOfNulls<ByteArray>(pageCount)
-        val downloadUrls = arrayOfNulls<String>(pageCount)
+            .replace("__IMGX_MEDIA_JSON__", mediaJson)
+            .replace("__IMGX_INITIAL_INDEXES_JSON__", initialIndexesJson)
+        val pages = arrayOfNulls<ByteArray>(protectedPages.size)
+        val downloadUrls = arrayOfNulls<String>(protectedPages.size)
 
         runWebView<Unit>(timeout = 90.seconds) {
             interceptRequest { request ->
@@ -463,10 +537,21 @@ abstract class MoeTruyen : KeiSource() {
     private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val numberRegex = Regex("""\d+""")
+    private val mediaScriptMarker = "media: "
+    private val initialIndexesScriptMarker = "initialIndexes: "
+    private val v4DecoderRegex = Regex("""\.\./chunks/(v4-[A-Za-z0-9_-]+\.js)""")
+    private val runtimeClaimRegex = Regex("""window\.__IMGX_RUNTIME__\?\.take\(\)\|\|null""")
 
     @Serializable
     private class ReaderMediaEntry(
+        val pageIndex: Int,
         val storageKey: String,
         val downloadUrl: String,
+        val primaryUrl: String? = null,
+    )
+
+    @Serializable
+    private class ReaderInitialPage(
+        val pageIndex: Int? = null,
     )
 }

@@ -225,7 +225,21 @@
         const root = await waitFor(() => document.querySelector("[data-reader-lazy-pages]"));
         if (!root) throw new Error("IMGX reader metadata missing");
 
-        const media = JSON.parse(decodeURIComponent(root.dataset.readerImgxMedia || "%5B%5D"))
+        const injectedMedia = __IMGX_MEDIA_JSON__;
+        const attributeMedia = (() => {
+            const raw = root.dataset.readerImgxMedia;
+            if (!raw) return [];
+            try {
+                return JSON.parse(decodeURIComponent(raw));
+            } catch (_) {
+                try {
+                    return JSON.parse(raw);
+                } catch (_) {
+                    return [];
+                }
+            }
+        })();
+        const media = (Array.isArray(injectedMedia) && injectedMedia.length ? injectedMedia : attributeMedia)
             .filter((page) => {
                 const storageKey = String(page.storageKey || "");
                 const downloadUrl = String(page.downloadUrl || "");
@@ -240,13 +254,33 @@
             .filter(Number.isSafeInteger);
         if (!pageIndexes.length) throw new Error("IMGX page indexes missing");
 
-        const initialPages = JSON.parse(decodeURIComponent(root.dataset.readerImgxInitialPages || "%5B%5D"));
+        const injectedInitial = __IMGX_INITIAL_INDEXES_JSON__;
+        const attributeInitial = (() => {
+            const raw = root.dataset.readerImgxInitialPages;
+            if (!raw) return [];
+            try {
+                return JSON.parse(decodeURIComponent(raw));
+            } catch (_) {
+                try {
+                    return JSON.parse(raw);
+                } catch (_) {
+                    return [];
+                }
+            }
+        })();
+        const initialPages = Array.isArray(injectedInitial) && injectedInitial.length
+            ? injectedInitial.map((value) => ({ pageIndex: value }))
+            : attributeInitial;
         const initialIndexes = initialPages
-            .map((page) => Number(page.pageIndex))
+            .map((page) => Number(typeof page === "number" ? page : page.pageIndex))
             .filter(Number.isSafeInteger);
 
-        const runtime = (await waitFor(() => globalThis.__IMGX_RUNTIME__))?.take();
-        if (!runtime) throw new Error("IMGX reader runtime unavailable");
+        const runtimeHost = await waitFor(() => globalThis.__IMGX_RUNTIME__);
+        if (!runtimeHost) throw new Error("IMGX reader runtime unavailable");
+        const runtime = typeof runtimeHost.take === "function" ? runtimeHost.take() : runtimeHost;
+        if (typeof runtime?.requestPageAccess !== "function") {
+            throw new Error("IMGX reader runtime locked: requestPageAccess unavailable");
+        }
         const pages = new Map();
 
         if (initialIndexes.length) {
