@@ -293,12 +293,18 @@ abstract class MoeTruyen : KeiSource() {
             .sortedBy { it.pageIndex }
         val initialIndexes = parseInitialIndexes(document, readerPages)
 
-        // WebView first: let the site runtime produce real image bytes.
+        android.util.Log.e("MoeTruyenDbg", "url=$chapterUrl media=${media.size} protected=${protectedPages.size}")
+        protectedPages.forEach { p ->
+            android.util.Log.e("MoeTruyenDbg", "entry idx=${p.pageIndex} primary=${p.primaryUrl} download=${p.downloadUrl}")
+        }
+
         if (protectedPages.isNotEmpty()) {
             try {
-                return fetchV4Pages(chapterUrl, protectedPages, initialIndexes)
-            } catch (_: Exception) {
-                // Fall through to primaryUrl / plain URLs.
+                val pages = fetchV4Pages(chapterUrl, protectedPages, initialIndexes)
+                android.util.Log.e("MoeTruyenDbg", "webview ok count=${pages.size}")
+                return pages
+            } catch (e: Exception) {
+                android.util.Log.e("MoeTruyenDbg", "webview fail: ${e.message}")
             }
         }
 
@@ -460,9 +466,11 @@ abstract class MoeTruyen : KeiSource() {
                             downloadUrls[index] = downloadUrl
                         }
                     }
+                    "log" -> android.util.Log.e("MoeTruyenDbg", "js ${payload["message"]?.jsonPrimitive?.content}")
                     "done" -> resolve(Unit)
                     "error" -> {
                         val message = payload["message"]?.jsonPrimitive?.content ?: "IMGX reader failed"
+                        android.util.Log.e("MoeTruyenDbg", "js error $message")
                         reject(Exception(message))
                     }
                 }
