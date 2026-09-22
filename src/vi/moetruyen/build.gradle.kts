@@ -6,7 +6,7 @@ plugins {
 
 keiyoushi {
     name = "MoeTruyen"
-    versionCode = 41
+    versionCode = 13
     contentWarning = ContentWarning.SAFE
     libVersion = "1.6"
 
@@ -16,7 +16,6 @@ keiyoushi {
 
     source {
         lang = "vi"
-        id = 8689080191405841403
         baseUrl {
             mirrors(
                 "https://moetruyen.net",
