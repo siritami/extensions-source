@@ -308,16 +308,11 @@ abstract class MoeTruyen : KeiSource() {
             }
         }
 
-        val directUrls = protectedPages.map { page ->
-            page.primaryUrl?.trim()?.takeIf { url ->
-                (url.startsWith("http://") || url.startsWith("https://")) &&
-                    !isImgxPayloadUrl(url)
-            }
-        }
-        if (protectedPages.isNotEmpty() && directUrls.all { it != null }) {
-            return directUrls.filterNotNull().mapIndexed { index, imageUrl ->
-                Page(index, imageUrl = imageUrl)
-            }
+        // primaryUrl PNGs are scrambled by IMGX — do not use them for protected pages.
+        if (protectedPages.isNotEmpty()) {
+            throw IllegalStateException(
+                "IMGX decrypt failed; refusing scrambled primaryUrl noise for ${protectedPages.size} pages",
+            )
         }
 
         return readerImages(document)
