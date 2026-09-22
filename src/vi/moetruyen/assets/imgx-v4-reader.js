@@ -276,19 +276,45 @@
             .filter(Number.isSafeInteger);
 
         const runtimeHost = await waitFor(() => globalThis.__IMGX_RUNTIME__);
-        if (!runtimeHost) throw new Error("IMGX reader runtime unavailable");
-        const runtime = typeof runtimeHost.take === "function" ? runtimeHost.take() : runtimeHost;
-        if (typeof runtime?.requestPageAccess !== "function") {
-            throw new Error("IMGX reader runtime locked: requestPageAccess unavailable");
-        }
+        const runtime = runtimeHost
+            ? (typeof runtimeHost.take === "function" ? runtimeHost.take() : runtimeHost)
+            : null;
         const pages = new Map();
 
+        const openGrants = async (indexes) => {
+            if (!indexes.length) return [];
+            if (typeof runtime?.requestPageAccess === "function") {
+                return runtime.requestPageAccess(indexes);
+            }
+            const accessUrl = root.getAttribute("data-reader-imgx-access-url");
+            if (!accessUrl) {
+                throw new Error("IMGX reader runtime locked: requestPageAccess unavailable");
+            }
+            const response = await fetch(accessUrl, {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ pageIndexes: indexes }),
+            });
+            if (!response.ok) {
+                throw new Error(`IMGX page-access failed: HTTP ${response.status}`);
+            }
+            const payload = await response.json();
+            const granted = Array.isArray(payload)
+                ? payload
+                : (payload?.pages || payload?.sealedPages || payload?.data || []);
+            if (!Array.isArray(granted)) {
+                throw new Error("IMGX page-access returned no grants");
+            }
+            return granted;
+        };
+
         if (initialIndexes.length) {
-            await runtime.requestPageAccess(initialIndexes);
+            await openGrants(initialIndexes);
         }
         for (let offset = 0; offset < pageIndexes.length; offset += 10) {
             const indexes = pageIndexes.slice(offset, offset + 10);
-            const batch = await runtime.requestPageAccess(indexes);
+            const batch = await openGrants(indexes);
             batch.forEach((page) => {
                 const expected = media.find((entry) => Number(entry.pageIndex) === Number(page.pageIndex));
                 if (!expected || page.storageKey !== expected.storageKey) {

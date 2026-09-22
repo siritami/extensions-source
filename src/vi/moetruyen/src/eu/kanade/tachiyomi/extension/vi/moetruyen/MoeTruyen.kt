@@ -291,6 +291,16 @@ abstract class MoeTruyen : KeiSource() {
         val protectedPages = media
             .filter(::isRealProtectedPage)
             .sortedBy { it.pageIndex }
+        val initialIndexes = parseInitialIndexes(document, readerPages)
+
+        // WebView first: let the site runtime produce real image bytes.
+        if (protectedPages.isNotEmpty()) {
+            try {
+                return fetchV4Pages(chapterUrl, protectedPages, initialIndexes)
+            } catch (_: Exception) {
+                // Fall through to primaryUrl / plain URLs.
+            }
+        }
 
         val directUrls = protectedPages.map { page ->
             page.primaryUrl?.trim()?.takeIf { url ->
@@ -302,11 +312,6 @@ abstract class MoeTruyen : KeiSource() {
             return directUrls.filterNotNull().mapIndexed { index, imageUrl ->
                 Page(index, imageUrl = imageUrl)
             }
-        }
-
-        if (protectedPages.isNotEmpty()) {
-            val initialIndexes = parseInitialIndexes(document, readerPages)
-            return fetchV4Pages(chapterUrl, protectedPages, initialIndexes)
         }
 
         return readerImages(document)
