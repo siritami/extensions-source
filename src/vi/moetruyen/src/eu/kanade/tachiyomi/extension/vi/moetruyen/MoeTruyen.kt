@@ -300,19 +300,16 @@ abstract class MoeTruyen : KeiSource() {
 
         if (protectedPages.isNotEmpty()) {
             try {
-                val pages = fetchV4Pages(chapterUrl, protectedPages, initialIndexes)
+                val pages = fetchV4Pages(chapterUrl, protectedPages)
                 android.util.Log.e("MoeTruyenDbg", "webview ok count=${pages.size}")
                 return pages
             } catch (e: Exception) {
                 android.util.Log.e("MoeTruyenDbg", "webview fail: ${e.message}")
+                throw IllegalStateException(
+                    "IMGX decrypt failed; refusing scrambled primaryUrl noise for ${protectedPages.size} pages",
+                    e,
+                )
             }
-        }
-
-        // primaryUrl PNGs are scrambled by IMGX — do not use them for protected pages.
-        if (protectedPages.isNotEmpty()) {
-            throw IllegalStateException(
-                "IMGX decrypt failed; refusing scrambled primaryUrl noise for ${protectedPages.size} pages",
-            )
         }
 
         return readerImages(document)
@@ -412,7 +409,6 @@ abstract class MoeTruyen : KeiSource() {
     private suspend fun fetchV4Pages(
         chapterUrl: String,
         protectedPages: List<ReaderMediaEntry>,
-        initialIndexes: List<Int>,
     ): List<Page> {
         if (protectedPages.isEmpty()) {
             throw IllegalStateException("IMGX protected pages missing")
@@ -430,7 +426,8 @@ abstract class MoeTruyen : KeiSource() {
             .map { pool.random() }
             .joinToString("")
         val mediaJson = protectedPages.toJsonString()
-        val initialIndexesJson = initialIndexes.toJsonString()
+        val initialIndexesJson = protectedPages.map { it.pageIndex }.toJsonString()
+        android.util.Log.e("MoeTruyenDbg", "inject media=${protectedPages.size}")
         val webViewScript = script
             .replace("__IMGX_DECODER_URL__", decoderUrl)
             .replace("__IMGX_BRIDGE__", bridgeName)
@@ -603,14 +600,6 @@ abstract class MoeTruyen : KeiSource() {
     private val initialIndexesScriptMarker = "initialIndexes: "
     private val v4DecoderRegex = Regex("""\.\./chunks/(v4-[A-Za-z0-9_-]+\.js)""")
     private val runtimeClaimRegex = Regex("""window\.__IMGX_RUNTIME__\?\.take\(\)\|\|null""")
-
-    @Serializable
-    private class ReaderMediaEntry(
-        val pageIndex: Int,
-        val storageKey: String,
-        val downloadUrl: String,
-        val primaryUrl: String? = null,
-    )
 
     @Serializable
     private class ReaderInitialPage(

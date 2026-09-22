@@ -18,10 +18,11 @@
     if (documentRoot.dataset.moetruyenExtensionReader) return;
     documentRoot.dataset.moetruyenExtensionReader = "1";
 
-    const decodeBase64Url = (value) => Uint8Array.from(
-        atob(value.replace(/-/g, "+").replace(/_/g, "/")),
-        (char) => char.charCodeAt(0),
-    );
+    const decodeBase64Url = (value) => {
+        const normalized = String(value).replace(/-/g, "+").replace(/_/g, "/");
+        const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+        return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
+    };
     const toBase64 = (bytes) => {
         const chunks = [];
         for (let offset = 0; offset < bytes.byteLength; offset += 0x8000) {
@@ -29,6 +30,10 @@
         }
         return btoa(chunks.join(""));
     };
+    const encodeBase64Url = (bytes) => toBase64(bytes)
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/g, "");
     const hexPreview = (bytes, length = 16) => [...bytes.subarray(0, length)]
         .map((byte) => byte.toString(16).padStart(2, "0"))
         .join("");
@@ -224,6 +229,288 @@
         }
     };
 
+    const textEncoder = new TextEncoder();
+    const generateEcdh = async () => {
+        const pair = await crypto.subtle.generateKey(
+            { name: "ECDH", namedCurve: "P-256" },
+            true,
+            ["deriveBits"],
+        );
+        const raw = new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey));
+        return { privateKey: pair.privateKey, publicKey: encodeBase64Url(raw) };
+    };
+    const deriveSharedSecret = async (privateKey, peerPublicKey) => {
+        const peer = await crypto.subtle.importKey(
+            "raw",
+            decodeBase64Url(peerPublicKey),
+            { name: "ECDH", namedCurve: "P-256" },
+            false,
+            [],
+        );
+        const bits = await crypto.subtle.deriveBits(
+            { name: "ECDH", public: peer },
+            privateKey,
+            256,
+        );
+        return new Uint8Array(bits);
+    };
+    const hkdfSha256 = async (ikm, salt, info, length) => {
+        const key = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]);
+        const bits = await crypto.subtle.deriveBits(
+            { name: "HKDF", hash: "SHA-256", salt, info },
+            key,
+            length * 8,
+        );
+        return new Uint8Array(bits);
+    };
+    const hmacSha256 = async (keyBytes, data) => {
+        const key = await crypto.subtle.importKey(
+            "raw",
+            keyBytes,
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign"],
+        );
+        return new Uint8Array(await crypto.subtle.sign("HMAC", key, data));
+    };
+    const aesGcmDecrypt = async (keyBytes, iv, aad, ciphertext) => {
+        const key = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["decrypt"]);
+        return new Uint8Array(await crypto.subtle.decrypt(
+            { name: "AES-GCM", iv, additionalData: aad, tagLength: 128 },
+            key,
+            ciphertext,
+        ));
+    };
+    const channelAad = (ownPublic, peerPublic, proof) => textEncoder.encode(
+        `["imgx-reader-channel-v1","${ownPublic}","${peerPublic}","${proof}"]`,
+    );
+    const deriveChannelKey = (shared, proof) => hkdfSha256(
+        shared,
+        textEncoder.encode(proof),
+        textEncoder.encode("imgx-reader-channel-v1"),
+        32,
+    );
+    const publicKeyHash = async (publicKey) => {
+        const digest = await crypto.subtle.digest("SHA-256", decodeBase64Url(publicKey));
+        return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    };
+    const parseBootstrapConfig = (rootEl) => {
+        const scripts = [...document.querySelectorAll("script:not([src])")].map((node) => node.textContent).join("\n")
+            + "\n"
+            + document.documentElement.outerHTML;
+        const requestPath = (/requestPath:\s*"([^"]+)"/.exec(scripts) || [])[1];
+        const chapterId = Number((/chapterId:\s*(\d+)/.exec(scripts) || [])[1]);
+        const bootstrapUrl = (/bootstrapUrl:\s*"([^"]*)"/.exec(scripts) || [])[1] || "";
+        const initialRaw = (/initialIndexes:\s*\[([^\]]*)\]/.exec(scripts) || [])[1] || "";
+        const initialIndexes = initialRaw.split(",")
+            .map((part) => part.trim())
+            .filter((part) => part !== "")
+            .map(Number)
+            .filter(Number.isSafeInteger);
+        if (requestPath && Number.isSafeInteger(chapterId)) {
+            return { requestPath, chapterId, bootstrapUrl, initialIndexes };
+        }
+        const accessUrl = rootEl.getAttribute("data-reader-imgx-access-url");
+        if (!accessUrl) throw new Error("IMGX access URL missing");
+        const trackToken = rootEl.getAttribute("data-reader-view-track-token") || "";
+        const attrChapterId = Number(trackToken.split(".")[0]);
+        const totalPages = Number(rootEl.getAttribute("data-reader-total-pages") || "0");
+        return {
+            requestPath: accessUrl,
+            chapterId: Number.isSafeInteger(attrChapterId) ? attrChapterId : chapterId,
+            bootstrapUrl,
+            initialIndexes: totalPages > 0 ? [totalPages - 1] : [],
+        };
+    };
+    const buildProofMaterial = (config, readerInstanceId, pageIndexes, issuedAt, sequence, hash) => textEncoder.encode(
+        `["imgx-page-access-proof-v3","${readerInstanceId}",${config.chapterId},"${config.requestPath}","",[${pageIndexes.join(",")}],${issuedAt},${sequence},"${hash}"]`,
+    );
+    const openChannelKeys = async (keyPair, sealed, shared, proof, page, ck) => {
+        if (ck.version !== "IMGX-READER-PAGE-KEY-v1") {
+            throw new Error(`IMGX page key version unsupported: ${ck.version}`);
+        }
+        const pageKey = await hkdfSha256(
+            shared,
+            textEncoder.encode(proof),
+            textEncoder.encode("IMGX-READER-PAGE-KEY-v1"),
+            32,
+        );
+        try {
+            const grant = page.grant;
+            const aad = textEncoder.encode(
+                `["${ck.version}",["${keyPair.publicKey}","${sealed.publicKey}","${proof}"],${page.pageIndex},"${page.storageKey}","${grant.imageId || ""}",${grant.issuedAt},${grant.expiresAt},"${grant.nonce || ""}","${grant.signature || ""}"]`,
+            );
+            const plain = await aesGcmDecrypt(
+                pageKey,
+                decodeBase64Url(ck.iv),
+                aad,
+                decodeBase64Url(ck.ciphertext),
+            );
+            return JSON.parse(new TextDecoder().decode(plain));
+        } finally {
+            pageKey.fill(0);
+        }
+    };
+    const openSealedPages = async (keyPair, sealed, proof) => {
+        if (!sealed || sealed.version !== "imgx-reader-channel-v1") {
+            throw new Error("IMGX sealed page channel invalid");
+        }
+        const shared = await deriveSharedSecret(keyPair.privateKey, sealed.publicKey);
+        try {
+            const channelKey = await deriveChannelKey(shared, proof);
+            const plain = await aesGcmDecrypt(
+                channelKey,
+                decodeBase64Url(sealed.iv),
+                channelAad(keyPair.publicKey, sealed.publicKey, proof),
+                decodeBase64Url(sealed.ciphertext),
+            );
+            const pages = JSON.parse(new TextDecoder().decode(plain));
+            const opened = [];
+            for (const page of pages) {
+                const grant = page.grant;
+                const ck = grant && grant.channelKeys;
+                if (!ck) {
+                    opened.push(page);
+                    continue;
+                }
+                const decrypted = await openChannelKeys(keyPair, sealed, shared, proof, page, ck);
+                opened.push({
+                    ...page,
+                    grant: {
+                        version: grant.version,
+                        algorithm: grant.algorithm,
+                        imageId: grant.imageId,
+                        issuedAt: grant.issuedAt,
+                        expiresAt: grant.expiresAt,
+                        nonce: grant.nonce,
+                        keyNonce: grant.keyNonce,
+                        signature: grant.signature,
+                        wrappedDecodeKey: decrypted.wrappedDecodeKey || grant.wrappedDecodeKey,
+                        wrappedContentKey: decrypted.wrappedContentKey || grant.wrappedContentKey,
+                        wrappedV4Key: decrypted.wrappedV4Key || grant.wrappedV4Key,
+                        decodeKey: decrypted.decodeKey || grant.decodeKey,
+                    },
+                });
+            }
+            return opened;
+        } finally {
+            shared.fill(0);
+        }
+    };
+    const fetchAllGrants = async (rootEl, pageIndexes) => {
+        const config = parseBootstrapConfig(rootEl);
+        post({
+            type: "log",
+            message: `bootstrap=${config.bootstrapUrl} path=${config.requestPath} chapterId=${config.chapterId} pages=${pageIndexes.length}`,
+        });
+        if (!config.bootstrapUrl) {
+            throw new Error("IMGX bootstrapUrl missing");
+        }
+        const keyPair = await generateEcdh();
+        const bootstrapProof = encodeBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+        const bootstrapResponse = await fetch(config.bootstrapUrl, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin",
+            },
+            body: JSON.stringify({
+                readerPublicKey: keyPair.publicKey,
+                bootstrapProof,
+                initialPageIndexes: config.initialIndexes,
+            }),
+        });
+        const bootstrapText = await bootstrapResponse.text();
+        post({ type: "log", message: `bootstrap HTTP ${bootstrapResponse.status} body=${bootstrapText.slice(0, 240)}` });
+        if (!bootstrapResponse.ok) {
+            throw new Error(`IMGX bootstrap failed: HTTP ${bootstrapResponse.status}`);
+        }
+        const bootstrap = JSON.parse(bootstrapText);
+        if (!bootstrap.ok || !bootstrap.sealedCapability) {
+            throw new Error(`IMGX bootstrap failed: ${bootstrap.code || "unknown"}`);
+        }
+        const sharedCap = await deriveSharedSecret(keyPair.privateKey, bootstrap.sealedCapability.publicKey);
+        let capability;
+        try {
+            const capKey = await deriveChannelKey(sharedCap, bootstrapProof);
+            const capPlain = await aesGcmDecrypt(
+                capKey,
+                decodeBase64Url(bootstrap.sealedCapability.iv),
+                channelAad(keyPair.publicKey, bootstrap.sealedCapability.publicKey, bootstrapProof),
+                decodeBase64Url(bootstrap.sealedCapability.ciphertext),
+            );
+            const capList = JSON.parse(new TextDecoder().decode(capPlain));
+            capability = Array.isArray(capList) ? capList[0] : capList;
+        } finally {
+            sharedCap.fill(0);
+        }
+        if (!capability || capability.readerInstanceId !== bootstrap.readerInstanceId) {
+            throw new Error("IMGX reader instance mismatch");
+        }
+
+        const granted = new Map();
+        if (bootstrap.sealedInitialPages) {
+            const initialPages = await openSealedPages(keyPair, bootstrap.sealedInitialPages, bootstrapProof);
+            for (const page of initialPages) granted.set(Number(page.pageIndex), page);
+        }
+
+        const remaining = pageIndexes.filter((index) => !granted.has(index));
+        let sequence = 0;
+        const hash = await publicKeyHash(keyPair.publicKey);
+        for (let offset = 0; offset < remaining.length; offset += 10) {
+            const batch = remaining.slice(offset, offset + 10);
+            sequence += 1;
+            const material = buildProofMaterial(
+                config,
+                capability.readerInstanceId,
+                batch,
+                bootstrap.serverTime,
+                sequence,
+                hash,
+            );
+            const signature = encodeBase64Url(await hmacSha256(decodeBase64Url(capability.secret), material));
+            const accessResponse = await fetch(config.requestPath, {
+                method: "POST",
+                credentials: "include",
+                headers: {
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "Sec-Fetch-Dest": "empty",
+                    "Sec-Fetch-Mode": "cors",
+                    "Sec-Fetch-Site": "same-origin",
+                },
+                body: JSON.stringify({
+                    pageIndexes: batch,
+                    pageAccessProof: {
+                        version: "imgx-page-access-proof-v3",
+                        readerInstanceId: capability.readerInstanceId,
+                        issuedAt: bootstrap.serverTime,
+                        sequence,
+                        proof: signature,
+                    },
+                    readerPublicKey: keyPair.publicKey,
+                }),
+            });
+            const accessText = await accessResponse.text();
+            post({ type: "log", message: `page-access indexes=${batch.join(",")} HTTP ${accessResponse.status}` });
+            if (!accessResponse.ok) {
+                throw new Error(`IMGX page-access failed: HTTP ${accessResponse.status}`);
+            }
+            const access = JSON.parse(accessText);
+            if (!access.ok || !access.sealedPages) {
+                throw new Error(`IMGX page access failed: ${access.code || "unknown"}`);
+            }
+            const opened = await openSealedPages(keyPair, access.sealedPages, signature);
+            for (const page of opened) granted.set(Number(page.pageIndex), page);
+        }
+
+        return pageIndexes.map((index) => granted.get(index)).filter(Boolean);
+    };
+
     try {
         const root = await waitFor(() => document.querySelector("[data-reader-lazy-pages]"));
         if (!root) throw new Error("IMGX reader metadata missing");
@@ -278,60 +565,29 @@
             .map((page) => Number(typeof page === "number" ? page : page.pageIndex))
             .filter(Number.isSafeInteger);
 
-        const runtimeHost = await waitFor(() => globalThis.__IMGX_RUNTIME__);
-        const runtime = runtimeHost
-            ? (typeof runtimeHost.take === "function" ? runtimeHost.take() : runtimeHost)
-            : null;
         const pages = new Map();
 
-        const openGrants = async (indexes) => {
-            if (!indexes.length) return [];
-            if (typeof runtime?.requestPageAccess === "function") {
-                return runtime.requestPageAccess(indexes);
-            }
-            const accessUrl = root.getAttribute("data-reader-imgx-access-url");
-            if (!accessUrl) {
-                throw new Error("IMGX reader runtime locked: requestPageAccess unavailable");
-            }
-            const response = await fetch(accessUrl, {
-                method: "POST",
-                credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ pageIndexes: indexes }),
-            });
-            const bodyText = await response.text();
-            post({ type: "log", message: `page-access HTTP ${response.status} body=${bodyText.slice(0, 400)}` });
-            if (!response.ok) {
-                throw new Error(`IMGX page-access failed: HTTP ${response.status}`);
-            }
-            const payload = JSON.parse(bodyText);
-            const granted = Array.isArray(payload)
-                ? payload
-                : (payload?.pages || payload?.sealedPages || payload?.data || []);
-            if (!Array.isArray(granted)) {
-                throw new Error("IMGX page-access returned no grants");
-            }
-            return granted;
-        };
-
-        if (initialIndexes.length) {
-            await openGrants(initialIndexes);
+        const grantedList = await fetchAllGrants(root, pageIndexes);
+        post({ type: "log", message: `grants=${grantedList.length} media=${media.length}` });
+        if (!grantedList.length) {
+            throw new Error("IMGX grants missing after page-access");
         }
-        for (let offset = 0; offset < pageIndexes.length; offset += 10) {
-            const indexes = pageIndexes.slice(offset, offset + 10);
-            const batch = await openGrants(indexes);
-            batch.forEach((page) => {
-                const expected = media.find((entry) => Number(entry.pageIndex) === Number(page.pageIndex));
-                if (!expected || page.storageKey !== expected.storageKey) {
-                    throw new Error([
-                        "IMGX grant mismatch",
-                        `pageIndex=${page.pageIndex}`,
-                        `expected=${expected?.storageKey || "missing"}`,
-                        `actual=${page.storageKey || "missing"}`,
-                    ].join("; "));
-                }
-                pages.set(Number(page.pageIndex), page);
-            });
+        grantedList.forEach((page) => {
+            const expected = media.find((entry) => Number(entry.pageIndex) === Number(page.pageIndex));
+            if (expected && page.storageKey && expected.storageKey && page.storageKey !== expected.storageKey) {
+                throw new Error([
+                    "IMGX grant mismatch",
+                    `pageIndex=${page.pageIndex}`,
+                    `expected=${expected.storageKey}`,
+                    `actual=${page.storageKey}`,
+                ].join("; "));
+            }
+            pages.set(Number(page.pageIndex), page);
+        });
+        for (const index of pageIndexes) {
+            if (!pages.has(index)) {
+                throw new Error(`IMGX grant missing for pageIndex=${index}`);
+            }
         }
 
         let decodeImgxV4 = null;
