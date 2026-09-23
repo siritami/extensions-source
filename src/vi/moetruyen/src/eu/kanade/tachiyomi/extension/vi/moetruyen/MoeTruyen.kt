@@ -355,7 +355,7 @@ abstract class MoeTruyen : KeiSource() {
             runWebView<Unit>(timeout = 60.seconds) {
                 interceptRequest { request ->
                     val path = request.url.encodedPath
-                    if (!path.endsWith("imgx-worker.js")) {
+                    if (path?.endsWith("imgx-worker.js") != true) {
                         return@interceptRequest null
                     }
                     Log.d(TAG, "imgx intercept worker.js url=${request.url}")
