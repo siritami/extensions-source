@@ -21,19 +21,39 @@
                                             type: "page",
                                             pageIndex: Number(data.pageIndex),
                                             mime: "image/webp",
+                                            width,
+                                            height,
                                             buffer,
                                         },
                                         [buffer],
                                     );
                                 })
-                                .catch(() => {});
+                                .catch((error) => {
+                                    channel.postMessage({
+                                        type: "copy-error",
+                                        message: String(error && error.message ? error.message : error),
+                                    });
+                                });
                         }
+                    } else {
+                        channel.postMessage({
+                            type: "copy-error",
+                            message: `empty bitmap index=${data.pageIndex} ${width}x${height}`,
+                        });
                     }
                 }
-            } catch (_) {
+            } catch (error) {
+                try {
+                    channel.postMessage({
+                        type: "copy-error",
+                        message: String(error && error.message ? error.message : error),
+                    });
+                } catch (_) {
+                }
             }
             return origPost(data, transfer);
         };
+        channel.postMessage({ type: "ready" });
     } catch (_) {
     }
 })();
