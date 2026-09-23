@@ -337,6 +337,11 @@ abstract class MoeTruyen : KeiSource() {
                 Log.e(TAG, "fetchImgxPages abort: imgx-v4-reader.js not found")
                 throw IllegalStateException("imgx-v4-reader.js not found")
             }
+        val workerPatch = javaClass.getResource("/assets/imgx-worker-patch.js")?.readText()
+            ?: run {
+                Log.e(TAG, "fetchImgxPages abort: imgx-worker-patch.js not found")
+                throw IllegalStateException("imgx-worker-patch.js not found")
+            }
         val pool = ('a'..'z') + ('A'..'Z')
         val bridgeName = (1..(10..20).random())
             .map { pool.random() }
@@ -344,20 +349,16 @@ abstract class MoeTruyen : KeiSource() {
         val webViewScript = script.replace("__IMGX_BRIDGE__", bridgeName)
         val pages = arrayOfNulls<ByteArray>(pageCount)
         val mimeTypes = arrayOfNulls<String>(pageCount)
-        val chapterPath = chapterUrl.substringBefore('#').substringBefore('?')
-        Log.d(TAG, "fetchImgxPages bridge=$bridgeName scriptBytes=${script.length}")
+        Log.d(TAG, "fetchImgxPages bridge=$bridgeName scriptBytes=${script.length} patchBytes=${workerPatch.length}")
 
         try {
             runWebView<Unit>(timeout = 60.seconds) {
                 interceptRequest { request ->
-                    if (!request.isForMainFrame || !request.method.equals("GET", ignoreCase = true)) {
+                    val path = request.url.encodedPath
+                    if (!path.endsWith("imgx-worker.js")) {
                         return@interceptRequest null
                     }
-                    val requestUrl = request.url.toString().substringBefore('#').substringBefore('?')
-                    if (requestUrl != chapterPath) {
-                        return@interceptRequest null
-                    }
-                    Log.d(TAG, "imgx intercept document for doc-start inject url=$requestUrl")
+                    Log.d(TAG, "imgx intercept worker.js url=${request.url}")
                     try {
                         val upstream = Request.Builder()
                             .url(request.url.toString())
@@ -367,22 +368,20 @@ abstract class MoeTruyen : KeiSource() {
                             .build()
                         client.newCall(upstream).execute().use { response ->
                             if (!response.isSuccessful) {
-                                Log.e(TAG, "imgx intercept upstream HTTP ${response.code}")
+                                Log.e(TAG, "imgx worker.js upstream HTTP ${response.code}")
                                 return@interceptRequest null
                             }
-                            val html = response.body.string()
-                            val nonce = nonceRegex.find(html)?.groupValues?.get(1)
-                            val tag = if (nonce.isNullOrBlank()) {
-                                "<script>$webViewScript</script>"
-                            } else {
-                                "<script nonce=\"$nonce\">$webViewScript</script>"
-                            }
-                            val patched = injectScriptIntoHtml(html, tag)
-                            Log.d(TAG, "imgx intercept patched html bytes=${patched.length} nonce=$nonce")
-                            WebResourceResponse("text/html", "UTF-8", patched.byteInputStream())
+                            val body = response.body.string()
+                            val patched = workerPatch + "\n" + body
+                            Log.d(TAG, "imgx worker.js patched bytes=${patched.length} (orig=${body.length})")
+                            WebResourceResponse(
+                                "application/javascript",
+                                "UTF-8",
+                                patched.byteInputStream(),
+                            )
                         }
                     } catch (error: Exception) {
-                        Log.e(TAG, "imgx intercept failed: ${error.message}", error)
+                        Log.e(TAG, "imgx worker.js intercept failed: ${error.message}", error)
                         null
                     }
                 }
@@ -435,6 +434,10 @@ abstract class MoeTruyen : KeiSource() {
                 }
                 onPageStarted { url ->
                     Log.d(TAG, "imgx WebView onPageStarted url=$url")
+                    if (url.startsWith(chapterUrl)) {
+                        Log.d(TAG, "imgx evaluateJs collector inject bridge=$bridgeName")
+                        evaluateJs(webViewScript)
+                    }
                 }
                 loadUrl(chapterUrl)
             }
@@ -458,21 +461,6 @@ abstract class MoeTruyen : KeiSource() {
     }
 
     private fun imgxPageUrl(chapterUrl: String, index: Int): String = "$chapterUrl#imgx-page-$index"
-
-    private fun injectScriptIntoHtml(html: String, scriptTag: String): String = when {
-        html.contains("<head>") -> html.replaceFirst("<head>", "<head>$scriptTag")
-        html.contains("<HEAD>") -> html.replaceFirst("<HEAD>", "<HEAD>$scriptTag")
-        html.contains("<html") -> {
-            val htmlTag = html.indexOf("<html")
-            val tagEnd = html.indexOf('>', htmlTag)
-            if (tagEnd == -1) {
-                scriptTag + html
-            } else {
-                html.substring(0, tagEnd + 1) + scriptTag + html.substring(tagEnd + 1)
-            }
-        }
-        else -> scriptTag + html
-    }
 
     private fun webViewImageInterceptor() = Interceptor { chain ->
         val request = chain.request()
@@ -546,7 +534,6 @@ abstract class MoeTruyen : KeiSource() {
     private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val numberRegex = Regex("""\d+""")
-    private val nonceRegex = Regex("""\bnonce=["']([^"']+)["']""")
 
     private companion object {
         const val TAG = "MoeTruyen"
