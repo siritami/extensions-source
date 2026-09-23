@@ -19,6 +19,8 @@
     const captured = new Map();
     let workerHooked = false;
     let workerSawMessage = false;
+    let pageReadyCount = 0;
+    let pageReadyWithBitmap = 0;
     let pageCountSeen = 0;
 
     const encodeBitmap = (bitmap) => {
@@ -36,16 +38,50 @@
     };
 
     const captureBitmap = (index, bitmap) => {
-        if (!bitmap || !(bitmap.width > 0) || !(bitmap.height > 0)) return;
         if (!Number.isSafeInteger(index) || index < 0) return;
         if (captured.has(index)) return;
+        if (!bitmap) {
+            log(`capture skip index=${index} bitmap=null`, "e");
+            return;
+        }
+        const width = Number(bitmap.width || 0);
+        const height = Number(bitmap.height || 0);
+        if (!(width > 0) || !(height > 0)) {
+            log(`capture skip index=${index} empty bitmap ${width}x${height} ctor=${bitmap?.constructor?.name}`, "e");
+            return;
+        }
         try {
             const encoded = encodeBitmap(bitmap);
             captured.set(index, encoded);
-            log(`captured page index=${index} ${bitmap.width}x${bitmap.height} mime=${encoded.mime}`);
+            log(`captured page index=${index} ${width}x${height} mime=${encoded.mime}`, "e");
             post({ type: "page", index, data: encoded.data, mime: encoded.mime });
         } catch (error) {
             log(`capture fail index=${index} err=${error?.message || error}`, "e");
+        }
+    };
+
+    const onWorkerData = (data) => {
+        workerSawMessage = true;
+        if (!data || typeof data !== "object") return;
+        const type = data.type;
+        if (type === "PAGE_READY") {
+            pageReadyCount += 1;
+            const hasBitmap = !!data.bitmap;
+            const bw = hasBitmap ? Number(data.bitmap.width || 0) : 0;
+            const bh = hasBitmap ? Number(data.bitmap.height || 0) : 0;
+            if (hasBitmap) pageReadyWithBitmap += 1;
+            log(
+                `PAGE_READY idx=${data.pageIndex} hasBitmap=${hasBitmap} ${bw}x${bh} ` +
+                `keys=${Object.keys(data).join(",")} counts=${pageReadyWithBitmap}/${pageReadyCount}`,
+                "e",
+            );
+            if (hasBitmap) {
+                captureBitmap(Number(data.pageIndex), data.bitmap);
+            }
+            return;
+        }
+        if (type === "PAGE_ERROR" || type === "ERROR") {
+            log(`worker ${type} idx=${data.pageIndex} msg=${data.message || ""} code=${data.code || ""}`, "e");
         }
     };
 
@@ -59,23 +95,43 @@
                 "message",
                 (event) => {
                     try {
-                        const data = event.data;
-                        workerSawMessage = true;
-                        if (data && data.type === "PAGE_READY") {
-                            log(
-                                `PAGE_READY index=${data.pageIndex} hasBitmap=${!!data.bitmap} ` +
-                                `${data.bitmap ? data.bitmap.width + "x" + data.bitmap.height : ""}`,
-                            );
-                            if (data.bitmap) {
-                                captureBitmap(Number(data.pageIndex), data.bitmap);
-                            }
-                        }
+                        onWorkerData(event.data);
                     } catch (error) {
-                        log(`worker message err=${error?.message || error}`, "e");
+                        log(`worker listener err=${error?.message || error}`, "e");
                     }
                 },
                 true,
             );
+            // Android WebView sometimes only surfaces worker messages via onmessage.
+            let priorOnMessage = null;
+            try {
+                const protoDesc = Object.getOwnPropertyDescriptor(NativeWorker.prototype, "onmessage");
+                Object.defineProperty(worker, "onmessage", {
+                    configurable: true,
+                    enumerable: true,
+                    get() {
+                        return priorOnMessage;
+                    },
+                    set(fn) {
+                        priorOnMessage = fn;
+                        const wrapped = function (event) {
+                            try {
+                                onWorkerData(event && event.data);
+                            } catch (error) {
+                                log(`worker onmessage err=${error?.message || error}`, "e");
+                            }
+                            if (typeof fn === "function") {
+                                return fn.apply(this, arguments);
+                            }
+                        };
+                        if (protoDesc && typeof protoDesc.set === "function") {
+                            protoDesc.set.call(worker, wrapped);
+                        }
+                    },
+                });
+            } catch (error) {
+                log(`onmessage wrap failed: ${error?.message || error}`, "e");
+            }
             return worker;
         }
         HookedWorker.prototype = NativeWorker.prototype;
@@ -102,7 +158,7 @@
                 }
                 await new Promise((resolve) => setTimeout(resolve, 40));
             }
-            log(`wait timeout: ${label}`, "e");
+            log(`wait timeout: ${label} captured=${captured.size} sawMsg=${workerSawMessage}`, "e");
             return null;
         };
 
@@ -150,51 +206,53 @@
                 throw new Error("IMGX page count missing");
             }
 
-            // Collect passively first — the site renders cover/visible pages on its own.
             await waitFor(
-                () => captured.size > 0 || document.querySelector(".page-protected-shell.is-loaded"),
-                12000,
+                () => captured.size > 0 || workerSawMessage || document.querySelector(".page-protected-shell.is-loaded"),
+                15000,
                 "site first paint / first bitmap",
             );
-            log(`after passive wait captured=${captured.size} workerSawMessage=${workerSawMessage}`);
+            log(
+                `after passive wait captured=${captured.size} workerSawMessage=${workerSawMessage} ` +
+                `pageReady=${pageReadyWithBitmap}/${pageReadyCount}`,
+                "e",
+            );
 
-            // Request only missing pages. renderPage errors are non-fatal.
+            if (!workerSawMessage) {
+                throw new Error("IMGX Worker hook never saw messages");
+            }
+
             for (let index = 0; index < pageCountSeen; index++) {
                 if (captured.has(index)) continue;
                 try {
                     if (typeof runtime.releasePage === "function") {
                         runtime.releasePage(index);
                     }
-                    log(`renderPage request index=${index}`);
                     await runtime.renderPage(index);
-                    log(`renderPage done index=${index} captured=${captured.has(index)}`);
                 } catch (error) {
-                    // Site often returns "IMGX image preparation failed" while still
-                    // delivering PAGE_READY shortly after — do not abort.
-                    log(`renderPage fail index=${index} err=${error?.message || error} (keep waiting)`);
+                    log(`renderPage fail index=${index} err=${error?.message || error}`);
                 }
                 if (!captured.has(index)) {
-                    await waitFor(() => captured.has(index), 2500, `bitmap index=${index}`);
+                    await waitFor(() => captured.has(index), 2000, `bitmap index=${index}`);
+                }
+                if (captured.size > 0 && pageReadyCount > 10 && pageReadyWithBitmap === 0) {
+                    throw new Error("IMGX PAGE_READY never includes bitmaps (transfer broken?)");
                 }
             }
 
-            // Final short wait for late PAGE_READY deliveries.
-            await waitFor(
-                () => captured.size >= pageCountSeen,
-                5000,
-                "remaining bitmaps",
-            );
+            await waitFor(() => captured.size >= pageCountSeen, 4000, "remaining bitmaps");
 
             const missing = [];
             for (let index = 0; index < pageCountSeen; index++) {
                 if (!captured.has(index)) missing.push(index);
             }
-            log(`finished captured=${captured.size}/${pageCountSeen} missing=${JSON.stringify(missing)} workerSawMessage=${workerSawMessage}`);
+            log(
+                `finished captured=${captured.size}/${pageCountSeen} missing=${JSON.stringify(missing)} ` +
+                `pageReadyWithBitmap=${pageReadyWithBitmap}/${pageReadyCount} sawMsg=${workerSawMessage}`,
+                "e",
+            );
             if (captured.size === 0) {
                 throw new Error(
-                    workerSawMessage
-                        ? "IMGX captured 0 pages (PAGE_READY arrived without usable bitmaps)"
-                        : "IMGX captured 0 pages (Worker hook never saw messages)",
+                    `IMGX captured 0 pages (PAGE_READY=${pageReadyWithBitmap}/${pageReadyCount}, sawMsg=${workerSawMessage})`,
                 );
             }
             if (missing.length > 0) {
