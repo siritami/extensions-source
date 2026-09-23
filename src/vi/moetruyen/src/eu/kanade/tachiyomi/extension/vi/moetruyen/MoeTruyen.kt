@@ -376,11 +376,15 @@ abstract class MoeTruyen : KeiSource() {
                             val stack = payload["stack"]?.jsonPrimitive?.content.orEmpty()
                             val stage = payload["stage"]?.jsonPrimitive?.content.orEmpty()
                             Log.e(TAG, "imgx error stage=$stage message=$text stack=$stack")
-                            reject(Exception(buildString {
-                                append(text)
-                                if (stage.isNotBlank()) append(" | stage=").append(stage)
-                                if (stack.isNotBlank()) append(" | ").append(stack)
-                            }))
+                            reject(
+                                Exception(
+                                    buildString {
+                                        append(text)
+                                        if (stage.isNotBlank()) append(" | stage=").append(stage)
+                                        if (stack.isNotBlank()) append(" | ").append(stack)
+                                    },
+                                ),
+                            )
                         }
                         else -> Log.e(TAG, "imgx unknown bridge type=$type payload=$message")
                     }
