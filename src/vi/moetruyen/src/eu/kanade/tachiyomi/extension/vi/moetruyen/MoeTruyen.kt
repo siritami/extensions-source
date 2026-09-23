@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.moetruyen
 
 import android.util.Base64
-import android.util.Log
 import android.webkit.WebResourceResponse
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -284,25 +283,17 @@ abstract class MoeTruyen : KeiSource() {
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val chapterUrl = "$baseUrl${chapter.url}"
-        Log.d(TAG, "getPageList start url=$chapterUrl")
         val document = client.get(chapterUrl).asJsoup()
         val allImages = readerImages(document)
         val readerPages = document.selectFirst("[data-reader-lazy-pages]")
-        val accessUrl = readerPages?.attr("data-reader-imgx-access-url").orEmpty()
-        val totalPagesAttr = readerPages?.attr("data-reader-total-pages").orEmpty()
-        Log.d(
-            TAG,
-            "getPageList parsed images=${allImages.size} readerPages=${readerPages != null} " +
-                "accessUrl=${accessUrl.ifBlank { "<none>" }} totalPagesAttr=${totalPagesAttr.ifBlank { "<none>" }}",
-        )
 
         if (readerPages != null && isImgxProtected(readerPages)) {
-            val pageCount = totalPagesAttr.toIntOrNull() ?: allImages.size
-            Log.d(TAG, "getPageList IMGX protected pageCount=$pageCount")
+            val pageCount = readerPages.attr("data-reader-total-pages").toIntOrNull()
+                ?: allImages.size
             return fetchImgxPages(chapterUrl, pageCount)
         }
 
-        val pages = allImages
+        return allImages
             .asSequence()
             .map { element ->
                 element.absUrl("data-src").ifEmpty { element.absUrl("src") }
@@ -315,33 +306,19 @@ abstract class MoeTruyen : KeiSource() {
             .mapIndexed { index, imageUrl ->
                 Page(index, imageUrl = imageUrl)
             }
-        Log.d(TAG, "getPageList plain pages=${pages.size}")
-        return pages
     }
 
     private fun isImgxProtected(readerPages: Element): Boolean {
-        val protected = readerPages.attr("data-reader-imgx-access-url").isNotBlank()
-        Log.d(TAG, "isImgxProtected=$protected")
-        return protected
+        return readerPages.attr("data-reader-imgx-access-url").isNotBlank()
     }
 
     private suspend fun fetchImgxPages(chapterUrl: String, pageCount: Int): List<Page> {
-        Log.d(TAG, "fetchImgxPages start chapterUrl=$chapterUrl pageCount=$pageCount")
-        if (pageCount <= 0) {
-            Log.e(TAG, "fetchImgxPages abort: pageCount<=0")
-            return emptyList()
-        }
+        if (pageCount <= 0) return emptyList()
 
         val script = javaClass.getResource("/assets/imgx-v4-reader.js")?.readText()
-            ?: run {
-                Log.e(TAG, "fetchImgxPages abort: imgx-v4-reader.js not found")
-                throw IllegalStateException("imgx-v4-reader.js not found")
-            }
+            ?: throw IllegalStateException("imgx-v4-reader.js not found")
         val workerPatch = javaClass.getResource("/assets/imgx-worker-patch.js")?.readText()
-            ?: run {
-                Log.e(TAG, "fetchImgxPages abort: imgx-worker-patch.js not found")
-                throw IllegalStateException("imgx-worker-patch.js not found")
-            }
+            ?: throw IllegalStateException("imgx-worker-patch.js not found")
         val pool = ('a'..'z') + ('A'..'Z')
         val bridgeName = (1..(10..20).random())
             .map { pool.random() }
@@ -349,110 +326,64 @@ abstract class MoeTruyen : KeiSource() {
         val webViewScript = script.replace("__IMGX_BRIDGE__", bridgeName)
         val pages = arrayOfNulls<ByteArray>(pageCount)
         val mimeTypes = arrayOfNulls<String>(pageCount)
-        Log.d(TAG, "fetchImgxPages bridge=$bridgeName scriptBytes=${script.length} patchBytes=${workerPatch.length}")
 
-        try {
-            runWebView<Unit>(timeout = 60.seconds) {
-                interceptRequest { request ->
-                    val path = request.url.encodedPath
-                    if (path?.endsWith("imgx-worker.js") != true) {
-                        return@interceptRequest null
-                    }
-                    Log.d(TAG, "imgx intercept worker.js url=${request.url}")
-                    try {
-                        val upstream = Request.Builder()
-                            .url(request.url.toString())
-                            .apply {
-                                request.requestHeaders.forEach { (key, value) -> header(key, value) }
-                            }
-                            .build()
-                        client.newCall(upstream).execute().use { response ->
-                            if (!response.isSuccessful) {
-                                Log.e(TAG, "imgx worker.js upstream HTTP ${response.code}")
-                                return@interceptRequest null
-                            }
-                            val body = response.body.string()
-                            val patched = workerPatch + "\n" + body
-                            Log.d(TAG, "imgx worker.js patched bytes=${patched.length} (orig=${body.length})")
-                            WebResourceResponse(
-                                "application/javascript",
-                                "UTF-8",
-                                patched.byteInputStream(),
-                            )
-                        }
-                    } catch (error: Exception) {
-                        Log.e(TAG, "imgx worker.js intercept failed: ${error.message}", error)
-                        null
-                    }
+        runWebView<Unit>(timeout = 60.seconds) {
+            interceptRequest { request ->
+                val path = request.url.encodedPath
+                if (path?.endsWith("imgx-worker.js") != true) {
+                    return@interceptRequest null
                 }
-                jsBridge(bridgeName) { message ->
-                    val payload = message.parseAs<JsonObject>()
-                    when (val type = payload["type"]?.jsonPrimitive?.content) {
-                        "log" -> {
-                            val level = payload["level"]?.jsonPrimitive?.content ?: "d"
-                            val text = payload["message"]?.jsonPrimitive?.content.orEmpty()
-                            when (level) {
-                                "e" -> Log.e(TAG, "imgx-js: $text")
-                                "w" -> Log.w(TAG, "imgx-js: $text")
-                                else -> Log.d(TAG, "imgx-js: $text")
-                            }
+                try {
+                    val upstream = Request.Builder()
+                        .url(request.url.toString())
+                        .apply {
+                            request.requestHeaders.forEach { (key, value) -> header(key, value) }
                         }
-                        "page" -> {
-                            val index = payload["index"]!!.jsonPrimitive.int
-                            val data = payload["data"]!!.jsonPrimitive.content
-                            val mime = payload["mime"]?.jsonPrimitive?.content
-                            if (index in pages.indices) {
-                                val bytes = Base64.decode(data, Base64.DEFAULT)
-                                pages[index] = bytes
-                                mimeTypes[index] = mime
-                                Log.d(TAG, "imgx page received index=$index bytes=${bytes.size} mime=$mime")
-                            } else {
-                                Log.e(TAG, "imgx page out of range index=$index pageCount=$pageCount")
-                            }
+                        .build()
+                    client.newCall(upstream).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            return@interceptRequest null
                         }
-                        "done" -> {
-                            Log.d(TAG, "imgx done received")
-                            resolve(Unit)
-                        }
-                        "error" -> {
-                            val text = payload["message"]?.jsonPrimitive?.content ?: "IMGX reader failed"
-                            val stack = payload["stack"]?.jsonPrimitive?.content.orEmpty()
-                            val stage = payload["stage"]?.jsonPrimitive?.content.orEmpty()
-                            Log.e(TAG, "imgx error stage=$stage message=$text stack=$stack")
-                            reject(
-                                Exception(
-                                    buildString {
-                                        append(text)
-                                        if (stage.isNotBlank()) append(" | stage=").append(stage)
-                                        if (stack.isNotBlank()) append(" | ").append(stack)
-                                    },
-                                ),
-                            )
-                        }
-                        else -> Log.e(TAG, "imgx unknown bridge type=$type payload=$message")
+                        val patched = workerPatch + "\n" + response.body.string()
+                        WebResourceResponse(
+                            "application/javascript",
+                            "UTF-8",
+                            patched.byteInputStream(),
+                        )
                     }
+                } catch (_: Exception) {
+                    null
                 }
-                onPageStarted { url ->
-                    Log.d(TAG, "imgx WebView onPageStarted url=$url")
-                    if (url.startsWith(chapterUrl)) {
-                        Log.d(TAG, "imgx evaluateJs collector inject bridge=$bridgeName")
-                        evaluateJs(webViewScript)
-                    }
-                }
-                loadUrl(chapterUrl)
             }
-        } catch (error: Exception) {
-            Log.e(TAG, "fetchImgxPages runWebView failed: ${error.message}", error)
-            throw error
+            jsBridge(bridgeName) { message ->
+                val payload = message.parseAs<JsonObject>()
+                when (payload["type"]?.jsonPrimitive?.content) {
+                    "page" -> {
+                        val index = payload["index"]!!.jsonPrimitive.int
+                        val data = payload["data"]!!.jsonPrimitive.content
+                        val mime = payload["mime"]?.jsonPrimitive?.content
+                        if (index in pages.indices) {
+                            pages[index] = Base64.decode(data, Base64.DEFAULT)
+                            mimeTypes[index] = mime
+                        }
+                    }
+                    "done" -> resolve(Unit)
+                    "error" -> {
+                        val text = payload["message"]?.jsonPrimitive?.content ?: "IMGX reader failed"
+                        reject(Exception(text))
+                    }
+                }
+            }
+            onPageStarted { url ->
+                if (url.startsWith(chapterUrl)) {
+                    evaluateJs(webViewScript)
+                }
+            }
+            loadUrl(chapterUrl)
         }
 
-        val missing = pages.indices.filter { pages[it] == null }
-        Log.d(TAG, "fetchImgxPages finished received=${pages.count { it != null }}/$pageCount missing=$missing")
         return pages.mapIndexed { index, data ->
-            val bytes = data ?: run {
-                Log.e(TAG, "fetchImgxPages missing page index=$index")
-                throw IllegalStateException("IMGX page ${index + 1} missing")
-            }
+            val bytes = data ?: throw IllegalStateException("IMGX page ${index + 1} missing")
             val imageUrl = imgxPageUrl(chapterUrl, index)
             val mime = mimeTypes[index] ?: "image/png"
             webViewImages[imageUrl] = bytes to mime
@@ -534,8 +465,4 @@ abstract class MoeTruyen : KeiSource() {
     private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val numberRegex = Regex("""\d+""")
-
-    private companion object {
-        const val TAG = "MoeTruyen"
-    }
 }

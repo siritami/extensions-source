@@ -1,5 +1,4 @@
 (() => {
-    // Worker-side copy of decoded pages, without touching ImageBitmap.close or canvas extract hooks.
     try {
         const origPost = self.postMessage.bind(self);
         const channel = new BroadcastChannel("moe-imgx-pages");
@@ -22,34 +21,19 @@
                                             type: "page",
                                             pageIndex: Number(data.pageIndex),
                                             mime: "image/webp",
-                                            width,
-                                            height,
                                             buffer,
                                         },
                                         [buffer],
                                     );
                                 })
-                                .catch((error) => {
-                                    channel.postMessage({
-                                        type: "copy-error",
-                                        message: String(error && error.message ? error.message : error),
-                                    });
-                                });
+                                .catch(() => {});
                         }
                     }
                 }
-            } catch (error) {
-                try {
-                    channel.postMessage({
-                        type: "copy-error",
-                        message: String(error && error.message ? error.message : error),
-                    });
-                } catch (_) {
-                }
+            } catch (_) {
             }
             return origPost(data, transfer);
         };
-        channel.postMessage({ type: "ready" });
     } catch (_) {
     }
 })();
