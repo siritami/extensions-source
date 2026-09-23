@@ -392,7 +392,7 @@ abstract class MoeTruyen : KeiSource() {
                 onPageStarted { url ->
                     Log.d(TAG, "imgx WebView onPageStarted url=$url")
                     if (url.startsWith(chapterUrl)) {
-                        Log.d(TAG, "imgx evaluateJs inject bridge=$bridgeName")
+                        Log.d(TAG, "imgx evaluateJs inject bridge=$bridgeName (document-start hooks)")
                         evaluateJs(webViewScript)
                     }
                 }
