@@ -125,23 +125,43 @@
             );
             log(`after passive wait captured=${captured.size} copyErrors=${copyErrors}`, "e");
 
-            for (let index = 0; index < pageCount; index++) {
-                if (captured.has(index)) continue;
+            const windowSize = 10;
+            for (let start = 0; start < pageCount; start += windowSize) {
+                const end = Math.min(start + windowSize, pageCount);
+                const indexes = [];
+                for (let index = start; index < end; index++) {
+                    indexes.push(index);
+                }
+                const stillMissing = indexes.filter((index) => !captured.has(index));
+                if (stillMissing.length === 0) continue;
+
                 try {
-                    if (typeof runtime.releasePage === "function") {
-                        runtime.releasePage(index);
+                    if (typeof runtime.visibleRange === "function") {
+                        runtime.visibleRange(start, indexes, stillMissing.slice(0, 1));
+                        await new Promise((resolve) => setTimeout(resolve, 150));
                     }
-                    await runtime.renderPage(index);
                 } catch (error) {
-                    log(`renderPage fail index=${index} err=${error?.message || error}`);
+                    log(`visibleRange fail start=${start} err=${error?.message || error}`, "e");
                 }
-                if (!captured.has(index)) {
-                    await waitFor(() => captured.has(index), 2500, `bitmap index=${index}`);
-                }
-                if (captured.size === 0 && index >= 2) {
-                    throw new Error(
-                        `IMGX captured 0 pages (copyErrors=${copyErrors}, channelReady=${channelReady})`,
-                    );
+
+                for (const index of stillMissing) {
+                    if (captured.has(index)) continue;
+                    try {
+                        if (typeof runtime.preparePage === "function") {
+                            await runtime.preparePage(index, "visible");
+                        }
+                        await runtime.renderPage(index);
+                    } catch (error) {
+                        log(`renderPage fail index=${index} err=${error?.message || error}`, "e");
+                    }
+                    if (!captured.has(index)) {
+                        await waitFor(() => captured.has(index), 2500, `bitmap index=${index}`);
+                    }
+                    if (captured.size === 0 && index >= 2) {
+                        throw new Error(
+                            `IMGX captured 0 pages (copyErrors=${copyErrors}, channelReady=${channelReady})`,
+                        );
+                    }
                 }
             }
 
