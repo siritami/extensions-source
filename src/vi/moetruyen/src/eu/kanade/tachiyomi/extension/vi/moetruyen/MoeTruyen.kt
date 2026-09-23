@@ -392,7 +392,11 @@ abstract class MoeTruyen : KeiSource() {
                         "log" -> {
                             val level = payload["level"]?.jsonPrimitive?.content ?: "d"
                             val text = payload["message"]?.jsonPrimitive?.content.orEmpty()
-                            if (level == "e") Log.e(TAG, "imgx-js: $text") else Log.d(TAG, "imgx-js: $text")
+                            when (level) {
+                                "e" -> Log.e(TAG, "imgx-js: $text")
+                                "w" -> Log.w(TAG, "imgx-js: $text")
+                                else -> Log.d(TAG, "imgx-js: $text")
+                            }
                         }
                         "page" -> {
                             val index = payload["index"]!!.jsonPrimitive.int
