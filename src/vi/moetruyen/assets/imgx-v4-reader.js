@@ -125,7 +125,36 @@
             );
             log(`after passive wait captured=${captured.size} copyErrors=${copyErrors}`, "e");
 
-            const windowSize = 10;
+            const releasePage = (index) => {
+                try {
+                    if (typeof runtime.releasePage === "function") {
+                        runtime.releasePage(index);
+                    }
+                } catch (_) {
+                }
+            };
+            for (const index of captured.keys()) {
+                releasePage(index);
+            }
+
+            const windowSize = 6;
+            const renderOne = async (index) => {
+                if (captured.has(index)) return true;
+                try {
+                    if (typeof runtime.preparePage === "function") {
+                        await runtime.preparePage(index, "visible");
+                    }
+                    await runtime.renderPage(index);
+                } catch (error) {
+                    log(`renderPage fail index=${index} err=${error?.message || error}`, "e");
+                }
+                if (!captured.has(index)) {
+                    await waitFor(() => captured.has(index), 1500, `bitmap index=${index}`);
+                }
+                releasePage(index);
+                return captured.has(index);
+            };
+
             for (let start = 0; start < pageCount; start += windowSize) {
                 const end = Math.min(start + windowSize, pageCount);
                 const indexes = [];
@@ -145,23 +174,32 @@
                 }
 
                 for (const index of stillMissing) {
-                    if (captured.has(index)) continue;
-                    try {
-                        if (typeof runtime.preparePage === "function") {
-                            await runtime.preparePage(index, "visible");
-                        }
-                        await runtime.renderPage(index);
-                    } catch (error) {
-                        log(`renderPage fail index=${index} err=${error?.message || error}`, "e");
-                    }
-                    if (!captured.has(index)) {
-                        await waitFor(() => captured.has(index), 2500, `bitmap index=${index}`);
-                    }
+                    await renderOne(index);
                     if (captured.size === 0 && index >= 2) {
                         throw new Error(
                             `IMGX captured 0 pages (copyErrors=${copyErrors}, channelReady=${channelReady})`,
                         );
                     }
+                }
+            }
+
+            // Retry gaps (maxPreparedPages is only 6, so a window can drop tails).
+            for (let pass = 0; pass < 3; pass++) {
+                const missingNow = [];
+                for (let index = 0; index < pageCount; index++) {
+                    if (!captured.has(index)) missingNow.push(index);
+                }
+                if (missingNow.length === 0) break;
+                log(`retry pass=${pass + 1} missing=${JSON.stringify(missingNow)}`, "e");
+                for (const index of missingNow) {
+                    try {
+                        if (typeof runtime.visibleRange === "function") {
+                            runtime.visibleRange(index, [index], [index]);
+                            await new Promise((resolve) => setTimeout(resolve, 100));
+                        }
+                    } catch (_) {
+                    }
+                    await renderOne(index);
                 }
             }
 
