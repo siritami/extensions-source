@@ -307,9 +307,7 @@ abstract class MoeTruyen : KeiSource() {
             .toList()
     }
 
-    private fun isImgxProtected(readerPages: Element): Boolean {
-        return readerPages.attr("data-reader-imgx-access-url").isNotBlank()
-    }
+    private fun isImgxProtected(readerPages: Element): Boolean = readerPages.attr("data-reader-imgx-access-url").isNotBlank()
 
     private suspend fun fetchImgxPages(chapterUrl: String, pageCount: Int): List<Page> {
         if (pageCount <= 0) return emptyList()
