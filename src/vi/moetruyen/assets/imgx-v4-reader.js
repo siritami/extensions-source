@@ -137,13 +137,12 @@
                 releasePage(index);
             }
 
-            const windowSize = 6;
             const renderOne = async (index) => {
                 if (captured.has(index)) return true;
                 try {
                     if (typeof runtime.visibleRange === "function") {
                         runtime.visibleRange(index, [index], [index]);
-                        await new Promise((resolve) => setTimeout(resolve, 80));
+                        await new Promise((resolve) => setTimeout(resolve, 40));
                     }
                     if (typeof runtime.preparePage === "function") {
                         await runtime.preparePage(index, "visible");
@@ -159,35 +158,16 @@
                 return captured.has(index);
             };
 
-            for (let start = 0; start < pageCount; start += windowSize) {
-                const end = Math.min(start + windowSize, pageCount);
-                const indexes = [];
-                for (let index = start; index < end; index++) {
-                    indexes.push(index);
-                }
-                const stillMissing = indexes.filter((index) => !captured.has(index));
-                if (stillMissing.length === 0) continue;
-
-                try {
-                    if (typeof runtime.visibleRange === "function") {
-                        runtime.visibleRange(start, indexes, stillMissing);
-                        await new Promise((resolve) => setTimeout(resolve, 150));
-                    }
-                } catch (error) {
-                    log(`visibleRange fail start=${start} err=${error?.message || error}`, "e");
-                }
-
-                for (const index of stillMissing) {
-                    await renderOne(index);
-                    if (captured.size === 0 && index >= 2) {
-                        throw new Error(
-                            `IMGX captured 0 pages (copyErrors=${copyErrors}, channelReady=${channelReady})`,
-                        );
-                    }
+            for (let index = 0; index < pageCount; index++) {
+                await renderOne(index);
+                if (captured.size === 0 && index >= 2) {
+                    throw new Error(
+                        `IMGX captured 0 pages (copyErrors=${copyErrors}, channelReady=${channelReady})`,
+                    );
                 }
             }
 
-            // Retry gaps (maxPreparedPages is only 6, so a window can drop tails).
+            // Retry gaps (late PAGE_READY or a dropped prepare).
             for (let pass = 0; pass < 5; pass++) {
                 const missingNow = [];
                 for (let index = 0; index < pageCount; index++) {
