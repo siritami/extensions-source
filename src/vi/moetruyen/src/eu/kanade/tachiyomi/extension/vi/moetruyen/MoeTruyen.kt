@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.moetruyen
 
-import android.util.Base64
-import android.webkit.WebResourceResponse
+import android.util.Log
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -15,24 +14,20 @@ import keiyoushi.source.KeiSource
 import keiyoushi.utils.asJsoup
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.runWebView
 import keiyoushi.utils.toJsonElement
+import keiyoushi.utils.tryParseDate
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
-import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Collections
@@ -47,8 +42,14 @@ import kotlin.time.Duration.Companion.seconds
 @Source
 abstract class MoeTruyen : KeiSource() {
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
-        addInterceptor(webViewImageInterceptor())
+        addInterceptor(imgxInterceptor())
         rateLimit(3)
+    }
+
+    // Add only the headers the site checks beyond KeiSource defaults.
+    override fun Headers.Builder.configureHeaders(): Headers.Builder = apply {
+        set("Sec-Fetch-Dest", "document")
+        set("Sec-Fetch-Mode", "navigate")
     }
 
     // ============================== Popular ===============================
@@ -84,14 +85,10 @@ abstract class MoeTruyen : KeiSource() {
     private fun getFullListTitle(element: Element): String {
         val titleElement = element.selectFirst("h3")!!
         val titleAttr = titleElement.attr("title")
-        if (titleAttr.isNotEmpty()) {
-            return titleAttr
-        }
+        if (titleAttr.isNotEmpty()) return titleAttr
 
         val titleText = titleElement.text()
-        if (!titleText.endsWith("...")) {
-            return titleText
-        }
+        if (!titleText.endsWith("...")) return titleText
 
         val imageAlt = element.selectFirst("img")?.attr("alt")
             ?.removePrefix("Bìa ")
@@ -237,7 +234,20 @@ abstract class MoeTruyen : KeiSource() {
     private fun parseChapterList(document: Document): List<SChapter> = document.select("ul.chapter-list li.chapter a.chapter-link").map { element ->
         SChapter.create().apply {
             setUrlWithoutDomain(element.absUrl("href"))
-            name = element.selectFirst(".chapter-num")!!.text()
+
+            val chapterNum = element.selectFirst(".chapter-num")?.text()?.trim().orEmpty()
+            val chapterTitle = element.selectFirst(".chapter-title")?.text()?.trim().orEmpty()
+            // Site uses .chapter-lock-icon (comment icon) when a chapter needs a prior-chapter comment.
+            val isLocked = element.selectFirst(".chapter-lock-icon") != null ||
+                element.selectFirst("[title*='bình luận']") != null
+            name = buildString {
+                if (isLocked) append("🔒 ")
+                append(chapterNum)
+                if (chapterTitle.isNotBlank() && !chapterNum.contains(chapterTitle)) {
+                    if (chapterNum.isNotBlank()) append(" - ")
+                    append(chapterTitle)
+                }
+            }
 
             val chapterTime = element.selectFirst(".chapter-time")
             val relativeDate = chapterTime?.text()
@@ -247,7 +257,7 @@ abstract class MoeTruyen : KeiSource() {
                 ?.ifEmpty { null }
 
             date_upload = parseRelativeDate(relativeDate).takeIf { it != 0L }
-                ?: parseAbsoluteDate(absoluteDate)
+                ?: dateFormat.tryParseDate(absoluteDate, dateZone)
         }
     }
 
@@ -269,154 +279,145 @@ abstract class MoeTruyen : KeiSource() {
         return (Clock.System.now() - duration).toEpochMilliseconds()
     }
 
-    private fun parseAbsoluteDate(date: String?): Long {
-        if (date == null) return 0L
-        return runCatching {
-            LocalDate.parse(date, dateFormat)
-                .atStartOfDay(dateZone)
-                .toInstant()
-                .toEpochMilli()
-        }.getOrDefault(0L)
-    }
-
     // ============================== Pages =================================
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val chapterUrl = "$baseUrl${chapter.url}"
         val document = client.get(chapterUrl).asJsoup()
-        val allImages = readerImages(document)
         val readerPages = document.selectFirst("[data-reader-lazy-pages]")
+        val encryptedMedia = ImgxAccessClient.encryptedMedia(document)
 
-        if (readerPages != null && isImgxProtected(readerPages)) {
-            val pageCount = readerPages.attr("data-reader-total-pages").toIntOrNull()
-                ?: allImages.size
-            return fetchImgxPages(chapterUrl, pageCount)
+        // IMGX active but media JSON empty → site loads pages via access API only
+        val totalPages = readerPages?.attr("data-reader-total-pages")?.toIntOrNull() ?: 0
+        val accessUrl = readerPages?.attr("data-reader-imgx-access-url").orEmpty()
+        val isImgx = accessUrl.isNotBlank()
+        val plainUrls = plainPageUrls(document)
+        Log.e("MoeTruyen", "pages: url=$chapterUrl encrypted=${encryptedMedia.size} isImgx=$isImgx totalPages=$totalPages plain=${plainUrls.size}")
+
+        // Some chapters SSR real WebP URLs even when IMGX metadata is present.
+        // Access API then returns 400 "No pages requested" — prefer usable plain URLs.
+        val hasRealPlain = plainUrls.any { isRealPageUrl(it) }
+        val shouldTryImgx = isImgx && (
+            encryptedMedia.any { isRealPageUrl(it.storageKey) || isRealPageUrl(it.downloadUrl) } ||
+                (!hasRealPlain && totalPages > 0)
+            )
+
+        if (shouldTryImgx) {
+            try {
+                val access = ImgxAccessClient(client, baseUrl, chapterUrl, document)
+                val pages = access.fetchPages(encryptedMedia, totalPages)
+                    .filter { isRealPageUrl(it.storageKey) && isRealPageUrl(it.downloadUrl) }
+                Log.e("MoeTruyen", "pages: grants returned=${pages.size}")
+                if (pages.isNotEmpty()) {
+                    pages.forEach { page ->
+                        val grant = page.grant
+                            ?: throw IllegalStateException("IMGX grant missing page=${page.pageIndex + 1}")
+                        imgxGrants[page.downloadUrl] = grant to page.storageKey
+                    }
+                    return pages
+                        .sortedBy { it.pageIndex }
+                        .mapIndexed { index, page -> Page(index, imageUrl = page.downloadUrl) }
+                }
+            } catch (e: Exception) {
+                Log.e("MoeTruyen", "pages: imgx access failed url=$chapterUrl err=${e.message}")
+                if (!hasRealPlain) throw e
+            }
         }
 
-        return allImages
-            .asSequence()
-            .map { element ->
-                element.absUrl("data-src").ifEmpty { element.absUrl("src") }
-            }
-            .filter { imageUrl ->
-                imageUrl.isNotBlank() && !imageUrl.startsWith("data:")
-            }
+        val result = plainUrls
+            .filter { isRealPageUrl(it) }
             .distinct()
-            .toList()
-            .mapIndexed { index, imageUrl ->
-                Page(index, imageUrl = imageUrl)
-            }
+            .mapIndexed { index, imageUrl -> Page(index, imageUrl = imageUrl) }
+        Log.e("MoeTruyen", "pages: plain result=${result.size}")
+        if (result.isEmpty()) {
+            lockedChapterReason(document)?.let { throw IllegalStateException(it) }
+        }
+        return result
     }
 
-    private fun isImgxProtected(readerPages: Element): Boolean = readerPages.attr("data-reader-imgx-access-url").isNotBlank()
-
-    private suspend fun fetchImgxPages(chapterUrl: String, pageCount: Int): List<Page> {
-        if (pageCount <= 0) return emptyList()
-
-        val script = javaClass.getResource("/assets/imgx-v4-reader.js")?.readText()
-            ?: throw IllegalStateException("imgx-v4-reader.js not found")
-        val workerPatch = javaClass.getResource("/assets/imgx-worker-patch.js")?.readText()
-            ?: throw IllegalStateException("imgx-worker-patch.js not found")
-        val pool = ('a'..'z') + ('A'..'Z')
-        val bridgeName = (1..(10..20).random())
-            .map { pool.random() }
-            .joinToString("")
-        val webViewScript = script.replace("__IMGX_BRIDGE__", bridgeName)
-        val pages = arrayOfNulls<ByteArray>(pageCount)
-        val mimeTypes = arrayOfNulls<String>(pageCount)
-
-        runWebView<Unit>(timeout = 60.seconds) {
-            interceptRequest { request ->
-                val path = request.url.encodedPath
-                if (path?.endsWith("imgx-worker.js") != true) {
-                    return@interceptRequest null
-                }
-                try {
-                    val upstream = Request.Builder()
-                        .url(request.url.toString())
-                        .apply {
-                            request.requestHeaders.forEach { (key, value) -> header(key, value) }
-                        }
-                        .build()
-                    client.newCall(upstream).execute().use { response ->
-                        if (!response.isSuccessful) {
-                            return@interceptRequest null
-                        }
-                        val patched = workerPatch + "\n" + response.body.string()
-                        WebResourceResponse(
-                            "application/javascript",
-                            "UTF-8",
-                            patched.byteInputStream(),
-                        )
-                    }
-                } catch (_: Exception) {
-                    null
-                }
-            }
-            jsBridge(bridgeName) { message ->
-                val payload = message.parseAs<JsonObject>()
-                when (payload["type"]?.jsonPrimitive?.content) {
-                    "page" -> {
-                        val index = payload["index"]!!.jsonPrimitive.int
-                        val data = payload["data"]!!.jsonPrimitive.content
-                        val mime = payload["mime"]?.jsonPrimitive?.content
-                        if (index in pages.indices) {
-                            pages[index] = Base64.decode(data, Base64.DEFAULT)
-                            mimeTypes[index] = mime
-                        }
-                    }
-                    "done" -> resolve(Unit)
-                    "error" -> {
-                        val text = payload["message"]?.jsonPrimitive?.content ?: "IMGX reader failed"
-                        reject(Exception(text))
-                    }
-                }
-            }
-            onPageStarted { url ->
-                if (url.startsWith(chapterUrl)) {
-                    evaluateJs(webViewScript)
-                }
-            }
-            loadUrl(chapterUrl)
-        }
-
-        return pages.mapIndexed { index, data ->
-            val bytes = data ?: throw IllegalStateException("IMGX page ${index + 1} missing")
-            val imageUrl = imgxPageUrl(chapterUrl, index)
-            val mime = mimeTypes[index] ?: "image/png"
-            webViewImages[imageUrl] = bytes to mime
-            Page(index, imageUrl = imageUrl)
-        }
+    private fun isRealPageUrl(url: String?): Boolean {
+        if (url.isNullOrBlank()) return false
+        if (url.startsWith("data:")) return false
+        val path = url.substringBefore('?')
+        return !path.endsWith("/0.js") && !path.endsWith("/0.js/")
     }
 
-    private fun imgxPageUrl(chapterUrl: String, index: Int): String = "$chapterUrl#imgx-page-$index"
+    private fun plainPageUrls(document: Document): List<String> = readerImages(document)
+        .map { element -> element.absUrl("data-src").ifEmpty { element.absUrl("src") } }
+        .filter { it.isNotBlank() && !it.startsWith("data:") }
 
-    private fun webViewImageInterceptor() = Interceptor { chain ->
+    private fun lockedChapterReason(document: Document): String? {
+        val note = document.selectFirst(".reader-note")?.text()?.trim().orEmpty()
+        val bridge = document.selectFirst(".reader-chapter-bridge__title")?.text()?.trim().orEmpty()
+        val combined = listOf(note, bridge).filter { it.isNotBlank() }.joinToString(" — ")
+        if (combined.isBlank()) return null
+        if (listOf("bình luận", "tăng tương tác", "đăng nhập", "mở đọc", "mở chương", "trả phí", "VIP").none { combined.contains(it, ignoreCase = true) }) {
+            return null
+        }
+        return "Chapter locked on site: $combined"
+    }
+
+    private fun imgxInterceptor() = Interceptor { chain ->
         val request = chain.request()
-        val entry = webViewImages[request.url.toString()]
-        if (entry == null) return@Interceptor chain.proceed(request)
-
-        val (data, mime) = entry
+        val grantEntry = imgxGrants.remove(request.url.toString())
+            ?: return@Interceptor chain.proceed(request)
+        val (grant, storageKey) = grantEntry
+        val response = chain.proceed(request)
+        val encrypted = response.body.use { body ->
+            val source = body.source()
+            source.request(Long.MAX_VALUE)
+            source.buffer.readByteArray()
+        }
+        if (
+            encrypted.size <= 13 ||
+            encrypted[0] != 0x49.toByte() ||
+            encrypted[1] != 0x4D.toByte() ||
+            encrypted[2] != 0x47.toByte() ||
+            encrypted[3] != 0x58.toByte()
+        ) {
+            return@Interceptor response.newBuilder()
+                .body(encrypted.toResponseBody(response.body.contentType()))
+                .build()
+        }
+        val webp = try {
+            ImgxCrypto.decodeProtectedPage(encrypted, grant, storageKey)
+        } catch (e: Exception) {
+            Log.e("MoeTruyen", "imgx decode fail url=${request.url} err=${e.message}")
+            throw e
+        }
+        if (webp.size < 12 || webp[0] != 0x52.toByte() || webp[1] != 0x49.toByte()) {
+            Log.e("MoeTruyen", "imgx decode non-webp len=${webp.size} head=${webp.take(12).joinToString(" ") { "%02x".format(it) }}")
+        } else {
+            Log.e("MoeTruyen", "imgx decode ok len=${webp.size}")
+        }
         Response.Builder()
             .request(request)
             .protocol(Protocol.HTTP_1_1)
             .code(200)
             .message("OK")
-            .header("Content-Type", mime)
-            .header("Content-Length", data.size.toString())
+            .header("Content-Type", "image/webp")
+            .header("Content-Length", webp.size.toString())
             .header("Cache-Control", "no-store")
-            .body(data.toResponseBody(mime.toMediaType()))
+            .body(webp.toResponseBody("image/webp".toMediaType()))
             .build()
     }
 
-    private fun readerImages(document: Document): List<Element> = document.select("img.page-media")
-        .filterNot { element ->
+    private fun readerImages(document: Document): List<Element> {
+        val all = document.select("img.page-media")
+        val outsideNoscript = all.filterNot { element ->
             element.parents().any { parent -> parent.tagName().equals("noscript", ignoreCase = true) }
         }
+        Log.e("MoeTruyen", "pages: img.page-media total=${all.size} outsideNoscript=${outsideNoscript.size}")
+        if (outsideNoscript.isNotEmpty()) {
+            val first = outsideNoscript.first()
+            Log.e("MoeTruyen", "pages: first img attrs=${first.attributes().joinToString(" ") { "${it.key}=${it.value.take(80)}" }}")
+        }
+        return outsideNoscript
+    }
 
-    private val webViewImages = Collections.synchronizedMap(
-        object : LinkedHashMap<String, Pair<ByteArray, String>>(100, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<ByteArray, String>>?): Boolean = size > 100
+    private val imgxGrants = Collections.synchronizedMap(
+        object : LinkedHashMap<String, Pair<ImgxGrant, String>>(100, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<ImgxGrant, String>>?): Boolean = size > 100
         },
     )
 
