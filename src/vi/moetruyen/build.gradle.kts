@@ -6,7 +6,7 @@ plugins {
 
 keiyoushi {
     name = "MoeTruyen"
-    versionCode = 22
+    versionCode = 23
     contentWarning = ContentWarning.SAFE
     libVersion = "1.6"
 

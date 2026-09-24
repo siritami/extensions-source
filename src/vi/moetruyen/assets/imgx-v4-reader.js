@@ -141,6 +141,10 @@
             const renderOne = async (index) => {
                 if (captured.has(index)) return true;
                 try {
+                    if (typeof runtime.visibleRange === "function") {
+                        runtime.visibleRange(index, [index], [index]);
+                        await new Promise((resolve) => setTimeout(resolve, 80));
+                    }
                     if (typeof runtime.preparePage === "function") {
                         await runtime.preparePage(index, "visible");
                     }
@@ -149,7 +153,7 @@
                     log(`renderPage fail index=${index} err=${error?.message || error}`, "e");
                 }
                 if (!captured.has(index)) {
-                    await waitFor(() => captured.has(index), 1500, `bitmap index=${index}`);
+                    await waitFor(() => captured.has(index), 2500, `bitmap index=${index}`);
                 }
                 releasePage(index);
                 return captured.has(index);
@@ -166,7 +170,7 @@
 
                 try {
                     if (typeof runtime.visibleRange === "function") {
-                        runtime.visibleRange(start, indexes, stillMissing.slice(0, 1));
+                        runtime.visibleRange(start, indexes, stillMissing);
                         await new Promise((resolve) => setTimeout(resolve, 150));
                     }
                 } catch (error) {
@@ -184,7 +188,7 @@
             }
 
             // Retry gaps (maxPreparedPages is only 6, so a window can drop tails).
-            for (let pass = 0; pass < 3; pass++) {
+            for (let pass = 0; pass < 5; pass++) {
                 const missingNow = [];
                 for (let index = 0; index < pageCount; index++) {
                     if (!captured.has(index)) missingNow.push(index);
@@ -192,13 +196,7 @@
                 if (missingNow.length === 0) break;
                 log(`retry pass=${pass + 1} missing=${JSON.stringify(missingNow)}`, "e");
                 for (const index of missingNow) {
-                    try {
-                        if (typeof runtime.visibleRange === "function") {
-                            runtime.visibleRange(index, [index], [index]);
-                            await new Promise((resolve) => setTimeout(resolve, 100));
-                        }
-                    } catch (_) {
-                    }
+                    await new Promise((resolve) => setTimeout(resolve, 200));
                     await renderOne(index);
                 }
             }
