@@ -4,9 +4,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * XChaCha20-Poly1305 (IETF) for IMGX v4 profile p03.
- * Body: nonce(24) || ciphertext || tag(16).
- * libsodium crypto_aead_xchacha20poly1305_ietf_decrypt.
+ * XChaCha20 family for IMGX v4:
+ *  - p03: XChaCha20-Poly1305 IETF one-shot AEAD
+ *  - p05: libsodium crypto_secretstream_xchacha20poly1305
  */
 internal object XChaCha20Poly1305 {
 
@@ -50,17 +50,128 @@ internal object XChaCha20Poly1305 {
         return out
     }
 
+    /** p03 body: nonce(24) || ciphertext || tag(16). */
     fun decrypt(key: ByteArray, nonce: ByteArray, ciphertext: ByteArray, aad: ByteArray): ByteArray {
         require(key.size == 32) { "XChaCha20-Poly1305 key must be 32 bytes" }
         require(nonce.size == 24) { "XChaCha20-Poly1305 nonce must be 24 bytes" }
         val subkey = hchacha20(key, nonce.copyOfRange(0, 16))
         try {
-            // IETF nonce = 0^32 || nonce[16..24]
             val ietfNonce = ByteArray(12)
             nonce.copyInto(ietfNonce, 4, 16, 24)
             return ChaCha20Poly1305.decrypt(subkey, ietfNonce, ciphertext, aad)
         } finally {
             subkey.fill(0)
+        }
+    }
+
+    // ===================== p05: secretstream =====================
+
+    private const val TAG_MESSAGE = 0
+    private const val TAG_REKEY = 2
+    private const val TAG_FINAL = 3
+    private const val STREAM_AB = 17
+    private const val CHUNK = 262144
+
+    private class StreamState(var k: ByteArray, val inonce: ByteArray, var counter: Int)
+
+    private fun streamNonce(counter: Int, inonce: ByteArray): ByteArray {
+        val n = ByteArray(12)
+        n[0] = (counter and 0xFF).toByte()
+        n[1] = ((counter ushr 8) and 0xFF).toByte()
+        n[2] = ((counter ushr 16) and 0xFF).toByte()
+        n[3] = ((counter ushr 24) and 0xFF).toByte()
+        inonce.copyInto(n, 4)
+        return n
+    }
+
+    private fun chachaXorIc(key: ByteArray, nonce: ByteArray, input: ByteArray, ic: Int): ByteArray {
+        val out = ByteArray(input.size)
+        var off = 0
+        var ctr = ic
+        while (off < input.size) {
+            val block = ChaCha20Poly1305.chachaBlockPublic(key, ctr, nonce)
+            val n = minOf(64, input.size - off)
+            for (i in 0 until n) out[off + i] = (input[off + i].toInt() xor block[i].toInt()).toByte()
+            off += n
+            ctr++
+        }
+        return out
+    }
+
+    private fun streamRekey(st: StreamState) {
+        val buf = st.k + st.inonce
+        val n = streamNonce(st.counter, st.inonce)
+        val ks = chachaXorIc(st.k, n, buf, 0)
+        st.k = ks.copyOfRange(0, 32)
+        for (i in 0 until 8) st.inonce[i] = ks[32 + i]
+        st.counter = 1
+    }
+
+    private fun streamPull(st: StreamState, input: ByteArray, ad: ByteArray): Pair<ByteArray, Int> {
+        require(input.size >= STREAM_AB) { "secretstream chunk too short" }
+        val mlen = input.size - STREAM_AB
+        val nonce = streamNonce(st.counter, st.inonce)
+        val polyKey = chachaXorIc(st.k, nonce, ByteArray(64), 0).copyOfRange(0, 32)
+        try {
+            val adPad = pad16(ad.size).takeIf { it > 0 }?.let { ByteArray(it) } ?: ByteArray(0)
+            val block = ByteArray(64)
+            block[0] = input[0]
+            val encBlock = chachaXorIc(st.k, nonce, block, 1)
+            val tag = encBlock[0].toInt() and 0xFF
+            val authBlock = encBlock.copyOf()
+            authBlock[0] = input[0]
+            val c = input.copyOfRange(1, 1 + mlen)
+            val cPad = pad16(64 + mlen).takeIf { it > 0 }?.let { ByteArray(it) } ?: ByteArray(0)
+            val slen = ByteArray(16)
+            ByteBuffer.wrap(slen).order(ByteOrder.LITTLE_ENDIAN).apply {
+                putLong(0, ad.size.toLong())
+                putLong(8, 64L + mlen)
+            }
+            val expected = Xsalsa20Poly1305.poly1305Mac(polyKey, ad + adPad + authBlock + c + cPad + slen)
+            val stored = input.copyOfRange(1 + mlen, input.size)
+            var diff = 0
+            for (i in 0 until 16) diff = diff or (expected[i].toInt() xor stored[i].toInt())
+            require(diff == 0) { "IMGX v4 stream authentication failed" }
+
+            val message = chachaXorIc(st.k, nonce, c, 2)
+            for (i in 0 until 8) st.inonce[i] = (st.inonce[i].toInt() xor stored[i].toInt()).toByte()
+            st.counter++
+            if ((tag and TAG_REKEY) != 0 || st.counter == 0) streamRekey(st)
+            return message to tag
+        } finally {
+            polyKey.fill(0)
+        }
+    }
+
+    private fun pad16(n: Int): Int = (0x10 - n) and 0xF
+
+    /** p05 body: header(24) || chunks of (chunkLen+17). */
+    fun decryptStream(key: ByteArray, body: ByteArray, aad: ByteArray, plainBytes: Int): ByteArray {
+        require(body.size > 24) { "IMGX p05 payload too short" }
+        val st = StreamState(
+            k = hchacha20(key, body.copyOfRange(0, 16)),
+            inonce = body.copyOfRange(16, 24),
+            counter = 1,
+        )
+        try {
+            val out = ByteArray(plainBytes)
+            var inOff = 24
+            var outOff = 0
+            while (outOff < plainBytes) {
+                val cLen = minOf(CHUNK, plainBytes - outOff)
+                val chunk = body.copyOfRange(inOff, inOff + cLen + STREAM_AB)
+                val (message, tag) = streamPull(st, chunk, aad)
+                require(message.size == cLen) { "IMGX v4 stream length mismatch" }
+                message.copyInto(out, outOff)
+                val want = if (outOff + cLen == plainBytes) TAG_FINAL else TAG_MESSAGE
+                require(tag == want) { "IMGX v4 stream tag mismatch" }
+                outOff += cLen
+                inOff += cLen + STREAM_AB
+            }
+            return out
+        } finally {
+            st.k.fill(0)
+            st.inonce.fill(0)
         }
     }
 }

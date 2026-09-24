@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.AesGcmSiv
 import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.AesSiv
 import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.ChaCha20Poly1305
 import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.XChaCha20Poly1305
+import eu.kanade.tachiyomi.extension.vi.moetruyen.cipher.Xsalsa20Poly1305
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.readIntBigEndian
 import java.math.BigInteger
@@ -444,6 +445,19 @@ internal object ImgxCrypto {
                 3 -> {
                     // XChaCha20-Poly1305 IETF: nonce=body[0..24], ct+tag=body[24..]
                     XChaCha20Poly1305.decrypt(contentKey, body.copyOfRange(0, 24), body.copyOfRange(24, body.size), contentAad)
+                }
+                4 -> {
+                    // XSalsa20-Poly1305 secretbox: nonce(24)||mac(16)||ct; plain=sha256(aad)||image
+                    Xsalsa20Poly1305.decrypt(contentKey, body, contentAad)
+                }
+                5 -> {
+                    // secretstream xchacha20poly1305: header(24)+chunks of +17
+                    val plainBytes = if (envelope.size >= 5) {
+                        ByteBuffer.wrap(envelope).order(ByteOrder.BIG_ENDIAN).getInt(1)
+                    } else {
+                        body.size
+                    }
+                    XChaCha20Poly1305.decryptStream(contentKey, body, contentAad, plainBytes)
                 }
                 6 -> {
                     // AES-CBC + HMAC-SHA512; HKDF(contentKey, "IMGX-v4.p06") → 64B key
