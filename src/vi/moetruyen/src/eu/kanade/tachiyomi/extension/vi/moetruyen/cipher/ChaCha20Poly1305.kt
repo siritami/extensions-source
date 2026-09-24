@@ -54,8 +54,7 @@ internal object ChaCha20Poly1305 {
         return out
     }
 
-    internal fun chachaBlockPublic(key: ByteArray, counter: Int, nonce: ByteArray): ByteArray =
-        chachaBlock(key, counter, nonce)
+    internal fun chachaBlockPublic(key: ByteArray, counter: Int, nonce: ByteArray): ByteArray = chachaBlock(key, counter, nonce)
 
     private fun chachaXor(key: ByteArray, counter: Int, nonce: ByteArray, input: ByteArray): ByteArray {
         val out = ByteArray(input.size)

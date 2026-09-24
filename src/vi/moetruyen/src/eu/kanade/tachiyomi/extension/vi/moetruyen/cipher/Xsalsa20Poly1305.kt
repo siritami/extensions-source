@@ -71,12 +71,24 @@ internal object Xsalsa20Poly1305 {
 
     fun hsalsa20(key: ByteArray, nonce16: ByteArray): ByteArray {
         val input = IntArray(16)
-        input[0] = SIGMA[0]; input[5] = SIGMA[1]; input[10] = SIGMA[2]; input[15] = SIGMA[3]
+        input[0] = SIGMA[0]
+        input[5] = SIGMA[1]
+        input[10] = SIGMA[2]
+        input[15] = SIGMA[3]
         val k = leWords(key)
         val n = leWords(nonce16)
-        input[1] = k[0]; input[2] = k[1]; input[3] = k[2]; input[4] = k[3]
-        input[11] = k[4]; input[12] = k[5]; input[13] = k[6]; input[14] = k[7]
-        input[6] = n[0]; input[7] = n[1]; input[8] = n[2]; input[9] = n[3]
+        input[1] = k[0]
+        input[2] = k[1]
+        input[3] = k[2]
+        input[4] = k[3]
+        input[11] = k[4]
+        input[12] = k[5]
+        input[13] = k[6]
+        input[14] = k[7]
+        input[6] = n[0]
+        input[7] = n[1]
+        input[8] = n[2]
+        input[9] = n[3]
         val x = salsa20Block(input)
         return wordsToBytes(intArrayOf(x[0], x[5], x[10], x[15], x[6], x[7], x[8], x[9]))
     }
@@ -89,10 +101,22 @@ internal object Xsalsa20Poly1305 {
         var pos = 0
         while (pos < input.size) {
             val iw = IntArray(16)
-            iw[0] = SIGMA[0]; iw[5] = SIGMA[1]; iw[10] = SIGMA[2]; iw[15] = SIGMA[3]
-            iw[1] = k[0]; iw[2] = k[1]; iw[3] = k[2]; iw[4] = k[3]
-            iw[11] = k[4]; iw[12] = k[5]; iw[13] = k[6]; iw[14] = k[7]
-            iw[6] = n[0]; iw[7] = n[1]; iw[8] = counter; iw[9] = 0
+            iw[0] = SIGMA[0]
+            iw[5] = SIGMA[1]
+            iw[10] = SIGMA[2]
+            iw[15] = SIGMA[3]
+            iw[1] = k[0]
+            iw[2] = k[1]
+            iw[3] = k[2]
+            iw[4] = k[3]
+            iw[11] = k[4]
+            iw[12] = k[5]
+            iw[13] = k[6]
+            iw[14] = k[7]
+            iw[6] = n[0]
+            iw[7] = n[1]
+            iw[8] = counter
+            iw[9] = 0
             val x = salsa20Block(iw)
             val block = wordsToBytes(IntArray(16) { (x[it] + iw[it]) })
             val take = minOf(64, input.size - pos)
