@@ -175,12 +175,14 @@ internal object Xsalsa20Poly1305 {
         val n8 = nonce.copyOfRange(16, 24)
         try {
             val otk = salsa20Xor(subkey, n8, ByteArray(32), 0)
-            val expected = poly1305Mac(otk, ByteArray(16) + ct)
+            // MAC is over ciphertext only (site/NaCl secretbox).
+            val expected = poly1305Mac(otk, ct)
             var diff = 0
             for (i in 0 until 16) diff = diff or (mac[i].toInt() xor expected[i].toInt())
             require(diff == 0) { "secretbox authentication failed" }
-            // stream offset 32 → block counter 2
-            return salsa20Xor(subkey, n8, ct, 2)
+            // Message uses stream[32:] (second half of first Salsa20 block).
+            val ks = salsa20Xor(subkey, n8, ByteArray(32 + ct.size), 0)
+            return ByteArray(ct.size) { i -> (ct[i].toInt() xor ks[32 + i].toInt()).toByte() }
         } finally {
             subkey.fill(0)
         }
