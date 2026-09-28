@@ -240,19 +240,25 @@ object DecoderScraper {
         error("decoder string table rotation failed")
     }
 
+    /** JS parseInt: leading integer, trailing junk ignored; non-numeric → NaN. */
+    private fun parseJsInt(value: String): Double {
+        val match = Regex("^[+-]?\\d+").find(value.trim()) ?: return Double.NaN
+        return match.value.toDouble()
+    }
+
     private fun checksum(d: StringDecoder): Boolean = runCatching {
-        val a = d.decode(194, "TzA0").toInt()
-        val b = d.decode(358, "R*ME").toInt()
-        val c = d.decode(380, "TzA0").toInt()
-        val e = d.decode(299, "lB]H").toInt()
-        val f = d.decode(136, "29CC").toInt()
-        val g = d.decode(294, "1^^5").toInt()
-        val h = d.decode(192, "3cvp").toInt()
-        val i = d.decode(311, "ZnCW").toInt()
-        val j = d.decode(385, "EG)e").toInt()
-        val k = d.decode(206, "qiSG").toInt()
-        val l = d.decode(290, "TzA0").toInt()
-        val m = d.decode(313, "J%(R").toInt()
+        val a = parseJsInt(d.decode(194, "TzA0"))
+        val b = parseJsInt(d.decode(358, "R*ME"))
+        val c = parseJsInt(d.decode(380, "TzA0"))
+        val e = parseJsInt(d.decode(299, "lB]H"))
+        val f = parseJsInt(d.decode(136, "29CC"))
+        val g = parseJsInt(d.decode(294, "1^^5"))
+        val h = parseJsInt(d.decode(192, "3cvp"))
+        val i = parseJsInt(d.decode(311, "ZnCW"))
+        val j = parseJsInt(d.decode(385, "EG)e"))
+        val k = parseJsInt(d.decode(206, "qiSG"))
+        val l = parseJsInt(d.decode(290, "TzA0"))
+        val m = parseJsInt(d.decode(313, "J%(R"))
         val total = a / 1.0 * (b / 2.0) + c / 3.0 * (-e / 4.0) +
             -f / 5.0 + -g / 6.0 + -h / 7.0 * (i / 8.0) +
             -j / 9.0 * (k / 10.0) + -l / 11.0 * (-m / 12.0)
