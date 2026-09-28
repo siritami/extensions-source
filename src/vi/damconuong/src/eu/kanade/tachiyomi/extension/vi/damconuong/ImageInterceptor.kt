@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.damconuong
 
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -12,6 +13,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
@@ -32,14 +34,74 @@ class PagesPayload(
     val s: List<String?>? = null,
 )
 
+// =============================== Site cache ================================
+
+/** SharedPreferences cache for scraped site config (API base + decoder material). */
+object SiteCache {
+    private const val KEY_API = "api_base"
+    private const val KEY_SECRET = "decoder_secret"
+    private const val KEY_ALPHABET = "decoder_alphabet"
+
+    fun apiBase(prefs: SharedPreferences): String? = prefs.getString(KEY_API, null)
+
+    fun saveApiBase(prefs: SharedPreferences, value: String) {
+        prefs.edit().putString(KEY_API, value).apply()
+    }
+
+    fun decoderSecret(prefs: SharedPreferences): String? = prefs.getString(KEY_SECRET, null)
+
+    fun decoderAlphabet(prefs: SharedPreferences): String? = prefs.getString(KEY_ALPHABET, null)
+
+    fun saveDecoder(prefs: SharedPreferences, secret: String, alphabet: String) {
+        prefs.edit()
+            .putString(KEY_SECRET, secret)
+            .putString(KEY_ALPHABET, alphabet)
+            .apply()
+    }
+
+    fun invalidate(prefs: SharedPreferences) {
+        prefs.edit()
+            .remove(KEY_API)
+            .remove(KEY_SECRET)
+            .remove(KEY_ALPHABET)
+            .apply()
+    }
+}
+
 // ============================== API discovery =============================
 
-/** Resolves `https://…/api/v1` from the site HTML/JS instead of hardcoding the host. */
+/** Resolves `https://…/api/v1` from site HTML/JS; cached in [SiteCache] and reused. */
 object ApiBase {
-    @Volatile private var cached: String? = null
+    @Volatile private var memory: String? = null
 
-    suspend fun resolve(client: OkHttpClient, baseUrl: String): String {
-        cached?.let { return it }
+    suspend fun get(client: OkHttpClient, baseUrl: String, prefs: SharedPreferences): String {
+        memory?.let { return it }
+        SiteCache.apiBase(prefs)?.let {
+            memory = it
+            return it
+        }
+        return resolve(client, baseUrl, prefs)
+    }
+
+    suspend fun resolve(client: OkHttpClient, baseUrl: String, prefs: SharedPreferences): String {
+        val resolved = try {
+            discover(client, baseUrl)
+        } catch (e: IOException) {
+            // Connection error: drop cache and try discovery again.
+            invalidate(prefs)
+            discover(client, baseUrl)
+        }
+        memory = resolved
+        SiteCache.saveApiBase(prefs, resolved)
+        return resolved
+    }
+
+    fun invalidate(prefs: SharedPreferences) {
+        memory = null
+        SiteCache.invalidate(prefs)
+    }
+
+    private suspend fun discover(client: OkHttpClient, baseUrl: String): String {
         val html = client.get(baseUrl).use { it.body?.string().orEmpty() }
 
         val fromJs = API_V1_RE.find(html)?.value
@@ -48,7 +110,6 @@ object ApiBase {
             fromJs != null -> fromJs
             fromPreconnect != null -> "${fromPreconnect.trimEnd('/')}/api/v1"
             else -> {
-                // Chunks sometimes carry the API base only in JS.
                 val chunkBody = DecoderScraper.CHUNK_RE.findAll(html)
                     .map { it.groupValues[1] }
                     .distinct()
@@ -61,8 +122,7 @@ object ApiBase {
                 API_V1_RE.find(chunkBody)?.value ?: error("api base not found")
             }
         }
-        cached = resolved.trimEnd('/')
-        return cached!!
+        return resolved.trimEnd('/')
     }
 
     private val API_V1_RE = Regex("https://[A-Za-z0-9.\\-]+/api/v1")
@@ -86,7 +146,26 @@ object DecoderScraper {
 
     private val stringCache = ConcurrentHashMap<String, String>()
 
-    suspend fun scrape(client: OkHttpClient, baseUrl: String): Config {
+    suspend fun scrape(client: OkHttpClient, baseUrl: String, prefs: SharedPreferences? = null): Config {
+        prefs?.let { p ->
+            val cachedSecret = SiteCache.decoderSecret(p)
+            val cachedAlphabet = SiteCache.decoderAlphabet(p)
+            if (cachedSecret != null) {
+                return Config(cachedSecret, cachedAlphabet ?: DEFAULT_B64)
+            }
+        }
+
+        val config = try {
+            scrapeFromSite(client, baseUrl)
+        } catch (e: IOException) {
+            prefs?.let { SiteCache.invalidate(it) }
+            scrapeFromSite(client, baseUrl)
+        }
+        prefs?.let { SiteCache.saveDecoder(it, config.secret, config.alphabet) }
+        return config
+    }
+
+    private suspend fun scrapeFromSite(client: OkHttpClient, baseUrl: String): Config {
         val js = fetchDecoderJs(client, baseUrl)
         val strings = decodeStringTable(js)
         val secret = strings.values.firstOrNull { it.matches(SECRET_RE) }
@@ -257,9 +336,9 @@ object PagesCrypto {
 
     @Volatile private var alphabet: String = DecoderScraper.DEFAULT_B64
 
-    suspend fun ensureLoaded(client: OkHttpClient, baseUrl: String) {
+    suspend fun ensureLoaded(client: OkHttpClient, baseUrl: String, prefs: SharedPreferences? = null) {
         if (tokKey != null) return
-        val config = DecoderScraper.scrape(client, baseUrl)
+        val config = DecoderScraper.scrape(client, baseUrl, prefs)
         val secretBytes = decodeBase64Url(config.secret, config.alphabet)
             ?: error("bad decoder secret")
         alphabet = config.alphabet

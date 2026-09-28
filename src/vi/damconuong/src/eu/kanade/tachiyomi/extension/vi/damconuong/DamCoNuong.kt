@@ -12,6 +12,7 @@ import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.firstInstanceOrNull
+import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.serialization.json.JsonElement
@@ -28,7 +29,9 @@ abstract class DamCoNuong : KeiSource() {
         addInterceptor(ScrambleInterceptor())
     }
 
-    private suspend fun api(): String = ApiBase.resolve(client, baseUrl)
+    private val preferences by getPreferencesLazy()
+
+    private suspend fun api(): String = ApiBase.get(client, baseUrl, preferences)
 
     // ============================== Popular ===============================
 
@@ -202,7 +205,7 @@ abstract class DamCoNuong : KeiSource() {
         }
 
         val path = "$mangaSlug/$chapterSlug"
-        PagesCrypto.ensureLoaded(client, baseUrl)
+        PagesCrypto.ensureLoaded(client, baseUrl, preferences)
         val token = PagesCrypto.token(mangaSlug, chapterSlug)
         val response = client.get("${api()}/mangas/$mangaSlug/chapters/$chapterSlug/pages?_=$token")
             .parseAs<PagesResponse>()
