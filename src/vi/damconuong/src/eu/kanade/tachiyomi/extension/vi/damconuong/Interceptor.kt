@@ -184,17 +184,23 @@ object DecoderScraper {
 
     private suspend fun fetchDecoderJs(client: OkHttpClient, baseUrl: String): String {
         val home = client.getString(baseUrl)
-        val chunkRefs = LinkedHashSet<String>()
-        CHUNK_RE.findAll(home).forEach { chunkRefs += it.groupValues[1] }
-        NESTED_CHUNK_RE.findAll(home).forEach { chunkRefs += it.groupValues[1] }
+        // Queue walk: never mutate a set while iterating it (CME in getPageList).
+        val pending = ArrayDeque<String>()
+        val seen = HashSet<String>()
+        fun add(ref: String) {
+            if (seen.add(ref)) pending.add(ref)
+        }
+        CHUNK_RE.findAll(home).forEach { add(it.groupValues[1]) }
+        NESTED_CHUNK_RE.findAll(home).forEach { add(it.groupValues[1]) }
 
-        for (ref in chunkRefs) {
+        while (pending.isNotEmpty()) {
+            val ref = pending.removeFirst()
             val url = if (ref.startsWith("http")) ref else "$baseUrl/${ref.trimStart('/')}"
             val body = runCatching { client.getString(url) }.getOrDefault("")
             if (body.contains("aLRCVy") && body.contains("function S(){let W=[")) {
                 return body
             }
-            NESTED_CHUNK_RE.findAll(body).forEach { chunkRefs += it.groupValues[1] }
+            NESTED_CHUNK_RE.findAll(body).forEach { add(it.groupValues[1]) }
         }
         error("decoder bundle not found")
     }
