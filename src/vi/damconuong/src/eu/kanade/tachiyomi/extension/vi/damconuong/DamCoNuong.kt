@@ -12,8 +12,8 @@ import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.firstInstanceOrNull
-import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.getLocalStorage
+import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.coroutines.sync.Mutex
@@ -72,8 +72,7 @@ abstract class DamCoNuong : KeiSource() {
         }
     }
 
-    private fun isLoginRequired(text: String): Boolean =
-        text.contains("\"code\":\"login_required\"") || text.contains("Login required to read")
+    private fun isLoginRequired(text: String): Boolean = text.contains("\"code\":\"login_required\"") || text.contains("Login required to read")
 
     private suspend fun api(): String = ApiBase.get(client, baseUrl, preferences)
 
