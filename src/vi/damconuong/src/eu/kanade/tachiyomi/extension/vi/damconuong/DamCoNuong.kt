@@ -13,13 +13,17 @@ import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.getLocalStorage
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 
 @Source
@@ -27,11 +31,67 @@ abstract class DamCoNuong : KeiSource() {
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         rateLimit(5)
         addInterceptor(ScrambleInterceptor())
+        addInterceptor(authInterceptor())
     }
 
     private val preferences by getPreferencesLazy()
 
+    private val authMutex = Mutex()
+
+    @Volatile private var authToken: String? = null
+
+    private fun authInterceptor() = Interceptor { chain ->
+        chain.proceed(
+            chain.request().newBuilder().apply {
+                authToken?.takeIf { it.isNotBlank() }?.let {
+                    header("Authorization", "Bearer $it")
+                }
+            }.build(),
+        )
+    }
+
+    private suspend fun loadAuthToken() {
+        if (!authToken.isNullOrBlank()) return
+        authMutex.withLock {
+            if (!authToken.isNullOrBlank()) return@withLock
+            authToken = readAuthTokenFromWebView()
+        }
+    }
+
+    /** Token lives in localStorage auth-storage after the user logs in via WebView. */
+    private suspend fun readAuthTokenFromWebView(): String? {
+        val raw = getLocalStorage(baseUrl, "auth-storage") ?: return null
+        return runCatching {
+            raw.parseAs<AuthStorage>().state?.token?.takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
+    private suspend fun refreshAuthToken() {
+        authMutex.withLock {
+            authToken = readAuthTokenFromWebView()
+        }
+    }
+
+    private fun isLoginRequired(text: String): Boolean =
+        text.contains("\"code\":\"login_required\"") || text.contains("Login required to read")
+
     private suspend fun api(): String = ApiBase.get(client, baseUrl, preferences)
+
+    private suspend fun fetchJson(url: String): String {
+        loadAuthToken()
+        var text = client.get(url, ensureSuccess = false).use { it.body.string() }
+        if (isLoginRequired(text)) {
+            refreshAuthToken()
+            if (authToken.isNullOrBlank()) {
+                throw Exception("Truyện này cần đăng nhập webview bằng tài khoản phù hợp để xem")
+            }
+            text = client.get(url, ensureSuccess = false).use { it.body.string() }
+            if (isLoginRequired(text)) {
+                throw Exception("Truyện này cần đăng nhập webview bằng tài khoản phù hợp để xem")
+            }
+        }
+        return text
+    }
 
     // ============================== Popular ===============================
 
@@ -107,7 +167,7 @@ abstract class DamCoNuong : KeiSource() {
         if (url.pathSegments.firstOrNull() != "truyen") return null
         val slug = url.pathSegments.getOrNull(1) ?: return null
 
-        return client.get("${api()}/mangas/$slug?include=artist,author,group,genres")
+        return fetchJson("${api()}/mangas/$slug?include=artist,author,group,genres")
             .parseAs<DetailResponse>()
             .data
             .toSMangaDetails()
@@ -122,7 +182,7 @@ abstract class DamCoNuong : KeiSource() {
         val slug = manga.url.trimStart('/').substringAfterLast('/')
 
         val details = if (fetchDetails) {
-            client.get("${api()}/mangas/$slug?include=artist,author,group,genres")
+            fetchJson("${api()}/mangas/$slug?include=artist,author,group,genres")
                 .parseAs<DetailResponse>()
                 .data
                 .toSMangaDetails()
@@ -146,12 +206,13 @@ abstract class DamCoNuong : KeiSource() {
         var lastPage = 1
 
         do {
-            val response = client.get(
+            val response = fetchJson(
                 "${api()}/mangas/$mangaSlug/chapters".toHttpUrl().newBuilder()
                     .addQueryParameter("page", page.toString())
                     .addQueryParameter("per_page", "2000")
                     .addQueryParameter("sort", "desc")
-                    .build(),
+                    .build()
+                    .toString(),
             ).parseAs<ChapterListResponse>()
 
             result += response.data.map { it.toSChapter(mangaSlug) }
@@ -207,7 +268,7 @@ abstract class DamCoNuong : KeiSource() {
         val path = "$mangaSlug/$chapterSlug"
         PagesCrypto.ensureLoaded(client, baseUrl, preferences)
         val token = PagesCrypto.token(mangaSlug, chapterSlug)
-        val response = client.get("${api()}/mangas/$mangaSlug/chapters/$chapterSlug/pages?_=$token")
+        val response = fetchJson("${api()}/mangas/$mangaSlug/chapters/$chapterSlug/pages?_=$token")
             .parseAs<PagesResponse>()
 
         val payload = PagesCrypto.decryptPages(response.e, token, path)

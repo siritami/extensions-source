@@ -19,6 +19,12 @@ class PagesPayload(
 )
 
 @Serializable
+class AuthStorage(val state: AuthState? = null)
+
+@Serializable
+class AuthState(val token: String? = null)
+
+@Serializable
 class ListResponse(
     val data: List<MangaDto> = emptyList(),
     val meta: MetaDto? = null,
@@ -63,6 +69,7 @@ class MangaDto(
     val author: PersonDto? = null,
     val group: PersonDto? = null,
     val genres: List<GenreOption> = emptyList(),
+    @SerialName("requires_login") val requiresLogin: Boolean = false,
 ) {
     fun toSManga() = SManga.create().apply {
         url = "/truyen/$slug"
