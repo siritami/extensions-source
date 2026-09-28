@@ -8,7 +8,6 @@ import android.graphics.Rect
 import keiyoushi.utils.rc4
 import keiyoushi.utils.readIntBigEndian
 import keiyoushi.utils.writeIntBigEndian
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -28,19 +27,6 @@ private fun OkHttpClient.getString(url: String): String {
     val response = newCall(Request.Builder().url(url).build()).execute()
     return response.use { it.body.string() }
 }
-
-// ================================ Pages DTOs ================================
-
-@Serializable
-class PagesResponse(
-    val e: String,
-)
-
-@Serializable
-class PagesPayload(
-    val p: List<String> = emptyList(),
-    val s: List<String?>? = null,
-)
 
 // =============================== Site cache ================================
 
@@ -312,7 +298,6 @@ object DecoderScraper {
 
     private val SECRET_RE = Regex("^[A-Za-z0-9_-]{43}$")
     private val ALPHABET_RE = Regex("^[A-Za-z0-9+/_-]{64}$")
-    /** Obfuscator string-table alphabet: a quoted base64-like charset used with `.indexOf`. */
     private val OBF_B64_RE = Regex("\"([A-Za-z0-9+/]{64}=)\"\\s*\\.indexOf")
     private val STRING_ARRAY_RE = Regex("function S\\(\\)\\{let W=(\\[.*?\\]);return", RegexOption.DOT_MATCHES_ALL)
     private val PAIR_RE = Regex("[kfC]\\((\\d+),\\s*\"([^\"]*)\"\\)")

@@ -8,6 +8,17 @@ import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 
 @Serializable
+class PagesResponse(
+    val e: String,
+)
+
+@Serializable
+class PagesPayload(
+    val p: List<String> = emptyList(),
+    val s: List<String?>? = null,
+)
+
+@Serializable
 class ListResponse(
     val data: List<MangaDto> = emptyList(),
     val meta: MetaDto? = null,
