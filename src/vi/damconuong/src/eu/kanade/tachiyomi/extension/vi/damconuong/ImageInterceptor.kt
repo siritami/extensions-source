@@ -252,7 +252,9 @@ object PagesCrypto {
     private val json = Json { ignoreUnknownKeys = true }
 
     @Volatile private var tokKey: ByteArray? = null
+
     @Volatile private var encKey: ByteArray? = null
+
     @Volatile private var alphabet: String = DecoderScraper.DEFAULT_B64
 
     suspend fun ensureLoaded(client: OkHttpClient, baseUrl: String) {
@@ -501,9 +503,7 @@ class ScrambleInterceptor : Interceptor {
         return response.withBody(bos.toByteArray(), "image/png")
     }
 
-    private fun Response.withBody(bytes: ByteArray, mime: String = "image/*"): Response {
-        return newBuilder()
-            .body(bytes.toResponseBody(mime.toMediaType()))
-            .build()
-    }
+    private fun Response.withBody(bytes: ByteArray, mime: String = "image/*"): Response = newBuilder()
+        .body(bytes.toResponseBody(mime.toMediaType()))
+        .build()
 }

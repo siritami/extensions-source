@@ -32,13 +32,11 @@ abstract class DamCoNuong : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        fetchMangaList(page, query = "", filters = FilterList(SortFilter().apply { state = 3 }))
+    override suspend fun getPopularManga(page: Int): MangasPage = fetchMangaList(page, query = "", filters = FilterList(SortFilter().apply { state = 3 }))
 
     // =============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        fetchMangaList(page, query = "", filters = FilterList(SortFilter().apply { state = 0 }))
+    override suspend fun getLatestUpdates(page: Int): MangasPage = fetchMangaList(page, query = "", filters = FilterList(SortFilter().apply { state = 0 }))
 
     // =============================== Search ===============================
 
@@ -241,6 +239,5 @@ abstract class DamCoNuong : KeiSource() {
         }
     }
 
-    override fun getFilterList(data: JsonElement?): FilterList =
-        getFilters(data?.parseAs<FilterData>()?.genres)
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<FilterData>()?.genres)
 }
