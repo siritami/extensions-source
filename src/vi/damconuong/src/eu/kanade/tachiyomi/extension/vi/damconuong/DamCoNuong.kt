@@ -58,7 +58,6 @@ abstract class DamCoNuong : KeiSource() {
         }
     }
 
-    /** Token lives in localStorage auth-storage after the user logs in via WebView. */
     private suspend fun readAuthTokenFromWebView(): String? {
         val raw = getLocalStorage(baseUrl, "auth-storage") ?: return null
         return runCatching {
