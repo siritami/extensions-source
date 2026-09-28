@@ -140,15 +140,15 @@ object ApiBase {
 object DecoderScraper {
     data class Config(
         val secret: String,
-        val alphabet: String,
+        val tokenAlphabet: String,
     )
 
     suspend fun scrape(client: OkHttpClient, baseUrl: String, prefs: SharedPreferences? = null): Config {
         prefs?.let { p ->
             val cachedSecret = SiteCache.decoderSecret(p)
             val cachedAlphabet = SiteCache.decoderAlphabet(p)
-            if (cachedSecret != null) {
-                return Config(cachedSecret, cachedAlphabet ?: DEFAULT_B64)
+            if (cachedSecret != null && cachedAlphabet != null) {
+                return Config(cachedSecret, cachedAlphabet)
             }
         }
 
@@ -158,18 +158,20 @@ object DecoderScraper {
             prefs?.let { SiteCache.invalidate(it) }
             scrapeFromSite(client, baseUrl)
         }
-        prefs?.let { SiteCache.saveDecoder(it, config.secret, config.alphabet) }
+        prefs?.let { SiteCache.saveDecoder(it, config.secret, config.tokenAlphabet) }
         return config
     }
 
     private suspend fun scrapeFromSite(client: OkHttpClient, baseUrl: String): Config {
         val js = fetchDecoderJs(client, baseUrl)
-        val strings = decodeStringTable(js)
+        val obfAlphabet = OBF_B64_RE.find(js)?.groupValues?.get(1)
+            ?: error("obfuscator alphabet not found")
+        val strings = decodeStringTable(js, obfAlphabet)
         val secret = strings.values.firstOrNull { it.matches(SECRET_RE) }
             ?: error("decoder secret not found")
-        val alphabet = strings.values.firstOrNull { it.length == 64 && ALPHABET_RE.matches(it) }
-            ?: DEFAULT_B64
-        return Config(secret, alphabet)
+        val tokenAlphabet = strings.values.firstOrNull { it.length == 64 && ALPHABET_RE.matches(it) }
+            ?: error("token alphabet not found")
+        return Config(secret, tokenAlphabet)
     }
 
     private suspend fun fetchDecoderJs(client: OkHttpClient, baseUrl: String): String {
@@ -208,7 +210,7 @@ object DecoderScraper {
             (body.contains("function S(){let W=[") && body.contains("HMAC"))
     }
 
-    private fun decodeStringTable(js: String): Map<String, String> {
+    private fun decodeStringTable(js: String, obfAlphabet: String): Map<String, String> {
         val arrayMatch = STRING_ARRAY_RE.find(js) ?: error("decoder string table not found")
         val rawStrings = parseJsStringArray(arrayMatch.groupValues[1])
         val pairs = PAIR_RE.findAll(js)
@@ -218,7 +220,7 @@ object DecoderScraper {
 
         val table = ArrayList(rawStrings)
         repeat(table.size) {
-            val decoder = StringDecoder(table)
+            val decoder = StringDecoder(table, obfAlphabet)
             if (checksum(decoder)) {
                 val out = HashMap<String, String>()
                 for ((index, key) in pairs) {
@@ -269,7 +271,10 @@ object DecoderScraper {
         return out
     }
 
-    private class StringDecoder(private val table: List<String>) {
+    private class StringDecoder(
+        private val table: List<String>,
+        private val obfAlphabet: String,
+    ) {
         private val cache = HashMap<Int, String>()
 
         fun decode(index: Int, key: String): String {
@@ -282,12 +287,11 @@ object DecoderScraper {
         }
 
         private fun customB64Decode(input: String): String {
-            val alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/="
             val bytes = ArrayList<Byte>()
             var t = 0
             var o = 0
             for (element in input) {
-                val r = alphabet.indexOf(element)
+                val r = obfAlphabet.indexOf(element)
                 if (r < 0) continue
                 t = if (o % 4 != 0) 64 * t + r else r
                 val old = o
@@ -308,12 +312,12 @@ object DecoderScraper {
 
     private val SECRET_RE = Regex("^[A-Za-z0-9_-]{43}$")
     private val ALPHABET_RE = Regex("^[A-Za-z0-9+/_-]{64}$")
+    /** Obfuscator string-table alphabet: a quoted base64-like charset used with `.indexOf`. */
+    private val OBF_B64_RE = Regex("\"([A-Za-z0-9+/]{64}=)\"\\s*\\.indexOf")
     private val STRING_ARRAY_RE = Regex("function S\\(\\)\\{let W=(\\[.*?\\]);return", RegexOption.DOT_MATCHES_ALL)
     private val PAIR_RE = Regex("[kfC]\\((\\d+),\\s*\"([^\"]*)\"\\)")
     internal val CHUNK_RE = Regex("(?:src|href)=\"(/_next/static/chunks/[^\"]+\\.js)")
     private val NESTED_CHUNK_RE = Regex("static/chunks/([A-Za-z0-9_\\-\\.]+\\.js)")
-
-    const val DEFAULT_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 }
 
 // ============================== Pages crypto ===============================
@@ -325,14 +329,16 @@ object PagesCrypto {
 
     @Volatile private var encKey: ByteArray? = null
 
-    @Volatile private var alphabet: String = DecoderScraper.DEFAULT_B64
+    @Volatile private var alphabet: String? = null
+
+    fun tokenAlphabet(): String = checkNotNull(alphabet) { "PagesCrypto not loaded" }
 
     suspend fun ensureLoaded(client: OkHttpClient, baseUrl: String, prefs: SharedPreferences? = null) {
         if (tokKey != null) return
         val config = DecoderScraper.scrape(client, baseUrl, prefs)
-        val secretBytes = decodeBase64Url(config.secret, config.alphabet)
+        val secretBytes = decodeBase64Url(config.secret, config.tokenAlphabet)
             ?: error("bad decoder secret")
-        alphabet = config.alphabet
+        alphabet = config.tokenAlphabet
         tokKey = hmac(secretBytes, "tok".toByteArray(StandardCharsets.UTF_8))
         encKey = hmac(secretBytes, "enc".toByteArray(StandardCharsets.UTF_8))
     }
@@ -349,7 +355,7 @@ object PagesCrypto {
 
     fun decryptPages(encrypted: String, token: String, path: String): PagesPayload {
         val enc = checkNotNull(encKey) { "PagesCrypto not loaded" }
-        val raw = decodeBase64Url(encrypted, alphabet) ?: error("bad payload")
+        val raw = decodeBase64Url(encrypted, tokenAlphabet()) ?: error("bad payload")
         if (raw.size < 12 + 16) error("bad payload")
         val iv = raw.copyOfRange(0, 12)
         val cipherBytes = raw.copyOfRange(12, raw.size)
@@ -373,7 +379,7 @@ object PagesCrypto {
     }
 
     private fun encodeBase64Url(input: ByteArray): String {
-        val b64 = alphabet
+        val b64 = tokenAlphabet()
         val out = StringBuilder()
         var i = 0
         while (i < input.size) {
@@ -391,7 +397,7 @@ object PagesCrypto {
         return out.toString()
     }
 
-    private fun decodeBase64Url(input: String, b64: String = alphabet): ByteArray? {
+    private fun decodeBase64Url(input: String, b64: String): ByteArray? {
         val out = ArrayList<Byte>()
         var bits = 0
         var value = 0
@@ -415,7 +421,6 @@ object Scramble {
     private const val PREFIX = "x1."
     private const val KEY_LENGTH = 46
     private const val SEED_LENGTH = 32
-    private val B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
     fun shouldDescramble(urlFragment: String?): String? {
         if (urlFragment.isNullOrEmpty()) return null
@@ -473,11 +478,12 @@ object Scramble {
     }
 
     private fun decodeBase64Url(input: String): ByteArray? {
+        val b64 = PagesCrypto.tokenAlphabet()
         val out = ArrayList<Byte>()
         var bits = 0
         var value = 0
         for (ch in input) {
-            val d = B64.indexOf(ch)
+            val d = b64.indexOf(ch)
             if (d < 0) return null
             value = (value shl 6) or d
             bits += 6

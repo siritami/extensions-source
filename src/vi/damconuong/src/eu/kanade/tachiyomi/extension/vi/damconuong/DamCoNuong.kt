@@ -25,7 +25,7 @@ import okhttp3.OkHttpClient
 @Source
 abstract class DamCoNuong : KeiSource() {
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
-        rateLimit(3)
+        rateLimit(5)
         addInterceptor(ScrambleInterceptor())
     }
 
