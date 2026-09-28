@@ -19,6 +19,7 @@ import keiyoushi.utils.tryParseDate
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
+import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
@@ -32,6 +33,9 @@ import java.util.Locale
 
 @Source
 abstract class LeesinComic : KeiSource() {
+    // CDN returns 404 when Origin is present
+    override fun Headers.Builder.configureHeaders(): Headers.Builder = removeAll("Origin")
+
     override fun OkHttpClient.Builder.configureClient() = apply {
         addInterceptor(imageRefererInterceptor())
         rateLimit(3)
@@ -39,6 +43,7 @@ abstract class LeesinComic : KeiSource() {
 
     private fun imageRefererInterceptor() = Interceptor { chain ->
         val request = chain.request().newBuilder()
+            .removeHeader("Origin")
             .header("Referer", "$baseUrl/")
             .build()
         chain.proceed(request)
