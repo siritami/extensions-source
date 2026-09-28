@@ -170,18 +170,13 @@ object DecoderScraper {
     }
 
     private suspend fun scrapeFromSite(client: OkHttpClient, baseUrl: String): Config {
-        return try {
-            val js = fetchDecoderJs(client, baseUrl)
-            val strings = decodeStringTable(js)
-            val secret = strings.values.firstOrNull { it.matches(SECRET_RE) }
-                ?: error("decoder secret not found")
-            val alphabet = strings.values.firstOrNull { it.length == 64 && ALPHABET_RE.matches(it) }
-                ?: DEFAULT_B64
-            Config(secret, alphabet)
-        } catch (_: Exception) {
-            // Last resort if the obfuscated table can't be decoded (site bundle format change).
-            Config(FALLBACK_SECRET, DEFAULT_B64)
-        }
+        val js = fetchDecoderJs(client, baseUrl)
+        val strings = decodeStringTable(js)
+        val secret = strings.values.firstOrNull { it.matches(SECRET_RE) }
+            ?: error("decoder secret not found")
+        val alphabet = strings.values.firstOrNull { it.length == 64 && ALPHABET_RE.matches(it) }
+            ?: DEFAULT_B64
+        return Config(secret, alphabet)
     }
 
     private suspend fun fetchDecoderJs(client: OkHttpClient, baseUrl: String): String {
@@ -344,7 +339,6 @@ object DecoderScraper {
     private val NESTED_CHUNK_RE = Regex("static/chunks/([A-Za-z0-9_\\-\\.]+\\.js)")
 
     const val DEFAULT_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-    private const val FALLBACK_SECRET = "YVdGuT8RjDWkeQjt7s7mv53smMpLrcKBuGMs8erg8Bs"
 }
 
 // ============================== Pages crypto ===============================
