@@ -5,6 +5,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Rect
+import keiyoushi.utils.rc4
+import keiyoushi.utils.readIntBigEndian
+import keiyoushi.utils.writeIntBigEndian
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
@@ -314,26 +317,10 @@ object DecoderScraper {
         }
 
         private fun rc4(input: String, key: String): String {
-            val s = IntArray(256) { it }
-            var j = 0
-            for (i in 0 until 256) {
-                j = (j + s[i] + key[i % key.length].code) % 256
-                val tmp = s[i]
-                s[i] = s[j]
-                s[j] = tmp
-            }
-            val out = CharArray(input.length)
-            var i = 0
-            j = 0
-            for (n in input.indices) {
-                i = (i + 1) % 256
-                j = (j + s[i]) % 256
-                val tmp = s[i]
-                s[i] = s[j]
-                s[j] = tmp
-                out[n] = (input[n].code xor s[(s[i] + s[j]) % 256]).toChar()
-            }
-            return out.concatToString()
+            // Bundle RC4 runs on char codes; core helper works on bytes (ISO-8859-1 equivalent).
+            val data = ByteArray(input.length) { input[it].code.toByte() }
+            val out = data.rc4(key.toByteArray(StandardCharsets.ISO_8859_1))
+            return out.toString(StandardCharsets.ISO_8859_1)
         }
     }
 
@@ -550,20 +537,12 @@ private class HmacPrng(seed: ByteArray) {
 
     private fun nextUint32(): Int {
         if (pos >= buf.size) {
-            val msg = byteArrayOf(
-                (counter ushr 24).toByte(),
-                (counter ushr 16).toByte(),
-                (counter ushr 8).toByte(),
-                counter.toByte(),
-            )
-            counter++
+            val msg = ByteArray(4)
+            msg.writeIntBigEndian(0, counter++)
             buf = mac.doFinal(msg)
             pos = 0
         }
-        val v = ((buf[pos].toInt() and 0xff) shl 24) or
-            ((buf[pos + 1].toInt() and 0xff) shl 16) or
-            ((buf[pos + 2].toInt() and 0xff) shl 8) or
-            (buf[pos + 3].toInt() and 0xff)
+        val v = buf.readIntBigEndian(pos)
         pos += 4
         return v
     }
