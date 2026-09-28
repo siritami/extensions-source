@@ -21,6 +21,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -31,7 +32,17 @@ import java.util.Locale
 
 @Source
 abstract class LeesinComic : KeiSource() {
-    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = rateLimit(3)
+    override fun OkHttpClient.Builder.configureClient() = apply {
+        addInterceptor(imageRefererInterceptor())
+        rateLimit(3)
+    }
+
+    private fun imageRefererInterceptor() = Interceptor { chain ->
+        val request = chain.request().newBuilder()
+            .header("Referer", "$baseUrl/")
+            .build()
+        chain.proceed(request)
+    }
 
     // ============================== Popular ===============================
 
@@ -77,7 +88,8 @@ abstract class LeesinComic : KeiSource() {
                 val link = element.selectFirst("a[href*=/truyen-tranh/]")!!
                 setUrlWithoutDomain(link.absUrl("href").ifBlank { link.attr("href") })
                 title = element.selectFirst(".name")!!.text()
-                thumbnail_url = (element.selectFirst(".img img") ?: element.selectFirst("img"))?.resolveImageUrl()
+                val img = element.selectFirst(".img img") ?: element.selectFirst("img")
+                thumbnail_url = img?.let { resolveImageUrl(it) }?.takeIf { it.isNotBlank() }
             }
         }
         val hasNextPage = document.select(".page_redirect a").any {
@@ -88,15 +100,17 @@ abstract class LeesinComic : KeiSource() {
 
     private fun currentPageFromUrl(url: String): Int = url.substringAfter("page=", "1").substringBefore("&").toIntOrNull() ?: 1
 
-    private fun Element.resolveImageUrl(): String {
-        val raw = attrOrNull("data-src") ?: attrOrNull("src").orEmpty()
-        return when {
-            raw.isBlank() -> ""
+    // tachserver.online drops connections; identical paths are served by tachserver.site
+    private fun resolveImageUrl(img: Element): String {
+        val raw = img.attrOrNull("data-src") ?: img.attrOrNull("src").orEmpty()
+        val absolute = when {
+            raw.isBlank() -> return ""
             raw.startsWith("http") -> raw
             raw.startsWith("//") -> "https:$raw"
             raw.startsWith("/") -> baseUrl + raw
             else -> "$baseUrl/$raw"
         }
+        return absolute.replace("://tachserver.online/", "://tachserver.site/")
     }
 
     // ============================== Details ===============================
@@ -118,7 +132,9 @@ abstract class LeesinComic : KeiSource() {
         val info = document.selectFirst(".box_info_right")!!
         return manga.apply {
             title = info.selectFirst("h1")!!.text()
-            thumbnail_url = document.selectFirst(".box_info_left img")?.resolveImageUrl()
+            thumbnail_url = document.selectFirst(".box_info_left img")
+                ?.let { resolveImageUrl(it) }
+                ?.takeIf { it.isNotBlank() }
             genre = info.select(".list-tag-story a").joinToString { it.text() }
 
             val otherName = info.selectFirst(".txt span.info-item")?.text()?.trim()
@@ -209,7 +225,7 @@ abstract class LeesinComic : KeiSource() {
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val document = client.get(baseUrl + chapter.url).asJsoup()
         return document.select(".content_view_chap img").mapIndexed { index, img ->
-            Page(index, imageUrl = img.resolveImageUrl())
+            Page(index, imageUrl = resolveImageUrl(img))
         }
     }
 
