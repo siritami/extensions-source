@@ -16,7 +16,6 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
@@ -151,8 +150,6 @@ object DecoderScraper {
         val alphabet: String,
     )
 
-    private val stringCache = ConcurrentHashMap<String, String>()
-
     suspend fun scrape(client: OkHttpClient, baseUrl: String, prefs: SharedPreferences? = null): Config {
         prefs?.let { p ->
             val cachedSecret = SiteCache.decoderSecret(p)
@@ -173,13 +170,18 @@ object DecoderScraper {
     }
 
     private suspend fun scrapeFromSite(client: OkHttpClient, baseUrl: String): Config {
-        val js = fetchDecoderJs(client, baseUrl)
-        val strings = decodeStringTable(js)
-        val secret = strings.values.firstOrNull { it.matches(SECRET_RE) }
-            ?: error("decoder secret not found")
-        val alphabet = strings.values.firstOrNull { it.length == 64 && ALPHABET_RE.matches(it) }
-            ?: DEFAULT_B64
-        return Config(secret, alphabet)
+        return try {
+            val js = fetchDecoderJs(client, baseUrl)
+            val strings = decodeStringTable(js)
+            val secret = strings.values.firstOrNull { it.matches(SECRET_RE) }
+                ?: error("decoder secret not found")
+            val alphabet = strings.values.firstOrNull { it.length == 64 && ALPHABET_RE.matches(it) }
+                ?: DEFAULT_B64
+            Config(secret, alphabet)
+        } catch (_: Exception) {
+            // Last resort if the obfuscated table can't be decoded (site bundle format change).
+            Config(FALLBACK_SECRET, DEFAULT_B64)
+        }
     }
 
     private suspend fun fetchDecoderJs(client: OkHttpClient, baseUrl: String): String {
@@ -269,7 +271,6 @@ object DecoderScraper {
             out += m.groupValues[1]
                 .replace("\\\\", "\\")
                 .replace("\\\"", "\"")
-                .replace("\\'", "'")
                 .replace("\\n", "\n")
                 .replace("\\r", "\r")
                 .replace("\\t", "\t")
@@ -278,32 +279,36 @@ object DecoderScraper {
     }
 
     private class StringDecoder(private val table: List<String>) {
+        private val cache = HashMap<Int, String>()
+
         fun decode(index: Int, key: String): String {
-            val cacheKey = "$index|$key"
-            stringCache[cacheKey]?.let { return it }
             val adjusted = index - 127
             if (adjusted !in table.indices) error("bad index")
+            cache[adjusted]?.let { return it }
             val plain = rc4(customB64Decode(table[adjusted]), key)
-            stringCache[cacheKey] = plain
+            cache[adjusted] = plain
             return plain
         }
 
-        /** Mirrors the bundle's atob-style decoder (lowercase-first alphabet + percent-decode). */
+        /**
+         * Bundle's r(): custom base64 (lowercase-first alphabet), then UTF-8 decode.
+         * Emit when (o % 4) != 0 using o AFTER increment for the shift — matches `o++%4`.
+         */
         private fun customB64Decode(input: String): String {
             val alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/="
             val bytes = ArrayList<Byte>()
-            var acc = 0
-            var count = 0
-            for (ch in input) {
-                val r = alphabet.indexOf(ch)
+            var t = 0
+            var o = 0
+            for (element in input) {
+                val r = alphabet.indexOf(element)
                 if (r < 0) continue
-                acc = if (count % 4 != 0) 64 * acc + r else r
-                count++
-                if (count % 4 != 0) {
-                    bytes.add(((acc shr (-2 * count and 6)) and 0xff).toByte())
+                t = if (o % 4 != 0) 64 * t + r else r
+                val old = o
+                o += 1
+                if (old % 4 != 0) {
+                    bytes.add(((t shr ((-2 * o) and 6)) and 0xff).toByte())
                 }
             }
-            // decodeURIComponent("%xx...") of those bytes
             return String(bytes.toByteArray(), StandardCharsets.UTF_8)
         }
 
@@ -339,6 +344,7 @@ object DecoderScraper {
     private val NESTED_CHUNK_RE = Regex("static/chunks/([A-Za-z0-9_\\-\\.]+\\.js)")
 
     const val DEFAULT_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    private const val FALLBACK_SECRET = "YVdGuT8RjDWkeQjt7s7mv53smMpLrcKBuGMs8erg8Bs"
 }
 
 // ============================== Pages crypto ===============================
