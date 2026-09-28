@@ -35,14 +35,17 @@ abstract class LeesinComic : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage = getMangaList("$baseUrl/top-ngay.html?page=$page")
+    override suspend fun getPopularManga(page: Int): MangasPage =
+        getMangaList("$baseUrl/top-ngay.html?page=$page")
 
     // ============================== Latest ================================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage = getMangaList("$baseUrl/truyen-moi-cap-nhat.html?page=$page")
+    override suspend fun getLatestUpdates(page: Int): MangasPage =
+        getMangaList("$baseUrl/truyen-moi-cap-nhat.html?page=$page")
 
     // ============================== Search ================================
 
+    // Filters cannot be combined with keyword search on this site
     override suspend fun getSearchMangaList(
         page: Int,
         query: String,
@@ -74,9 +77,9 @@ abstract class LeesinComic : KeiSource() {
         val mangas = document.select(".box_list .li_truyen").map { element ->
             SManga.create().apply {
                 val link = element.selectFirst("a[href*=/truyen-tranh/]")!!
-                setUrlWithoutDomain(link.absUrl("href"))
+                setUrlWithoutDomain(link.absUrl("href").ifBlank { link.attr("href") })
                 title = element.selectFirst(".name")!!.text()
-                thumbnail_url = element.selectFirst("img")?.absUrl("src")
+                thumbnail_url = (element.selectFirst(".img img") ?: element.selectFirst("img"))?.resolveImageUrl()
             }
         }
         val hasNextPage = document.select(".page_redirect a").any {
@@ -85,7 +88,19 @@ abstract class LeesinComic : KeiSource() {
         return MangasPage(mangas, hasNextPage)
     }
 
-    private fun currentPageFromUrl(url: String): Int = url.substringAfter("page=", "1").substringBefore("&").toIntOrNull() ?: 1
+    private fun currentPageFromUrl(url: String): Int =
+        url.substringAfter("page=", "1").substringBefore("&").toIntOrNull() ?: 1
+
+    private fun Element.resolveImageUrl(): String {
+        val raw = attrOrNull("data-src") ?: attrOrNull("src").orEmpty()
+        return when {
+            raw.isBlank() -> ""
+            raw.startsWith("http") -> raw
+            raw.startsWith("//") -> "https:$raw"
+            raw.startsWith("/") -> baseUrl + raw
+            else -> "$baseUrl/$raw"
+        }
+    }
 
     // ============================== Details ===============================
 
@@ -106,7 +121,7 @@ abstract class LeesinComic : KeiSource() {
         val info = document.selectFirst(".box_info_right")!!
         return manga.apply {
             title = info.selectFirst("h1")!!.text()
-            thumbnail_url = document.selectFirst(".box_info_left img")?.absUrl("src")
+            thumbnail_url = document.selectFirst(".box_info_left img")?.resolveImageUrl()
             genre = info.select(".list-tag-story a").joinToString { it.text() }
 
             val otherName = info.selectFirst(".txt span.info-item")?.text()?.trim()
@@ -136,12 +151,14 @@ abstract class LeesinComic : KeiSource() {
         }
     }
 
-    private fun parseChapterList(document: Document): List<SChapter> = document.select(".list-chapters .chapter-item").map { element ->
-        SChapter.create().apply {
-            val link = element.selectFirst(".chap_name a")!!
-            setUrlWithoutDomain(link.absUrl("href"))
-            name = link.ownText().trim()
-            date_upload = parseRelativeDate(element.selectFirst(".chap_update")?.text())
+    private fun parseChapterList(document: Document): List<SChapter> {
+        return document.select(".list-chapters .chapter-item").map { element ->
+            SChapter.create().apply {
+                val link = element.selectFirst(".chap_name a")!!
+                setUrlWithoutDomain(link.absUrl("href").ifBlank { link.attr("href") })
+                name = link.ownText().trim()
+                date_upload = parseRelativeDate(element.selectFirst(".chap_update")?.text())
+            }
         }
     }
 
@@ -197,14 +214,8 @@ abstract class LeesinComic : KeiSource() {
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val document = client.get(baseUrl + chapter.url).asJsoup()
         return document.select(".content_view_chap img").mapIndexed { index, img ->
-            Page(index, imageUrl = img.pageImageUrl())
+            Page(index, imageUrl = img.resolveImageUrl())
         }
-    }
-
-    private fun Element.pageImageUrl(): String {
-        val lazy = attrOrNull("data-src")
-        if (!lazy.isNullOrBlank()) return absUrl("data-src")
-        return absUrl("src")
     }
 
     // ============================== Filters ===============================
@@ -226,30 +237,33 @@ abstract class LeesinComic : KeiSource() {
 
     override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<FilterData>())
 
-    private fun Document.parseTypeOptions(): List<FilterOption> = select(".main_menu > li.li_main > a").mapNotNull { element ->
-        val href = element.attr("href").trim()
-        val name = element.text().trim()
-        if (href.isBlank() || href == "/" || href.startsWith("javascript") || href.startsWith("http")) {
-            return@mapNotNull null
+    private fun Document.parseTypeOptions(): List<FilterOption> =
+        select(".main_menu > li.li_main > a").mapNotNull { element ->
+            val href = element.attr("href").trim()
+            val name = element.text().trim()
+            if (href.isBlank() || href == "/" || href.startsWith("javascript") || href.startsWith("http")) {
+                return@mapNotNull null
+            }
+            if (href.contains("danh-sach-nhom-dich") || href.contains("the-loai")) return@mapNotNull null
+            if (name.isBlank()) return@mapNotNull null
+            FilterOption(name, href)
         }
-        if (href.contains("danh-sach-nhom-dich") || href.contains("the-loai")) return@mapNotNull null
-        if (name.isBlank()) return@mapNotNull null
-        FilterOption(name, href)
-    }
 
-    private fun Document.parseGenreOptions(): List<FilterOption> = select(".sub_menu a[href*=/the-loai/]").mapNotNull { element ->
-        val href = element.attr("href").trim()
-        val name = element.ownText().trim().ifBlank { element.text().trim() }
-        if (href.isBlank() || name.isBlank()) return@mapNotNull null
-        FilterOption(name, href)
-    }.distinctBy { it.path }
+    private fun Document.parseGenreOptions(): List<FilterOption> =
+        select(".sub_menu a[href*=/the-loai/]").mapNotNull { element ->
+            val href = element.attr("href").trim()
+            val name = element.ownText().trim().ifBlank { element.text().trim() }
+            if (href.isBlank() || name.isBlank()) return@mapNotNull null
+            FilterOption(name, href)
+        }.distinctBy { it.path }
 
-    private fun Document.parseGroupOptions(): List<FilterOption> = select(".box_list .li_truyen > a[href*=/nhom-dich-]").mapNotNull { element ->
-        val href = element.attr("href").trim()
-        val name = element.selectFirst(".name")?.text()?.trim()
-        if (href.isBlank() || name.isNullOrBlank()) return@mapNotNull null
-        FilterOption(name, href)
-    }
+    private fun Document.parseGroupOptions(): List<FilterOption> =
+        select(".box_list .li_truyen > a[href*=/nhom-dich-]").mapNotNull { element ->
+            val href = element.attr("href").trim()
+            val name = element.selectFirst(".name")?.text()?.trim()
+            if (href.isBlank() || name.isNullOrBlank()) return@mapNotNull null
+            FilterOption(name, href)
+        }
 
     companion object {
         private val NUMBER_REGEX = Regex("""\d+""")
