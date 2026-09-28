@@ -4,12 +4,13 @@ import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
-import keiyoushi.network.get
+import android.graphics.Rect
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import java.io.ByteArrayOutputStream
@@ -20,6 +21,12 @@ import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+
+/** Plain OkHttp GET (keiyoushi.network.get requires an HttpSource context). */
+private fun OkHttpClient.getString(url: String): String {
+    val response = newCall(Request.Builder().url(url).build()).execute()
+    return response.use { it.body?.string().orEmpty() }
+}
 
 // ================================ Pages DTOs ================================
 
@@ -102,7 +109,7 @@ object ApiBase {
     }
 
     private suspend fun discover(client: OkHttpClient, baseUrl: String): String {
-        val html = client.get(baseUrl).use { it.body?.string().orEmpty() }
+        val html = client.getString(baseUrl)
 
         val fromJs = API_V1_RE.find(html)?.value
         val fromPreconnect = PRECONNECT_RE.find(html)?.groupValues?.get(1)
@@ -115,7 +122,7 @@ object ApiBase {
                     .distinct()
                     .mapNotNull { ref ->
                         val url = if (ref.startsWith("http")) ref else "$baseUrl/${ref.trimStart('/')}"
-                        runCatching { client.get(url).use { it.body?.string().orEmpty() } }.getOrNull()
+                        runCatching { client.getString(url) }.getOrNull()
                     }
                     .firstOrNull { it.contains("/api/v1") }
                     .orEmpty()
@@ -176,14 +183,14 @@ object DecoderScraper {
     }
 
     private suspend fun fetchDecoderJs(client: OkHttpClient, baseUrl: String): String {
-        val home = client.get(baseUrl).use { it.body?.string().orEmpty() }
+        val home = client.getString(baseUrl)
         val chunkRefs = LinkedHashSet<String>()
         CHUNK_RE.findAll(home).forEach { chunkRefs += it.groupValues[1] }
         NESTED_CHUNK_RE.findAll(home).forEach { chunkRefs += it.groupValues[1] }
 
         for (ref in chunkRefs) {
             val url = if (ref.startsWith("http")) ref else "$baseUrl/${ref.trimStart('/')}"
-            val body = runCatching { client.get(url).use { it.body?.string().orEmpty() } }.getOrDefault("")
+            val body = runCatching { client.getString(url) }.getOrDefault("")
             if (body.contains("aLRCVy") && body.contains("function S(){let W=[")) {
                 return body
             }
@@ -452,14 +459,8 @@ object Scramble {
         for ((dstY, srcY, tileH) in layout) {
             canvas.drawBitmap(
                 bitmap,
-                0f,
-                srcY.toFloat(),
-                width.toFloat(),
-                tileH.toFloat(),
-                0f,
-                dstY.toFloat(),
-                width.toFloat(),
-                tileH.toFloat(),
+                Rect(0, srcY, width, srcY + tileH),
+                Rect(0, dstY, width, dstY + tileH),
                 null,
             )
         }

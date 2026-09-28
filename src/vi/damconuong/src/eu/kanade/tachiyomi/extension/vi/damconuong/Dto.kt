@@ -61,7 +61,7 @@ class MangaDto(
 
     fun toSMangaDetails() = toSManga().apply {
         description = pilot?.let { htmlToText(it) }?.ifEmpty { null }
-        author = this@MangaDto.author?.name ?: artist?.name
+        author = this@MangaDto.author?.name ?: this@MangaDto.artist?.name
         genre = genres.joinToString { it.name }.ifEmpty { null }
         status = when (this@MangaDto.status) {
             2 -> SManga.ONGOING
