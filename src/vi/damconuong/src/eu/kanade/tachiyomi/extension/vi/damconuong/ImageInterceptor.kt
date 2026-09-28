@@ -25,7 +25,7 @@ import javax.crypto.spec.SecretKeySpec
 /** Plain OkHttp GET (keiyoushi.network.get requires an HttpSource context). */
 private fun OkHttpClient.getString(url: String): String {
     val response = newCall(Request.Builder().url(url).build()).execute()
-    return response.use { it.body?.string().orEmpty() }
+    return response.use { it.body.string() }
 }
 
 // ================================ Pages DTOs ================================
@@ -564,7 +564,7 @@ class ScrambleInterceptor : Interceptor {
         val response = chain.proceed(request.newBuilder().url(cleanUrl).build())
         if (!response.isSuccessful) return response
 
-        val bytes = response.body?.bytes() ?: return response
+        val bytes = response.body.bytes()
         val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             ?: return response.withBody(bytes)
 
