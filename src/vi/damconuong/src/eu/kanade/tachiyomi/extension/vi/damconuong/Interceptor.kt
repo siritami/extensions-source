@@ -192,8 +192,10 @@ object DecoderScraper {
 
     private fun isDecoderBundle(body: String): Boolean {
         if (body.isEmpty()) return false
-        return body.contains("aLRCVy") ||
-            (body.contains("function S(){let W=[") && body.contains("HMAC"))
+        return STRING_ARRAY_RE.containsMatchIn(body) &&
+            body.contains("decodeURIComponent") &&
+            body.contains("for(;;)") &&
+            body.contains("parseInt")
     }
 
     private fun decodeStringTable(js: String, obfAlphabet: String): Map<String, String> {
@@ -203,45 +205,24 @@ object DecoderScraper {
             .map { it.groupValues[1].toInt() to it.groupValues[2] }
             .distinct()
             .toList()
+        val indexOffset = INDEX_OFFSET_RE.find(js)?.groupValues?.get(1)?.toInt() ?: 127
 
         val table = ArrayList(rawStrings)
         repeat(table.size) {
-            val decoder = StringDecoder(table, obfAlphabet)
-            if (checksum(decoder)) {
-                val out = HashMap<String, String>()
-                for ((index, key) in pairs) {
-                    runCatching { out["$index|$key"] = decoder.decode(index, key) }
-                }
+            val decoder = StringDecoder(table, obfAlphabet, indexOffset)
+            val out = HashMap<String, String>()
+            for ((index, key) in pairs) {
+                runCatching { out["$index|$key"] = decoder.decode(index, key) }
+            }
+            val secret = out.values.firstOrNull { it.matches(SECRET_RE) }
+            val tokenAlpha = out.values.firstOrNull { it.length == 64 && ALPHABET_RE.matches(it) }
+            if (secret != null && tokenAlpha != null) {
                 return out
             }
             table.add(table.removeAt(0))
         }
         error("decoder string table rotation failed")
     }
-
-    private fun parseJsInt(value: String): Double {
-        val match = Regex("^[+-]?\\d+").find(value.trim()) ?: return Double.NaN
-        return match.value.toDouble()
-    }
-
-    private fun checksum(d: StringDecoder): Boolean = runCatching {
-        val a = parseJsInt(d.decode(194, "TzA0"))
-        val b = parseJsInt(d.decode(358, "R*ME"))
-        val c = parseJsInt(d.decode(380, "TzA0"))
-        val e = parseJsInt(d.decode(299, "lB]H"))
-        val f = parseJsInt(d.decode(136, "29CC"))
-        val g = parseJsInt(d.decode(294, "1^^5"))
-        val h = parseJsInt(d.decode(192, "3cvp"))
-        val i = parseJsInt(d.decode(311, "ZnCW"))
-        val j = parseJsInt(d.decode(385, "EG)e"))
-        val k = parseJsInt(d.decode(206, "qiSG"))
-        val l = parseJsInt(d.decode(290, "TzA0"))
-        val m = parseJsInt(d.decode(313, "J%(R"))
-        val total = a / 1.0 * (b / 2.0) + c / 3.0 * (-e / 4.0) +
-            -f / 5.0 + -g / 6.0 + -h / 7.0 * (i / 8.0) +
-            -j / 9.0 * (k / 10.0) + -l / 11.0 * (-m / 12.0)
-        total == 436543.0
-    }.getOrDefault(false)
 
     private fun parseJsStringArray(body: String): List<String> {
         val out = ArrayList<String>()
@@ -260,11 +241,12 @@ object DecoderScraper {
     private class StringDecoder(
         private val table: List<String>,
         private val obfAlphabet: String,
+        private val indexOffset: Int,
     ) {
         private val cache = HashMap<Int, String>()
 
         fun decode(index: Int, key: String): String {
-            val adjusted = index - 127
+            val adjusted = index - indexOffset
             if (adjusted !in table.indices) error("bad index")
             cache[adjusted]?.let { return it }
             val plain = rc4(customB64Decode(table[adjusted]), key)
@@ -299,8 +281,9 @@ object DecoderScraper {
     private val SECRET_RE = Regex("^[A-Za-z0-9_-]{43}$")
     private val ALPHABET_RE = Regex("^[A-Za-z0-9+/_-]{64}$")
     private val OBF_B64_RE = Regex("\"([A-Za-z0-9+/]{64}=)\"\\s*\\.indexOf")
-    private val STRING_ARRAY_RE = Regex("function S\\(\\)\\{let W=(\\[.*?\\]);return", RegexOption.DOT_MATCHES_ALL)
-    private val PAIR_RE = Regex("[kfC]\\((\\d+),\\s*\"([^\"]*)\"\\)")
+    private val STRING_ARRAY_RE = Regex("function \\w+\\(\\)\\{let W=(\\[.*?\\]);return", RegexOption.DOT_MATCHES_ALL)
+    private val PAIR_RE = Regex("\\w+\\((\\d+),\\s*\"([^\"]*)\"\\)")
+    private val INDEX_OFFSET_RE = Regex("function \\w+\\(\\w+,\\w+\\)\\{\\w+-=(\\d+)")
     internal val CHUNK_RE = Regex("(?:src|href)=\"(/_next/static/chunks/[^\"]+\\.js)")
     private val NESTED_CHUNK_RE = Regex("static/chunks/([A-Za-z0-9_\\-\\.]+\\.js)")
 }
