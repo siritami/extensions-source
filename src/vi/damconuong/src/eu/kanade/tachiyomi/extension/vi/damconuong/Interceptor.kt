@@ -24,7 +24,6 @@ import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-/** Plain OkHttp GET (keiyoushi.network.get requires an HttpSource context). */
 private fun OkHttpClient.getString(url: String): String {
     val response = newCall(Request.Builder().url(url).build()).execute()
     return response.use { it.body.string() }
@@ -45,7 +44,6 @@ class PagesPayload(
 
 // =============================== Site cache ================================
 
-/** SharedPreferences cache for scraped site config (API base + decoder material). */
 object SiteCache {
     private const val KEY_API = "api_base"
     private const val KEY_SECRET = "decoder_secret"
@@ -79,7 +77,6 @@ object SiteCache {
 
 // ============================== API discovery =============================
 
-/** Resolves `https://…/api/v1` from site HTML/JS; cached in [SiteCache] and reused. */
 object ApiBase {
     @Volatile private var memory: String? = null
 
@@ -140,13 +137,6 @@ object ApiBase {
 
 // =========================== Decoder string scrape =========================
 
-/**
- * Pulls token secret + base64 alphabet out of the site's obfuscated decoder bundle
- * at runtime, so they are not hardcoded in the extension.
- *
- * The bundle uses a javascript-obfuscator string table: RC4(key) over a custom
- * base64 alphabet, with the array rotated until a checksum matches.
- */
 object DecoderScraper {
     data class Config(
         val secret: String,
@@ -184,7 +174,6 @@ object DecoderScraper {
 
     private suspend fun fetchDecoderJs(client: OkHttpClient, baseUrl: String): String {
         val home = client.getString(baseUrl)
-        // Queue walk: never mutate a collection while iterating it.
         val pending = ArrayDeque<String>()
         val seen = HashSet<String>()
         fun add(ref: String) {
@@ -228,7 +217,6 @@ object DecoderScraper {
             .toList()
 
         val table = ArrayList(rawStrings)
-        // Rotate until the bundle's integer checksum matches (same as its for(;;) loop).
         repeat(table.size) {
             val decoder = StringDecoder(table)
             if (checksum(decoder)) {
@@ -243,7 +231,6 @@ object DecoderScraper {
         error("decoder string table rotation failed")
     }
 
-    /** JS parseInt: leading integer, trailing junk ignored; non-numeric → NaN. */
     private fun parseJsInt(value: String): Double {
         val match = Regex("^[+-]?\\d+").find(value.trim()) ?: return Double.NaN
         return match.value.toDouble()
@@ -294,10 +281,6 @@ object DecoderScraper {
             return plain
         }
 
-        /**
-         * Bundle's r(): custom base64 (lowercase-first alphabet), then UTF-8 decode.
-         * Emit when (o % 4) != 0 using o AFTER increment for the shift — matches `o++%4`.
-         */
         private fun customB64Decode(input: String): String {
             val alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/="
             val bytes = ArrayList<Byte>()
@@ -317,7 +300,6 @@ object DecoderScraper {
         }
 
         private fun rc4(input: String, key: String): String {
-            // Bundle RC4 runs on char codes; core helper works on bytes (ISO-8859-1 equivalent).
             val data = ByteArray(input.length) { input[it].code.toByte() }
             val out = data.rc4(key.toByteArray(StandardCharsets.ISO_8859_1))
             return out.toString(StandardCharsets.ISO_8859_1)
@@ -336,17 +318,6 @@ object DecoderScraper {
 
 // ============================== Pages crypto ===============================
 
-/**
- * Pages request token + AES-GCM payload decrypt.
- *
- * secret is scraped from the site decoder at runtime (see [DecoderScraper]).
- * tokKey = HMAC-SHA256(secret, "tok")
- * encKey = HMAC-SHA256(secret, "enc")
- * token  = base64url(0x01 || HMAC-SHA256(tokKey, path)[0..16])
- * aesKey = HMAC-SHA256(encKey, token)
- * payload.e = base64url(iv[12] || ciphertext || tag[16])
- * AAD = utf8(path) where path is "mangaSlug/chapterSlug"
- */
 object PagesCrypto {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -440,12 +411,6 @@ object PagesCrypto {
 
 // ================================= Scramble ================================
 
-/**
- * Vertical tile shuffle used by the site's reader.
- *
- * Scramble key format: "x1." + base64url(32-byte seed).
- * The tile grid comes from an HMAC-SHA256 PRNG seeded with those 32 bytes.
- */
 object Scramble {
     private const val PREFIX = "x1."
     private const val KEY_LENGTH = 46
@@ -480,7 +445,6 @@ object Scramble {
         return out
     }
 
-    /** @return (dstY, srcY, tileH) triples, matching the site's paint() layout. */
     private fun buildLayout(seed: ByteArray, height: Int): List<Triple<Int, Int, Int>>? {
         val rng = HmacPrng(seed)
         val rows = 8 + rng.nextInt(13)
@@ -500,7 +464,6 @@ object Scramble {
 
         val layout = ArrayList<Triple<Int, Int, Int>>(rows + 1)
         for (i in 0 until rows) {
-            // paint(): drawImage(img, 0, i*tileH, w, tileH, 0, perm[i]*tileH, w, tileH)
             layout.add(Triple(perm[i] * tileH, i * tileH, tileH))
         }
         if (height > total) {

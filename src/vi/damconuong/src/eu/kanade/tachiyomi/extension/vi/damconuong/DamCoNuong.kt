@@ -214,7 +214,6 @@ abstract class DamCoNuong : KeiSource() {
         return payload.p.mapIndexedNotNull { index, src ->
             if (src.isBlank()) return@mapIndexedNotNull null
             val key = payload.s?.getOrNull(index)?.takeIf { it.isNotEmpty() }
-            // Fragment carries the scramble key for ScrambleInterceptor; OkHttp strips it from the request line.
             val imageUrl = if (key != null) "$src#$key" else src
             Page(index, url = imageUrl, imageUrl = imageUrl)
         }
