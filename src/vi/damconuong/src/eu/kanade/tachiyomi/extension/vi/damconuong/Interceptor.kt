@@ -184,7 +184,7 @@ object DecoderScraper {
 
     private suspend fun fetchDecoderJs(client: OkHttpClient, baseUrl: String): String {
         val home = client.getString(baseUrl)
-        // Queue walk: never mutate a set while iterating it (CME in getPageList).
+        // Queue walk: never mutate a collection while iterating it.
         val pending = ArrayDeque<String>()
         val seen = HashSet<String>()
         fun add(ref: String) {
@@ -193,16 +193,30 @@ object DecoderScraper {
         CHUNK_RE.findAll(home).forEach { add(it.groupValues[1]) }
         NESTED_CHUNK_RE.findAll(home).forEach { add(it.groupValues[1]) }
 
+        fun resolveUrl(ref: String): String {
+            val root = baseUrl.trimEnd('/')
+            return when {
+                ref.startsWith("http") -> ref
+                ref.startsWith("/_next/") -> root + ref
+                ref.startsWith("/") -> root + ref
+                ref.startsWith("static/") -> "$root/_next/$ref"
+                else -> "$root/_next/static/chunks/$ref"
+            }
+        }
+
         while (pending.isNotEmpty()) {
             val ref = pending.removeFirst()
-            val url = if (ref.startsWith("http")) ref else "$baseUrl/${ref.trimStart('/')}"
-            val body = runCatching { client.getString(url) }.getOrDefault("")
-            if (body.contains("aLRCVy") && body.contains("function S(){let W=[")) {
-                return body
-            }
+            val body = runCatching { client.getString(resolveUrl(ref)) }.getOrDefault("")
+            if (isDecoderBundle(body)) return body
             NESTED_CHUNK_RE.findAll(body).forEach { add(it.groupValues[1]) }
         }
         error("decoder bundle not found")
+    }
+
+    private fun isDecoderBundle(body: String): Boolean {
+        if (body.isEmpty()) return false
+        return body.contains("aLRCVy") ||
+            (body.contains("function S(){let W=[") && body.contains("HMAC"))
     }
 
     private fun decodeStringTable(js: String): Map<String, String> {
