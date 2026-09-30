@@ -6,8 +6,8 @@ plugins {
 
 keiyoushi {
     name = "MoeTruyen"
-    versionCode = 19
-    contentWarning = ContentWarning.SAFE
+    versionCode = 20
+    contentWarning = ContentWarning.MIXED
     libVersion = "1.6"
 
     deeplink {
@@ -24,3 +24,4 @@ keiyoushi {
         }
     }
 }
+
