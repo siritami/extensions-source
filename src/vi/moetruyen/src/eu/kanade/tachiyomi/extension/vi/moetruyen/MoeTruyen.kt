@@ -367,11 +367,9 @@ abstract class MoeTruyen : KeiSource() {
     }
 
     private suspend fun isLoggedIn(): Boolean {
-        return runCatching {
-            client.get("$baseUrl/auth/session", ensureSuccess = false).use { response ->
-                response.isSuccessful && response.parseAs<AuthSession>().session != null
-            }
-        }.getOrDefault(false)
+        return client.get("$baseUrl/auth/session", ensureSuccess = false).use { response ->
+            response.isSuccessful && response.parseAs<AuthSession>().session != null
+        }
     }
 
     private suspend fun unlockByComment(chapter: SChapter, document: Document, chapterUrl: String) {
