@@ -48,7 +48,6 @@ abstract class DamCoNuong : KeiSource() {
     private fun authInterceptor() = Interceptor { chain ->
         val request = chain.request()
         val token = authToken?.takeIf { it.isNotBlank() }
-        // Only the API needs the Bearer token (not image CDN / site assets).
         if (token != null && request.url.host == apiHost) {
             chain.proceed(request.newBuilder().header("Authorization", "Bearer $token").build())
         } else {
