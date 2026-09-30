@@ -366,8 +366,16 @@ abstract class MoeTruyen : KeiSource() {
         return text.contains("Bạn phải bình luận") || text.contains("yêu cầu bình luận")
     }
 
+    private suspend fun isLoggedIn(): Boolean {
+        return runCatching {
+            client.get("$baseUrl/auth/session", ensureSuccess = false).use { response ->
+                response.isSuccessful && response.parseAs<AuthSession>().session != null
+            }
+        }.getOrDefault(false)
+    }
+
     private suspend fun unlockByComment(chapter: SChapter, document: Document, chapterUrl: String) {
-        if (document.selectFirst("[data-auth-login]:not([hidden])") != null) {
+        if (!isLoggedIn()) {
             throw Exception(loginRequiredMessage)
         }
 
@@ -615,5 +623,10 @@ abstract class MoeTruyen : KeiSource() {
     private class CommentRequest(
         val content: String,
         val requestId: String,
+    )
+
+    @Serializable
+    private class AuthSession(
+        val session: JsonObject? = null,
     )
 }
