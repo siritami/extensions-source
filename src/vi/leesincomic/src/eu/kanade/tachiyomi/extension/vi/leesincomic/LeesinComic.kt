@@ -28,8 +28,12 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Calendar
 import java.util.Locale
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class LeesinComic : KeiSource() {
@@ -181,28 +185,27 @@ abstract class LeesinComic : KeiSource() {
     private fun parseRelativeDate(dateStr: String?): Long {
         if (dateStr.isNullOrBlank()) return 0L
 
-        val calendar = Calendar.getInstance()
         when {
-            dateStr.contains("Vừa xong") -> return calendar.timeInMillis
-            dateStr.contains("Hôm nay") -> Unit
-            dateStr.contains("Hôm qua") -> calendar.add(Calendar.DAY_OF_MONTH, -1)
-            else -> {
-                val number = NUMBER_REGEX.find(dateStr)?.value?.toIntOrNull()
-                    ?: return DATE_FORMAT.tryParseDate(dateStr, ZoneId.of("Asia/Ho_Chi_Minh"))
-                when {
-                    dateStr.contains("giây") -> calendar.add(Calendar.SECOND, -number)
-                    dateStr.contains("phút") -> calendar.add(Calendar.MINUTE, -number)
-                    dateStr.contains("giờ") -> calendar.add(Calendar.HOUR_OF_DAY, -number)
-                    dateStr.contains("ngày") -> calendar.add(Calendar.DAY_OF_MONTH, -number)
-                    dateStr.contains("tuần") -> calendar.add(Calendar.WEEK_OF_YEAR, -number)
-                    dateStr.contains("tháng") -> calendar.add(Calendar.MONTH, -number)
-                    dateStr.contains("năm") -> calendar.add(Calendar.YEAR, -number)
-                    else -> return DATE_FORMAT.tryParseDate(dateStr, ZoneId.of("Asia/Ho_Chi_Minh"))
-                }
-            }
+            dateStr.contains("Vừa xong") -> return Clock.System.now().toEpochMilliseconds()
+            dateStr.contains("Hôm nay") -> return Clock.System.now().toEpochMilliseconds()
+            dateStr.contains("Hôm qua") -> return (Clock.System.now() - 1.days).toEpochMilliseconds()
         }
 
-        return calendar.timeInMillis
+        val number = numberRegex.find(dateStr)?.value?.toIntOrNull()
+            ?: return dateFormat.tryParseDate(dateStr, siteZone)
+
+        val duration = when {
+            dateStr.contains("giây") -> number.seconds
+            dateStr.contains("phút") -> number.minutes
+            dateStr.contains("giờ") -> number.hours
+            dateStr.contains("ngày") -> number.days
+            dateStr.contains("tuần") -> (number * 7).days
+            dateStr.contains("tháng") -> (number * 30).days
+            dateStr.contains("năm") -> (number * 365).days
+            else -> return dateFormat.tryParseDate(dateStr, siteZone)
+        }
+
+        return (Clock.System.now() - duration).toEpochMilliseconds()
     }
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
@@ -278,8 +281,7 @@ abstract class LeesinComic : KeiSource() {
         FilterOption(name, href)
     }
 
-    companion object {
-        private val NUMBER_REGEX = Regex("""\d+""")
-        private val DATE_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
-    }
+    private val numberRegex = Regex("""\d+""")
+    private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
+    private val siteZone = ZoneId.of("Asia/Ho_Chi_Minh")
 }

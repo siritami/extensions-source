@@ -14,11 +14,16 @@ class FilterData(
     val groups: List<FilterOption> = emptyList(),
 )
 
-fun getFilters(data: FilterData?): FilterList = FilterList(
-    TypeFilter(data?.types.orEmpty()),
-    GenreFilter(data?.genres.orEmpty()),
-    GroupFilter(data?.groups.orEmpty()),
-)
+fun getFilters(data: FilterData?): FilterList {
+    val filters = mutableListOf<Filter<*>>()
+    val types = data?.types.orEmpty()
+    val genres = data?.genres.orEmpty()
+    val groups = data?.groups.orEmpty()
+    if (types.isNotEmpty()) filters += TypeFilter(types)
+    if (genres.isNotEmpty()) filters += GenreFilter(genres)
+    if (groups.isNotEmpty()) filters += GroupFilter(groups)
+    return FilterList(filters)
+}
 
 class TypeFilter(options: List<FilterOption>) : UriPartFilter("Danh sách", options)
 
