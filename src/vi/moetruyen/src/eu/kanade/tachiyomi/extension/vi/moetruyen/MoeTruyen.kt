@@ -378,6 +378,7 @@ abstract class MoeTruyen : KeiSource() {
         val previousUrl = document.select("a[href*=/chapters/]")
             .firstOrNull { it.text().contains("chương trước", ignoreCase = true) }
             ?.absUrl("href")
+            ?.takeIf { it.isNotBlank() }
             ?: throw Exception(loginRequiredMessage)
 
         val comment = promptForComment(chapter.name)
@@ -447,12 +448,14 @@ abstract class MoeTruyen : KeiSource() {
         val response = client.post("$previousChapterUrl/comments", requestHeaders, body, ensureSuccess = false)
         if (!response.isSuccessful) {
             val code = response.code
-            response.close()
+            val errorBody = response.body.string()
+            val apiError = runCatching { errorBody.parseAs<ApiError>() }.getOrNull()
             throw Exception(
-                when (code) {
-                    401, 403 -> loginRequiredMessage
-                    else -> "Không thể mở khóa chương ($code)"
-                },
+                apiError?.error?.takeIf { it.isNotBlank() }
+                    ?: when (code) {
+                        401, 403 -> loginRequiredMessage
+                        else -> "Không thể mở khóa chương ($code)"
+                    },
             )
         }
         response.close()
@@ -624,5 +627,10 @@ abstract class MoeTruyen : KeiSource() {
     @Serializable
     private class AuthSession(
         val session: JsonObject? = null,
+    )
+
+    @Serializable
+    private class ApiError(
+        val error: String? = null,
     )
 }
