@@ -385,6 +385,7 @@ abstract class MoeTruyen : KeiSource() {
         postChapterComment(previousUrl, chapterUrl, comment)
     }
 
+    // Some chapters require comment in previous chapter to unlock
     private suspend fun promptForComment(chapterTitle: String): String {
         val activity = currentActivity?.get()
             ?: throw Exception(loginRequiredMessage)
