@@ -15,7 +15,6 @@ class FilterData(
 )
 
 fun getFilters(data: FilterData?): FilterList = FilterList(
-    Filter.Header("Tìm kiếm không kết hợp với bộ lọc"),
     TypeFilter(data?.types.orEmpty()),
     GenreFilter(data?.genres.orEmpty()),
     GroupFilter(data?.groups.orEmpty()),

@@ -16,10 +16,8 @@ private var cachedAuthToken: String? = null
 
 private suspend fun loadAuthToken() {
     if (cachedAuthToken != null) return
-    cachedAuthToken = runCatching {
-        getLocalStorage(baseUrl, "token")
-            ?.takeIf { it.isNotBlank() }
-    }.getOrNull()
+    cachedAuthToken = getLocalStorage(baseUrl, "token")
+        ?.takeIf { it.isNotBlank() }
 }
 
 // 2. Call it from the first suspend method (e.g. getPopularManga)
@@ -1208,3 +1206,162 @@ In lib 1.6, use the `filters` argument passed to `getSearchMangaList` directly.
 Do not replace an empty list with `getFilters()`: the application obtains the
 source's filter list through `getFilterList`, including dynamically fetched
 filter data, and passes the current filter state to the search method.
+
+## Prefer `parseAs` / `jsonInstance` Over a Local `Json`
+
+Do not create `private val json = Json { ... }` in a source object when
+`keiyoushi.utils.parseAs` (shared `jsonInstance`) is enough.
+
+```kotlin
+// ❌ Don't
+object PagesCrypto {
+    private val json = Json { ignoreUnknownKeys = true }
+    fun decrypt(...): PagesPayload =
+        json.decodeFromString(PagesPayload.serializer(), plaintext)
+}
+
+// ✅ Do
+object PagesCrypto {
+    fun decrypt(...): PagesPayload = plaintext.parseAs()
+}
+```
+
+Use `String.parseAs<T>()`, `Response.parseAs<T>()`, or `JsonElement.parseAs<T>()`.
+Set `ignoreUnknownKeys` only if the shared instance is insufficient and a custom
+serializer is truly required.
+
+## Meaningful DTO Property Names with `@SerialName`
+
+When the API uses short or cryptic JSON keys, name Kotlin properties for readers
+and map the wire keys with `@SerialName`. Do not copy the API's one-letter names
+into the source when a clear name is available.
+
+```kotlin
+// ❌ Don't
+@Serializable
+class PagesResponse(val e: String)
+@Serializable
+class PagesPayload(val p: List<String> = emptyList(), val s: List<String?>? = null)
+
+// ✅ Do
+@Serializable
+class PagesResponse(
+    @SerialName("e") val encrypted: String,
+)
+
+@Serializable
+class PagesPayload(
+    @SerialName("p") val pages: List<String> = emptyList(),
+    @SerialName("s") val scrambleKeys: List<String?>? = null,
+)
+```
+
+Apply the same idea to API fields such as `cover_full_url` → `coverFullUrl` with
+`@SerialName("cover_full_url")`.
+
+## HTML to Plain Text with Jsoup
+
+Strip tags and unescape entities with Jsoup instead of hand-rolled regex +
+entity maps.
+
+```kotlin
+import org.jsoup.Jsoup
+import org.jsoup.parser.Parser
+
+// ❌ Don't — regex strip + manual &amp; / &lt; replacements
+private fun htmlToText(html: String): String = html
+    .replace(Regex("<[^>]+>"), "")
+    .replace("&amp;", "&")
+    // ...
+
+// ✅ Do
+private fun htmlToText(html: String): String {
+    val text = Jsoup.parse(html).wholeOwnText()
+    return Parser.unescapeEntities(text, false).trim()
+}
+```
+
+Use `wholeOwnText()` when you want the element's own text without merging block
+boundaries the way `wholeText()` can. Always run `Parser.unescapeEntities` so
+character references become real characters.
+
+## No Unnecessary `runCatching` Around Parsing
+
+`parseAs` / `getLocalStorage` already return null or throw on bad data. Do not
+wrap them in `runCatching { ... }.getOrNull()` unless a specific failure must be
+ignored. Prefer an explicit `?.` for nullable helpers and let parse errors surface.
+
+```kotlin
+// ❌ Don't
+val token = runCatching {
+    raw.parseAs<AuthStorage>().state?.token
+}.getOrNull()
+
+// ✅ Do
+val token = raw.parseAs<AuthStorage>().state?.token?.takeIf { it.isNotBlank() }
+```
+
+## Fetch Details and Chapters Concurrently
+
+When `fetchMangaUpdate` hits independent details and chapter endpoints, run both
+in `coroutineScope` + `async` (see also *Fetch Independent Data in Parallel*).
+
+```kotlin
+override suspend fun fetchMangaUpdate(
+    manga: SManga,
+    chapters: List<SChapter>,
+    fetchDetails: Boolean,
+    fetchChapters: Boolean,
+): SMangaUpdate = coroutineScope {
+    val detailsDeferred = async {
+        if (!fetchDetails) return@async manga
+        fetchDetails(manga)
+    }
+    val chaptersDeferred = async {
+        if (fetchChapters) fetchChapterList(manga) else chapters
+    }
+    SMangaUpdate(manga = detailsDeferred.await(), chapters = chaptersDeferred.await())
+}
+```
+
+## Return Filter Payloads as the Raw List
+
+When `fetchFilterData()` only collects a list of options, return that list as a
+`JsonElement` (`genres.toJsonElement()`). Avoid wrapping it in
+`buildJsonObject { put("genres", ...) }` unless extra sibling keys are required.
+
+```kotlin
+// ✅ Do
+override suspend fun fetchFilterData(): JsonElement = loadGenres().toJsonElement()
+
+override fun getFilterList(data: JsonElement?): FilterList =
+    getFilters(data?.parseAs<List<GenreOption>>())
+```
+
+Match `getFilterList` to the same shape. If the stored payload is a bare array,
+parse `List<T>`, not an object wrapper. Do not wrap `parseAs` in `runCatching`.
+
+## Store Related-Taxonomy Slugs in Memo
+
+If related manga are resolved from group/author/artist/genre slugs, write those
+slugs into `SManga.memo` during `fetchMangaUpdate` so `fetchRelatedMangaList` can
+reuse them without another details request (see *Store Request Identifiers in
+Memo*).
+
+```kotlin
+memo = buildJsonObject {
+    dto.group?.slug?.let { put("group_slug", it) }
+    dto.author?.slug?.let { put("author_slug", it) }
+    dto.artist?.slug?.let { put("artist_slug", it) }
+    dto.genres.firstOrNull()?.slug?.let { put("genre_slug", it) }
+}
+
+// later
+val sources = listOfNotNull(
+    manga.memo["group_slug"]?.stringOrNull?.let { "groups" to it },
+    // ...
+)
+```
+
+Keep a details-request fallback for library entries created before the memo keys
+existed.
