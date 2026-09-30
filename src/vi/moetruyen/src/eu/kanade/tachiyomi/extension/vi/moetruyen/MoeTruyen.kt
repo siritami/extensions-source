@@ -366,10 +366,8 @@ abstract class MoeTruyen : KeiSource() {
         return text.contains("Bạn phải bình luận") || text.contains("yêu cầu bình luận")
     }
 
-    private suspend fun isLoggedIn(): Boolean {
-        return client.get("$baseUrl/auth/session", ensureSuccess = false).use { response ->
-            response.isSuccessful && response.parseAs<AuthSession>().session != null
-        }
+    private suspend fun isLoggedIn(): Boolean = client.get("$baseUrl/auth/session", ensureSuccess = false).use { response ->
+        response.isSuccessful && response.parseAs<AuthSession>().session != null
     }
 
     private suspend fun unlockByComment(chapter: SChapter, document: Document, chapterUrl: String) {
