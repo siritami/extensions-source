@@ -171,66 +171,60 @@ Do not read `source.buffer` after requesting only a small signature prefix. The
 buffer may contain only that prefix and produce truncated data. Keep the read
 inside `ResponseBody.use` so the original response body is closed.
 
-## Respect `fetchChapters` in `fetchMangaUpdate`
+## `fetchMangaUpdate` Flags — Do Not Gate Same-Page Parsing
 
-When overriding `fetchMangaUpdate`, check the `fetchChapters` parameter before
-calling `fetchChapterList`. Omitting this check causes unnecessary network calls
-when the client only requests manga details. When `fetchChapters` is `false`,
-return the `chapters` argument so the existing chapter list is preserved.
+CONTRIBUTING is explicit about `fetchDetails` / `fetchChapters`:
+
+> If manga details and the chapter list come from the **same page or the same API
+> response**, fetch and parse it once and return both the updated `SManga` and the
+> full chapter list, **regardless of the `fetchDetails`/`fetchChapters` flags** —
+> there's no separate request to skip, so honoring the flags would just mean
+> discarding data you already parsed.
+
+Do **not** write patterns like:
 
 ```kotlin
-override suspend fun fetchMangaUpdate(
-    manga: SManga,
-    chapters: List<SChapter>,
-    fetchDetails: Boolean,
-    fetchChapters: Boolean,
-): SMangaUpdate {
-    val document = client.get(getMangaUrl(manga)).asJsoup()
-    return SMangaUpdate(
-        manga = parseMangaDetails(document, manga),
-        chapters = if (fetchChapters) fetchChapterList(document) else chapters,
-    )
+// ❌ Don't — same document already contains chapters
+chapters = if (fetchChapters) parseChapterList(document) else chapters,
+```
+
+Once you have paid for `client.get(...).asJsoup()` (or one API call that includes
+both fields), parse and return **both**. Throwing away the chapter list when
+`fetchChapters == false` leaves manga state stale and contradicts
+[Fetch Manga Update — Always Return Both](#fetch-manga-update---always-return-both).
+
+Only honor the flags when details and chapters live behind **separate** requests.
+Then skip the call the flag does not ask for (and if both flags are true, fire the
+two requests concurrently — see
+[Fetch Details and Chapters Concurrently](#fetch-details-and-chapters-concurrently)).
+
+## URL Fragments vs `memo`
+
+CONTRIBUTING limits URL fragments and prefers `memo`:
+
+- **URL fragments** (`#...`) are only for **`Page.url`**, to pass transient data to
+  OkHttp image interceptors. The fragment is not sent to the server.
+- **Do not** put manga- or chapter-level state (IDs, slugs, fallback URLs, auth
+  bits) into `SManga.url` / `SChapter.url` fragments. That corrupts URLs and breaks
+  when URLs are stripped or re-parsed.
+- Use **`SManga.memo` / `SChapter.memo`** (`JsonObject`) for identifiers and
+  metadata that must survive search → details → chapters.
+
+```kotlin
+// ❌ Don't — fragment on the manga URL
+setUrlWithoutDomain("/manga/$slug#postId=$id")
+
+// ✅ Do — structured memo
+SManga.create().apply {
+    setUrlWithoutDomain("/manga/$slug")
+    memo = buildJsonObject { put("postId", id) }
 }
 ```
 
-## Store Thumbnail Fallback URLs in Fragments
-
-When each thumbnail has its own fallback URL, store the fallback in the primary
-thumbnail URL's fragment and read it from an application interceptor. URL
-fragments remain available through `request.url.fragment` but are not sent to
-the image server.
-
-```kotlin
-private val thumbnailFallbackInterceptor = Interceptor { chain ->
-    val request = chain.request()
-    val response = chain.proceed(request)
-    val fallbackUrl = request.url.fragment
-        ?.takeIf { it.startsWith(thumbnailFallbackFragmentPrefix) }
-        ?.removePrefix(thumbnailFallbackFragmentPrefix)
-        ?: return@Interceptor response
-
-    if (response.code != 401 && response.code != 404) {
-        return@Interceptor response
-    }
-
-    response.close()
-    chain.proceed(GET(fallbackUrl, request.headers))
-}
-
-private fun withThumbnailFallback(primaryUrl: String, fallbackUrl: String): String =
-    primaryUrl.toHttpUrl().newBuilder()
-        .fragment("$thumbnailFallbackFragmentPrefix$fallbackUrl")
-        .build()
-        .toString()
-
-private val thumbnailFallbackFragmentPrefix = "fallback-url:"
-```
-
-Prefer this over storing primary-to-fallback pairs in a mutable map. The
-fragment keeps the fallback scoped to its image request, works for repeated and
-concurrent requests, and does not leave stale entries when an image is never
-loaded. Use a distinct prefix so the interceptor ignores unrelated fragments,
-and close the failed response before executing the fallback request.
+If a thumbnail needs a secondary URL for a failed primary fetch, do not hide that
+pair in a URL fragment. Prefer resolving a single good URL when scraping, or keep
+extra image-request data only on `Page.url` fragments (the one case CONTRIBUTING
+allows). For anything the library must remember, use `memo`.
 
 ## Preserve Actionable Custom Messages
 
