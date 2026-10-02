@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.vi.damconuong
 
-import android.webkit.CookieManager
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -17,6 +16,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.stringOrNull
 import keiyoushi.utils.toJsonElement
+import keiyoushi.utils.tryParseDate
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.datetime.Clock
@@ -28,6 +28,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import org.jsoup.Jsoup
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
@@ -38,42 +41,23 @@ abstract class DamCoNuong : KeiSource() {
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         rateLimit(5)
         addInterceptor(ScrambleInterceptor())
-        addInterceptor(authInterceptor())
+        addInterceptor(ajaxInterceptor())
     }
 
     private val preferences by getPreferencesLazy()
 
-    private val cookieManager by lazy { CookieManager.getInstance() }
-
     private val api = "https://api.damconuong.pw/api/v1"
-    private val apiHost = api.toHttpUrl().host
 
-    private fun authInterceptor() = Interceptor { chain ->
+    private fun ajaxInterceptor() = Interceptor { chain ->
         val request = chain.request()
-        val host = request.url.host
-        val baseHost = baseUrl.toHttpUrl().host
-        val builder = request.newBuilder()
-        var modified = false
-
-        if (host == baseHost || host == apiHost) {
-            val cookies = cookieManager.getCookie(baseUrl)
-            if (!cookies.isNullOrBlank()) {
-                builder.header("Cookie", cookies)
-                modified = true
-            }
-        }
-
         if (request.url.encodedPath.startsWith("/_c/")) {
-            builder.header("X-Requested-With", "XMLHttpRequest")
-            builder.header("Accept", "application/json")
-            modified = true
+            val newRequest = request.newBuilder()
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Accept", "application/json")
+                .build()
+            return@Interceptor chain.proceed(newRequest)
         }
-
-        if (modified) {
-            chain.proceed(builder.build())
-        } else {
-            chain.proceed(request)
-        }
+        chain.proceed(request)
     }
 
     private fun isLoginRequired(text: String): Boolean =
@@ -295,28 +279,39 @@ abstract class DamCoNuong : KeiSource() {
             SChapter.create().apply {
                 this.url = a.absUrl("href").toHttpUrl().encodedPath
                 name = a.selectFirst(".md-ch-title")?.text()?.trim() ?: a.text().trim()
-                date_upload = parseRelativeDate(a.selectFirst(".md-ch-meta span")?.text()?.trim())
+                date_upload = parseRelativeDate(a.selectFirst(".md-ch-meta span")?.text())
             }
         }
     }
 
-    private val dateNumberRegex = Regex("""\d+""")
+    private val numberRegex = Regex("""\d+""")
+    private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
+    private val siteZone = ZoneId.of("Asia/Ho_Chi_Minh")
 
-    private fun parseRelativeDate(dateText: String?): Long {
-        if (dateText.isNullOrBlank()) return 0L
-        val lower = dateText.lowercase()
-        if ("vừa xong" in lower || "vừa đăng" in lower) return Clock.System.now().toEpochMilliseconds()
+    private fun parseRelativeDate(dateStr: String?): Long {
+        if (dateStr.isNullOrBlank()) return 0L
 
-        val amount = dateNumberRegex.find(lower)?.value?.toLongOrNull() ?: return 0L
+        when {
+            dateStr.contains("Vừa xong", ignoreCase = true) || dateStr.contains("vừa đăng", ignoreCase = true) ->
+                return Clock.System.now().toEpochMilliseconds()
+            dateStr.contains("Hôm nay", ignoreCase = true) ->
+                return Clock.System.now().toEpochMilliseconds()
+            dateStr.contains("Hôm qua", ignoreCase = true) ->
+                return (Clock.System.now() - 1.days).toEpochMilliseconds()
+        }
+
+        val number = numberRegex.find(dateStr)?.value?.toIntOrNull()
+            ?: return dateFormat.tryParseDate(dateStr, siteZone)
+
         val duration = when {
-            "giây" in lower -> amount.seconds
-            "phút" in lower -> amount.minutes
-            "giờ" in lower -> amount.hours
-            "ngày" in lower -> amount.days
-            "tuần" in lower -> (amount * 7).days
-            "tháng" in lower -> (amount * 30).days
-            "năm" in lower -> (amount * 365).days
-            else -> return 0L
+            dateStr.contains("giây") -> number.seconds
+            dateStr.contains("phút") -> number.minutes
+            dateStr.contains("giờ") -> number.hours
+            dateStr.contains("ngày") -> number.days
+            dateStr.contains("tuần") -> (number * 7).days
+            dateStr.contains("tháng") -> (number * 30).days
+            dateStr.contains("năm") -> (number * 365).days
+            else -> return dateFormat.tryParseDate(dateStr, siteZone)
         }
 
         return (Clock.System.now() - duration).toEpochMilliseconds()
@@ -399,11 +394,6 @@ abstract class DamCoNuong : KeiSource() {
             throw Exception("Truyện này cần đăng nhập webview bằng tài khoản phù hợp để xem")
         }
         return fallbackText
-    }
-            val key = payload.scrambleKeys?.getOrNull(index)?.takeIf { it.isNotEmpty() }
-            val imageUrl = if (key != null) "$src#$key" else src
-            Page(index, url = imageUrl, imageUrl = imageUrl)
-        }
     }
 
     // ============================== Filters ===============================
