@@ -19,6 +19,7 @@ import keiyoushi.utils.stringOrNull
 import keiyoushi.utils.toJsonElement
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -26,6 +27,11 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import org.jsoup.Jsoup
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class DamCoNuong : KeiSource() {
@@ -44,19 +50,36 @@ abstract class DamCoNuong : KeiSource() {
 
     private fun authInterceptor() = Interceptor { chain ->
         val request = chain.request()
-        if (request.url.host == apiHost) {
+        val host = request.url.host
+        val baseHost = baseUrl.toHttpUrl().host
+        val builder = request.newBuilder()
+        var modified = false
+
+        if (host == baseHost || host == apiHost) {
             val cookies = cookieManager.getCookie(baseUrl)
             if (!cookies.isNullOrBlank()) {
-                val newRequest = request.newBuilder()
-                    .header("Cookie", cookies)
-                    .build()
-                return@Interceptor chain.proceed(newRequest)
+                builder.header("Cookie", cookies)
+                modified = true
             }
         }
-        chain.proceed(request)
+
+        if (request.url.encodedPath.startsWith("/_c/")) {
+            builder.header("X-Requested-With", "XMLHttpRequest")
+            builder.header("Accept", "application/json")
+            modified = true
+        }
+
+        if (modified) {
+            chain.proceed(builder.build())
+        } else {
+            chain.proceed(request)
+        }
     }
 
-    private fun isLoginRequired(text: String): Boolean = text.contains("\"code\":\"login_required\"") || text.contains("Login required to read")
+    private fun isLoginRequired(text: String): Boolean =
+        text.contains("\"code\":\"login_required\"") ||
+        text.contains("Login required", ignoreCase = true) ||
+        text.contains("Yêu cầu đăng nhập", ignoreCase = true)
 
     private suspend fun fetchJson(url: String): String {
         val text = client.get(url, ensureSuccess = false).use { it.body.string() }
@@ -140,10 +163,7 @@ abstract class DamCoNuong : KeiSource() {
         if (url.pathSegments.firstOrNull() != "truyen") return null
         val slug = url.pathSegments.getOrNull(1) ?: return null
 
-        return fetchJson("$api/mangas/$slug?include=artist,author,group,genres")
-            .parseAs<DetailResponse>()
-            .data
-            .toSMangaDetails()
+        return fetchMangaDetails(slug)
     }
 
     override suspend fun fetchMangaUpdate(
@@ -157,17 +177,8 @@ abstract class DamCoNuong : KeiSource() {
         return coroutineScope {
             val detailsDeferred = async {
                 if (!fetchDetails) return@async manga
-                val dto = fetchJson("$api/mangas/$slug?include=artist,author,group,genres")
-                    .parseAs<DetailResponse>()
-                    .data
-                dto.toSMangaDetails().apply {
+                fetchMangaDetails(slug).apply {
                     this.url = manga.url
-                    memo = buildJsonObject {
-                        dto.group?.slug?.let { put("group_slug", it) }
-                        dto.author?.slug?.let { put("author_slug", it) }
-                        dto.artist?.slug?.let { put("artist_slug", it) }
-                        dto.genres.firstOrNull()?.slug?.let { put("genre_slug", it) }
-                    }
                 }
             }
             val chaptersDeferred = async {
@@ -181,27 +192,134 @@ abstract class DamCoNuong : KeiSource() {
         }
     }
 
+    private suspend fun fetchMangaDetails(slug: String): SManga {
+        val apiUrl = "$api/mangas/$slug?include=artist,author,group,genres"
+        val responseText = client.get(apiUrl, ensureSuccess = false).use { it.body.string() }
+        if (!isLoginRequired(responseText)) {
+            val dto = responseText.parseAs<DetailResponse>().data
+            return dto.toSMangaDetails().apply {
+                memo = buildJsonObject {
+                    dto.group?.slug?.let { put("group_slug", it) }
+                    dto.author?.slug?.let { put("author_slug", it) }
+                    dto.artist?.slug?.let { put("artist_slug", it) }
+                    dto.genres.firstOrNull()?.slug?.let { put("genre_slug", it) }
+                }
+            }
+        }
+        return fetchMangaDetailsFromHtml(slug)
+    }
+
+    private suspend fun fetchMangaDetailsFromHtml(slug: String): SManga {
+        val url = "$baseUrl/truyen/$slug"
+        val response = client.get(url, ensureSuccess = false)
+        val text = response.use { it.body.string() }
+        if (response.code == 403 || isLoginRequired(text)) {
+            throw Exception("Truyện này cần đăng nhập webview bằng tài khoản phù hợp để xem")
+        }
+        val document = Jsoup.parse(text, url)
+        return SManga.create().apply {
+            this.url = "/truyen/$slug"
+            title = document.selectFirst("h1.md-title")?.text()?.trim()
+                ?: document.selectFirst("h1")?.text()?.trim()
+                ?: slug
+            thumbnail_url = document.selectFirst(".md-cover img")?.absUrl("src")?.ifEmpty { null }
+                ?: document.selectFirst("meta[property=og:image]")?.attr("content")?.ifEmpty { null }
+            val synopsisEl = document.selectFirst(".md-synopsis")
+            synopsisEl?.select("button, dialog")?.remove()
+            description = synopsisEl?.text()?.trim()?.ifEmpty { null }
+            author = document.select(".md-rail dt:contains(Tác giả) + dd a, .md-rail dt:contains(Tác giả) + dd span")
+                .joinToString { it.text().trim() }.ifEmpty { null }
+            artist = document.select(".md-rail dt:contains(Họa sĩ) + dd a, .md-rail dt:contains(Họa sĩ) + dd span")
+                .joinToString { it.text().trim() }.ifEmpty { null }
+            genre = document.select(".md-rail-genres a.md-chip")
+                .joinToString { it.text().trim() }.ifEmpty { null }
+            status = when {
+                document.selectFirst(".md-badge-done") != null -> SManga.COMPLETED
+                document.selectFirst(".md-badge")?.text()?.contains("hoàn thành", ignoreCase = true) == true -> SManga.COMPLETED
+                else -> SManga.ONGOING
+            }
+        }
+    }
+
     private suspend fun fetchChapterList(mangaSlug: String): List<SChapter> {
+        val apiUrl = "$api/mangas/$mangaSlug/chapters".toHttpUrl().newBuilder()
+            .addQueryParameter("page", "1")
+            .addQueryParameter("per_page", "2000")
+            .addQueryParameter("sort", "desc")
+            .build()
+            .toString()
+
+        val firstText = client.get(apiUrl, ensureSuccess = false).use { it.body.string() }
+        if (isLoginRequired(firstText)) {
+            return fetchChapterListFromHtml(mangaSlug)
+        }
+
         val result = mutableListOf<SChapter>()
         var page = 1
         var lastPage = 1
+        var text = firstText
 
         do {
-            val response = fetchJson(
-                "$api/mangas/$mangaSlug/chapters".toHttpUrl().newBuilder()
-                    .addQueryParameter("page", page.toString())
-                    .addQueryParameter("per_page", "2000")
-                    .addQueryParameter("sort", "desc")
-                    .build()
-                    .toString(),
-            ).parseAs<ChapterListResponse>()
-
+            if (page > 1) {
+                text = fetchJson(
+                    "$api/mangas/$mangaSlug/chapters".toHttpUrl().newBuilder()
+                        .addQueryParameter("page", page.toString())
+                        .addQueryParameter("per_page", "2000")
+                        .addQueryParameter("sort", "desc")
+                        .build()
+                        .toString(),
+                )
+            }
+            val response = text.parseAs<ChapterListResponse>()
             result += response.data.map { it.toSChapter(mangaSlug) }
             lastPage = response.meta?.pagination?.lastPage ?: 1
             page++
         } while (page <= lastPage)
 
         return result
+    }
+
+    private suspend fun fetchChapterListFromHtml(mangaSlug: String): List<SChapter> {
+        val url = "$baseUrl/truyen/$mangaSlug"
+        val response = client.get(url, ensureSuccess = false)
+        val text = response.use { it.body.string() }
+        if (response.code == 403 || isLoginRequired(text)) {
+            throw Exception("Truyện này cần đăng nhập webview bằng tài khoản phù hợp để xem")
+        }
+        val document = Jsoup.parse(text, url)
+        val chapterLinks = document.select("a.md-ch")
+        if (chapterLinks.isEmpty() && isLoginRequired(document.text())) {
+            throw Exception("Truyện này cần đăng nhập webview bằng tài khoản phù hợp để xem")
+        }
+        return chapterLinks.map { a ->
+            SChapter.create().apply {
+                this.url = a.absUrl("href").toHttpUrl().encodedPath
+                name = a.selectFirst(".md-ch-title")?.text()?.trim() ?: a.text().trim()
+                date_upload = parseRelativeDate(a.selectFirst(".md-ch-meta span")?.text()?.trim())
+            }
+        }
+    }
+
+    private val dateNumberRegex = Regex("""\d+""")
+
+    private fun parseRelativeDate(dateText: String?): Long {
+        if (dateText.isNullOrBlank()) return 0L
+        val lower = dateText.lowercase()
+        if ("vừa xong" in lower || "vừa đăng" in lower) return Clock.System.now().toEpochMilliseconds()
+
+        val amount = dateNumberRegex.find(lower)?.value?.toLongOrNull() ?: return 0L
+        val duration = when {
+            "giây" in lower -> amount.seconds
+            "phút" in lower -> amount.minutes
+            "giờ" in lower -> amount.hours
+            "ngày" in lower -> amount.days
+            "tuần" in lower -> (amount * 7).days
+            "tháng" in lower -> (amount * 30).days
+            "năm" in lower -> (amount * 365).days
+            else -> return 0L
+        }
+
+        return (Clock.System.now() - duration).toEpochMilliseconds()
     }
 
     override fun getMangaUrl(manga: SManga): String = "$baseUrl${manga.url}"
@@ -254,12 +372,34 @@ abstract class DamCoNuong : KeiSource() {
         val path = "$mangaSlug/$chapterSlug"
         PagesCrypto.ensureLoaded(client, baseUrl, preferences)
         val token = PagesCrypto.token(mangaSlug, chapterSlug)
-        val response = fetchJson("$api/mangas/$mangaSlug/chapters/$chapterSlug/pages?_=$token")
+        val response = fetchPagesJson(mangaSlug, chapterSlug, token)
             .parseAs<PagesResponse>()
 
         val payload = PagesCrypto.decryptPages(response.encrypted, token, path)
         return payload.pages.mapIndexedNotNull { index, src ->
             if (src.isBlank()) return@mapIndexedNotNull null
+            val key = payload.scrambleKeys?.getOrNull(index)?.takeIf { it.isNotEmpty() }
+            val imageUrl = if (key != null) "$src#$key" else src
+            Page(index, url = imageUrl, imageUrl = imageUrl)
+        }
+    }
+
+    private suspend fun fetchPagesJson(mangaSlug: String, chapterSlug: String, token: String): String {
+        val cUrl = "$baseUrl/_c/mangas/$mangaSlug/chapters/$chapterSlug/pages?_=$token"
+        val text = client.get(cUrl, ensureSuccess = false).use { it.body.string() }
+        if (text.contains("\"e\":")) {
+            return text
+        }
+        if (isLoginRequired(text)) {
+            throw Exception("Truyện này cần đăng nhập webview bằng tài khoản phù hợp để xem")
+        }
+        val fallbackUrl = "$api/mangas/$mangaSlug/chapters/$chapterSlug/pages?_=$token"
+        val fallbackText = client.get(fallbackUrl, ensureSuccess = false).use { it.body.string() }
+        if (isLoginRequired(fallbackText)) {
+            throw Exception("Truyện này cần đăng nhập webview bằng tài khoản phù hợp để xem")
+        }
+        return fallbackText
+    }
             val key = payload.scrambleKeys?.getOrNull(index)?.takeIf { it.isNotEmpty() }
             val imageUrl = if (key != null) "$src#$key" else src
             Page(index, url = imageUrl, imageUrl = imageUrl)
