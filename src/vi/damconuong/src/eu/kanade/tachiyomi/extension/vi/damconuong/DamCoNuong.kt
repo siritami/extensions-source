@@ -60,8 +60,7 @@ abstract class DamCoNuong : KeiSource() {
         chain.proceed(request)
     }
 
-    private fun isLoginRequired(text: String): Boolean =
-        text.contains("\"code\":\"login_required\"") ||
+    private fun isLoginRequired(text: String): Boolean = text.contains("\"code\":\"login_required\"") ||
         text.contains("Login required", ignoreCase = true) ||
         text.contains("Yêu cầu đăng nhập", ignoreCase = true)
 
