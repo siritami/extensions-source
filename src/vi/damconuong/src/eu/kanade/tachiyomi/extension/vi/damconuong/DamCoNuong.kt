@@ -39,7 +39,8 @@ abstract class DamCoNuong : KeiSource() {
 
     private val cookieManager by lazy { CookieManager.getInstance() }
 
-    @Volatile private var apiHost: String? = null
+    private val api = "https://api.damconuong.pw/api/v1"
+    private val apiHost = api.toHttpUrl().host
 
     private fun authInterceptor() = Interceptor { chain ->
         val request = chain.request()
@@ -57,10 +58,6 @@ abstract class DamCoNuong : KeiSource() {
     }
 
     private fun isLoginRequired(text: String): Boolean = text.contains("\"code\":\"login_required\"") || text.contains("Login required to read")
-
-    private suspend fun api(): String = ApiBase.get(client, baseUrl, preferences).also {
-        apiHost = it.toHttpUrl().host
-    }
 
     private suspend fun fetchJson(url: String): String {
         val text = client.get(url, ensureSuccess = false).use { it.body.string() }
@@ -104,7 +101,7 @@ abstract class DamCoNuong : KeiSource() {
             .filter { it.state == Filter.TriState.STATE_EXCLUDE }
             .joinToString(",") { it.id.toString() }
 
-        val url = "${api()}/mangas".toHttpUrl().newBuilder()
+        val url = "$api/mangas".toHttpUrl().newBuilder()
             .addQueryParameter("page", page.toString())
             .addQueryParameter("per_page", "24")
             .addQueryParameter("sort", sort)
@@ -144,7 +141,7 @@ abstract class DamCoNuong : KeiSource() {
         if (url.pathSegments.firstOrNull() != "truyen") return null
         val slug = url.pathSegments.getOrNull(1) ?: return null
 
-        return fetchJson("${api()}/mangas/$slug?include=artist,author,group,genres")
+        return fetchJson("$api/mangas/$slug?include=artist,author,group,genres")
             .parseAs<DetailResponse>()
             .data
             .toSMangaDetails()
@@ -161,7 +158,7 @@ abstract class DamCoNuong : KeiSource() {
         return coroutineScope {
             val detailsDeferred = async {
                 if (!fetchDetails) return@async manga
-                val dto = fetchJson("${api()}/mangas/$slug?include=artist,author,group,genres")
+                val dto = fetchJson("$api/mangas/$slug?include=artist,author,group,genres")
                     .parseAs<DetailResponse>()
                     .data
                 dto.toSMangaDetails().apply {
@@ -192,7 +189,7 @@ abstract class DamCoNuong : KeiSource() {
 
         do {
             val response = fetchJson(
-                "${api()}/mangas/$mangaSlug/chapters".toHttpUrl().newBuilder()
+                "$api/mangas/$mangaSlug/chapters".toHttpUrl().newBuilder()
                     .addQueryParameter("page", page.toString())
                     .addQueryParameter("per_page", "2000")
                     .addQueryParameter("sort", "desc")
@@ -224,7 +221,7 @@ abstract class DamCoNuong : KeiSource() {
             manga.memo["artist_slug"]?.stringOrNull?.let { "artists" to it },
             manga.memo["genre_slug"]?.stringOrNull?.let { "genres" to it },
         ).ifEmpty {
-            val detail = fetchJson("${api()}/mangas/$slug?include=artist,author,group,genres")
+            val detail = fetchJson("$api/mangas/$slug?include=artist,author,group,genres")
                 .parseAs<DetailResponse>()
                 .data
             listOfNotNull(
@@ -236,7 +233,7 @@ abstract class DamCoNuong : KeiSource() {
         }
 
         for ((type, taxonomySlug) in sources) {
-            val list = client.get("${api()}/$type/$taxonomySlug/mangas?per_page=12")
+            val list = client.get("$api/$type/$taxonomySlug/mangas?per_page=12")
                 .parseAs<ListResponse>()
                 .data
             val related = list.filter { it.slug != slug }.map { it.toSManga() }
@@ -258,7 +255,7 @@ abstract class DamCoNuong : KeiSource() {
         val path = "$mangaSlug/$chapterSlug"
         PagesCrypto.ensureLoaded(client, baseUrl, preferences)
         val token = PagesCrypto.token(mangaSlug, chapterSlug)
-        val response = fetchJson("${api()}/mangas/$mangaSlug/chapters/$chapterSlug/pages?_=$token")
+        val response = fetchJson("$api/mangas/$mangaSlug/chapters/$chapterSlug/pages?_=$token")
             .parseAs<PagesResponse>()
 
         val payload = PagesCrypto.decryptPages(response.encrypted, token, path)
@@ -280,7 +277,7 @@ abstract class DamCoNuong : KeiSource() {
         var lastPage = 1
 
         do {
-            val response = client.get("${api()}/genres?per_page=100&page=$page")
+            val response = client.get("$api/genres?per_page=100&page=$page")
                 .parseAs<GenreListResponse>()
             genres += response.data
             lastPage = response.meta?.pagination?.lastPage ?: 1
