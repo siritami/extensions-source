@@ -46,6 +46,7 @@ abstract class DamCoNuong : KeiSource() {
 
     private val preferences by getPreferencesLazy()
 
+    // API and Auth API complete hidden in backend can't scraping
     private val api = "https://api.damconuong.pw/api/v1"
 
     private fun ajaxInterceptor() = Interceptor { chain ->
@@ -192,6 +193,7 @@ abstract class DamCoNuong : KeiSource() {
         return fetchMangaDetailsFromHtml(slug)
     }
 
+    // Some manga need login, api doesn't support auth, need html scraping
     private suspend fun fetchMangaDetailsFromHtml(slug: String): SManga {
         val url = "$baseUrl/truyen/$slug"
         val response = client.get(url, ensureSuccess = false)
