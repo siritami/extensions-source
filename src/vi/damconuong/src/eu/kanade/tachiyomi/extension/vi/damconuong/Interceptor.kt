@@ -246,7 +246,7 @@ object DecoderScraper {
     private val SCRIPT_SRC_RE = Regex("<script[^>]+src=\"([^\"]+\\.js[^\"]*)\"")
     private val SECRET_RE = Regex("^[A-Za-z0-9_-]{43,44}$")
     private val ALPHABET_RE = Regex("^[A-Za-z0-9+/_-]{64}$")
-    private val OBF_B64_RE = Regex("['\"]([A-Za-z0-9+/=_-]{64,65})['\"]\\s*\\.?\\s*(?:indexOf|\\['indexOf'\\])")
+    private val OBF_B64_RE = Regex("['\"]([A-Za-z0-9+/=_-]{64,65})['\"]")
     private val STRING_ARRAY_RE = Regex(
         "(?:function\\s+[a-zA-Z0-9_$]+\\(\\)\\s*\\{\\s*(?:const|var|let)\\s+[a-zA-Z0-9_$]+=\\s*(\\[[^\\]]+\\])|function \\w+\\(\\)\\{let W=(\\[.*?\\]);return)",
         RegexOption.DOT_MATCHES_ALL,
