@@ -44,8 +44,7 @@ abstract class DamCoNuong : KeiSource() {
 
     private fun authInterceptor() = Interceptor { chain ->
         val request = chain.request()
-        val targetHost = request.url.host
-        if (targetHost == apiHost || targetHost.contains("api.damconuong")) {
+        if (request.url.host == apiHost) {
             val cookies = cookieManager.getCookie(baseUrl)
             if (!cookies.isNullOrBlank()) {
                 val newRequest = request.newBuilder()
