@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.damconuong
 
+import android.webkit.CookieManager
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -12,15 +13,12 @@ import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.firstInstanceOrNull
-import keiyoushi.utils.getLocalStorage
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.stringOrNull
 import keiyoushi.utils.toJsonElement
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -39,39 +37,23 @@ abstract class DamCoNuong : KeiSource() {
 
     private val preferences by getPreferencesLazy()
 
-    private val authMutex = Mutex()
-
-    @Volatile private var authToken: String? = null
+    private val cookieManager by lazy { CookieManager.getInstance() }
 
     @Volatile private var apiHost: String? = null
 
     private fun authInterceptor() = Interceptor { chain ->
         val request = chain.request()
-        val token = authToken?.takeIf { it.isNotBlank() }
-        if (token != null && request.url.host == apiHost) {
-            chain.proceed(request.newBuilder().header("Authorization", "Bearer $token").build())
-        } else {
-            chain.proceed(request)
+        val targetHost = request.url.host
+        if (targetHost == apiHost || targetHost.contains("api.damconuong")) {
+            val cookies = cookieManager.getCookie(baseUrl)
+            if (!cookies.isNullOrBlank()) {
+                val newRequest = request.newBuilder()
+                    .header("Cookie", cookies)
+                    .build()
+                return@Interceptor chain.proceed(newRequest)
+            }
         }
-    }
-
-    private suspend fun loadAuthToken() {
-        if (!authToken.isNullOrBlank()) return
-        authMutex.withLock {
-            if (!authToken.isNullOrBlank()) return@withLock
-            authToken = readAuthTokenFromWebView()
-        }
-    }
-
-    private suspend fun readAuthTokenFromWebView(): String? {
-        val raw = getLocalStorage(baseUrl, "auth-storage") ?: return null
-        return raw.parseAs<AuthStorage>().state?.token?.takeIf { it.isNotBlank() }
-    }
-
-    private suspend fun refreshAuthToken() {
-        authMutex.withLock {
-            authToken = readAuthTokenFromWebView()
-        }
+        chain.proceed(request)
     }
 
     private fun isLoginRequired(text: String): Boolean = text.contains("\"code\":\"login_required\"") || text.contains("Login required to read")
@@ -81,17 +63,9 @@ abstract class DamCoNuong : KeiSource() {
     }
 
     private suspend fun fetchJson(url: String): String {
-        loadAuthToken()
-        var text = client.get(url, ensureSuccess = false).use { it.body.string() }
+        val text = client.get(url, ensureSuccess = false).use { it.body.string() }
         if (isLoginRequired(text)) {
-            refreshAuthToken()
-            if (authToken.isNullOrBlank()) {
-                throw Exception("Truyện này cần đăng nhập webview bằng tài khoản phù hợp để xem")
-            }
-            text = client.get(url, ensureSuccess = false).use { it.body.string() }
-            if (isLoginRequired(text)) {
-                throw Exception("Truyện này cần đăng nhập webview bằng tài khoản phù hợp để xem")
-            }
+            throw Exception("Truyện này cần đăng nhập webview bằng tài khoản phù hợp để xem")
         }
         return text
     }
