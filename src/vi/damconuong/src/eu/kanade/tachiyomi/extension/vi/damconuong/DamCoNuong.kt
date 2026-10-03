@@ -150,6 +150,7 @@ abstract class DamCoNuong : KeiSource() {
         return fetchMangaDetails(slug)
     }
 
+    // Some manga need login, api doesn't support auth, need html scraping
     override suspend fun fetchMangaUpdate(
         manga: SManga,
         chapters: List<SChapter>,
