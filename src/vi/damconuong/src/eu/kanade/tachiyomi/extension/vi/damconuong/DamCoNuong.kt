@@ -257,29 +257,27 @@ abstract class DamCoNuong : KeiSource() {
         return document
     }
 
-    private fun parseDetailsFromHtml(document: Document, slug: String): SManga {
-        return SManga.create().apply {
-            this.url = "/truyen/$slug"
-            title = document.selectFirst("h1.md-title, h1")!!.text().trim()
-            thumbnail_url = document.selectFirst(".md-cover img")?.absUrl("src")?.ifEmpty { null }
-                ?: document.selectFirst("meta[property=og:image]")?.attr("content")?.ifEmpty { null }
-            val synopsisEl = document.selectFirst(".md-synopsis")
-            synopsisEl?.select("button, dialog")?.remove()
-            description = synopsisEl?.text()?.trim()?.ifEmpty { null }
-            author = document.select(".md-rail dt:contains(Tác giả) + dd a, .md-rail dt:contains(Tác giả) + dd span")
-                .joinToString { it.text().trim() }.ifEmpty { null }
-            artist = document.select(".md-rail dt:contains(Họa sĩ) + dd a, .md-rail dt:contains(Họa sĩ) + dd span")
-                .joinToString { it.text().trim() }.ifEmpty { null }
-            genre = document.select(".md-rail-genres a.md-chip")
-                .joinToString { it.text().trim() }.ifEmpty { null }
-            status = when {
-                document.selectFirst(".md-badge-done") != null -> SManga.COMPLETED
-                document.selectFirst(".md-badge")?.text()?.contains("hoàn thành", ignoreCase = true) == true -> SManga.COMPLETED
-                else -> SManga.ONGOING
-            }
-            memo = buildJsonObject {
-                put("needs_login", true)
-            }
+    private fun parseDetailsFromHtml(document: Document, slug: String): SManga = SManga.create().apply {
+        this.url = "/truyen/$slug"
+        title = document.selectFirst("h1.md-title, h1")!!.text().trim()
+        thumbnail_url = document.selectFirst(".md-cover img")?.absUrl("src")?.ifEmpty { null }
+            ?: document.selectFirst("meta[property=og:image]")?.attr("content")?.ifEmpty { null }
+        val synopsisEl = document.selectFirst(".md-synopsis")
+        synopsisEl?.select("button, dialog")?.remove()
+        description = synopsisEl?.text()?.trim()?.ifEmpty { null }
+        author = document.select(".md-rail dt:contains(Tác giả) + dd a, .md-rail dt:contains(Tác giả) + dd span")
+            .joinToString { it.text().trim() }.ifEmpty { null }
+        artist = document.select(".md-rail dt:contains(Họa sĩ) + dd a, .md-rail dt:contains(Họa sĩ) + dd span")
+            .joinToString { it.text().trim() }.ifEmpty { null }
+        genre = document.select(".md-rail-genres a.md-chip")
+            .joinToString { it.text().trim() }.ifEmpty { null }
+        status = when {
+            document.selectFirst(".md-badge-done") != null -> SManga.COMPLETED
+            document.selectFirst(".md-badge")?.text()?.contains("hoàn thành", ignoreCase = true) == true -> SManga.COMPLETED
+            else -> SManga.ONGOING
+        }
+        memo = buildJsonObject {
+            put("needs_login", true)
         }
     }
 
