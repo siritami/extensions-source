@@ -255,9 +255,8 @@ abstract class Panomic : KeiSource() {
         return trailingPart.ifEmpty { rawName.trim() }
     }
 
-    private fun parseChapterDate(date: String): Long =
-        dateFormatShort.tryParseDate(date, dateZone).takeIf { it != 0L }
-            ?: dateFormatLong.tryParseDate(date, dateZone)
+    private fun parseChapterDate(date: String): Long = dateFormatShort.tryParseDate(date, dateZone).takeIf { it != 0L }
+        ?: dateFormatLong.tryParseDate(date, dateZone)
 
     // =============================== Pages ================================
 
