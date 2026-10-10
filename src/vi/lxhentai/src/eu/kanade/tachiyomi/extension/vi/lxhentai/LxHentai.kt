@@ -264,9 +264,9 @@ abstract class LxHentai : KeiSource() {
     private fun extractImageUrls(html: String): List<String> {
         for (match in scriptTagRegex.findAll(html)) {
             val scriptContent = match.groupValues[1]
-            if (scriptContent.length !in 2000..150000) continue
+            if (!scriptContent.contains("KGZ") || scriptContent.length < 1000) continue
 
-            val bArrayContent = bArrayRegex.find(scriptContent)?.groupValues?.get(1) ?: continue
+            val bArrayContent = bArrayRegex.find(scriptContent)?.groupValues?.get(2) ?: continue
             val parts = quotedStringRegex.findAll(bArrayContent).map { it.groupValues[1] }.toList()
             if (parts.isEmpty()) continue
 
@@ -283,8 +283,8 @@ abstract class LxHentai : KeiSource() {
                 arrayMap[name] = nums
             }
 
-            val hexKey = keyRegex.find(layer2)?.groupValues?.get(2) ?: continue
-            val concatExpr = concatRegex.find(layer2)?.groupValues?.get(2) ?: continue
+            val hexKey = keyRegex.find(layer2)?.groupValues?.get(1) ?: continue
+            val concatExpr = concatRegex.find(layer2)?.groupValues?.get(1) ?: continue
             val varNames = varNameRegex.findAll(concatExpr).map { it.value }.toList()
             if (varNames.isEmpty()) continue
 
@@ -407,14 +407,14 @@ abstract class LxHentai : KeiSource() {
     private val csrfTokenRegex = Regex("""var\s+csrf_token\s*=\s*'([^']+)'""")
     private val recaptchaRegex = Regex("""var\s+recaptcha\s*=\s*'([^']+)'""")
     private val scriptTagRegex = Regex("""<script\b[^>]*>([\s\S]*?)</script>""", RegexOption.IGNORE_CASE)
-    private val bArrayRegex = Regex("""var\s+_b[a-f0-9]+\s*=\s*\[([\s\S]*?)\];""")
+    private val bArrayRegex = Regex("""var\s+(_\w+)\s*=\s*\[([\s\S]*?)\];\s*var\s+_\w+\s*=\s*\1\.join""")
     private val quotedStringRegex = Regex(""""([^"]+)"""")
-    private val arrayAssignRegex = Regex("""var\s+(_c[a-f0-9]+)\s*=\s*\[((?:\d+(?:\s*,\s*\d+)*)?)\]""")
-    private val keyRegex = Regex("""var\s+(_k[a-f0-9]+)\s*=\s*'([a-f0-9]+)'""")
-    private val concatRegex = Regex("""var\s+(_a[a-f0-9]+)\s*=\s*(_c[a-f0-9]+(?:\.concat\(_c[a-f0-9]+\))+)""")
-    private val varNameRegex = Regex("""_c[a-f0-9]+""")
-    private val key3Regex = Regex("""var\s+_x[a-f0-9]+\s*=\s*"([a-f0-9]{32,})";""")
-    private val b64JsonRegex = Regex("""var\s+_x[a-f0-9]+\s*=\s*"([A-Za-z0-9+/=]{100,})";""")
+    private val arrayAssignRegex = Regex("""var\s+(_\w+)\s*=\s*\[((?:\d+(?:\s*,\s*\d+)*)?)\]""")
+    private val keyRegex = Regex("""var\s+_\w+\s*=\s*['"]([0-9a-f]{16,64})['"]""")
+    private val concatRegex = Regex("""var\s+_\w+\s*=\s*(_\w+(?:\.concat\(_\w+\))+)""")
+    private val varNameRegex = Regex("""_\w+""")
+    private val key3Regex = Regex("""var\s+_\w+\s*=\s*"([0-9a-f]{16,64})";""")
+    private val b64JsonRegex = Regex("""var\s+_\w+\s*=\s*"([A-Za-z0-9+/=]{100,})";""")
     private val backgroundUrlRegex = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
     private val genreSlugRegex = Regex("""toggleGenre\('([^']+)'\)""")
 }
