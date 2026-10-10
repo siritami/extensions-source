@@ -18,7 +18,6 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.tryParseDate
 import keiyoushi.utils.ui.askPassword
-import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonElement
 import okhttp3.FormBody
 import okhttp3.HttpUrl
@@ -310,17 +309,11 @@ abstract class MeDamTruyen : KeiSource() {
             } else {
                 "Chương này yêu cầu mật khẩu"
             }
-            val password = try {
-                askPassword(
-                    title = chapter.name,
-                    message = message,
-                    hint = "Mật khẩu",
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                throw Exception(passwordWebviewMessage)
-            } ?: throw Exception("Đã hủy nhập mật khẩu")
+            val password = askPassword(
+                title = chapter.name,
+                message = message,
+                hint = "Mật khẩu",
+            ) ?: throw Exception("Đã hủy nhập mật khẩu")
 
             val postAction = lockForm.absUrl("action").ifEmpty {
                 "$baseUrl/wp-login.php?action=postpass"

@@ -562,6 +562,12 @@ override suspend fun getPageList(chapter: SChapter): List<Page> {
 }
 ```
 
+### Cancellation & Exception Handling in Dialogs
+
+- **No `try`/`catch` or `CancellationException` import needed:** When a user dismisses the dialog (tapping outside, pressing Back, or clicking Cancel), dialog helpers return `null` (or `false` for `askConfirm`). Use the Elvis operator (`?: throw Exception(...)`) to handle cancellation.
+- Coroutine cancellation propagates automatically through `suspendCancellableCoroutine`, dismissing the dialog and unhooking listeners cleanly without manual handling.
+- Do **not** wrap dialog calls in `try { ... } catch (e: Exception)` or `runCatching` solely to handle cancel/dismiss, as doing so swallows coroutine cancellation or catches unrelated errors.
+
 ## Custom UI View Rendering on Top Activity
 
 When extensions need to render custom views (such as custom layout containers, image previews, or interactive components), obtain the foreground `Activity` with `topActivity()` and render with Android View APIs inside a coroutine:
