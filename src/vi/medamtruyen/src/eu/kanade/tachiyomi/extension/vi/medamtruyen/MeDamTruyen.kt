@@ -292,8 +292,7 @@ abstract class MeDamTruyen : KeiSource() {
             .replace(multiSpaceRegex, " ")
     }
 
-    private fun parseChapterDate(chapterMeta: String): Long =
-        chapterDateFormat.tryParseDate(chapterDateRegex.find(chapterMeta)?.value, dateZone)
+    private fun parseChapterDate(chapterMeta: String): Long = chapterDateFormat.tryParseDate(chapterDateRegex.find(chapterMeta)?.value, dateZone)
 
     // ============================== Pages =================================
 
