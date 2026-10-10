@@ -265,9 +265,8 @@ abstract class TeamLanhLung : KeiSource() {
         return rawName.substringAfterLast("–").substringAfterLast("-").trim()
     }
 
-    private fun parseChapterDate(date: String): Long =
-        dateFormatFull.tryParseDate(date, dateZone).takeIf { it != 0L }
-            ?: dateFormatShort.tryParseDate(date, dateZone)
+    private fun parseChapterDate(date: String): Long = dateFormatFull.tryParseDate(date, dateZone).takeIf { it != 0L }
+        ?: dateFormatShort.tryParseDate(date, dateZone)
 
     // ============================== Pages ===============================
 

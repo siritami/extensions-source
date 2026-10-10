@@ -327,8 +327,7 @@ abstract class SoaiCaComic : KeiSource() {
             .ifEmpty { rawName }
     }
 
-    private fun parseChapterDate(dateText: String): Long =
-        dateFormat.tryParseDate(dateText, dateZone)
+    private fun parseChapterDate(dateText: String): Long = dateFormat.tryParseDate(dateText, dateZone)
 
     // ============================== Pages =================================
 
