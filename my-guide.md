@@ -287,182 +287,402 @@ All three return `0L` if the input is null or cannot be parsed.
 
 ---
 
-# Direct Password Prompt via In-App GUI Dialog
+# Cloudflare Turnstile Resolution (`TurnstileHelper`)
 
-## How it works
+Cloudflare Turnstile challenges can be solved directly within extensions using `keiyoushi.utils.getTurnstileToken`.
 
-Instead of redirecting users to the in-app WebView with an error message when a chapter is password-protected, prompt for the password directly inside the app using an `AlertDialog` and submit the unlock request via HTTP.
+## Architecture & How It Works
 
-1. Track the foreground `Activity` by registering `Application.ActivityLifecycleCallbacks` on `applicationContext` in `init`.
-2. When `getPageList` encounters a lock form (e.g. `form.post-password-form` on WordPress sites), suspend and show an `AlertDialog` with an `EditText` password input.
-3. Once the user submits the password, send a `POST` request to the site's password unlock endpoint (`wp-login.php?action=postpass`).
-4. OkHttp's `CookieJar` stores the session/unlock cookie (e.g. `wp-postpass_<hash>`) from the `Set-Cookie` response header.
-5. If the returned HTML still contains the lock form, throw an `Exception` notifying that the password was incorrect. Otherwise, proceed to parse the unlocked pages normally.
+Turnstile resolution in `:core` (`keiyoushi.utils.TurnstileHelper.kt`) uses a dual headless / interactive strategy:
 
-## Implementation
+1. **Headless Execution First**:
+   - Creates a WebView using `runWebView(activity, timeout)`.
+   - Configures the WebView with actual device display metrics (`setupWebView`) so Cloudflare receives realistic viewport metrics.
+   - Detects system UI dark/light mode via `Configuration.UI_MODE_NIGHT_MASK` and passes `theme: 'dark'` or `'light'` to Turnstile.
+   - Renders Turnstile explicitly with `appearance: 'interaction-only'`. If Cloudflare evaluates the request and verifies the client without requiring human interaction, the token is obtained silently without displaying any UI.
+
+2. **Seamless In-App Interactive Overlay (`CaptchaOverlayDialog`)**:
+   - If Cloudflare requires user interaction (e.g., clicking a checkbox or solving a puzzle), Turnstile's `before-interactive-callback` fires.
+   - A JavaScript bridge (`window.turnstileShow.post('show')`) instructs Kotlin to display `CaptchaOverlayDialog`.
+   - `CaptchaOverlayDialog` attaches a translucent, full-screen dialog (`android.R.style.Theme_Translucent_NoTitleBar`) with a dimmed background (`dimAmount = 0.6f`) to the foreground `Activity` obtained from `topActivity()`.
+   - The WebView hosting the challenge is displayed directly inside this dialog at native device dimensions.
+   - If user dismisses the dialog or taps outside, the challenge is cancelled and throws an exception.
+   - If the hosting Activity is destroyed, lifecycle hooks unhook and dismiss the dialog cleanly without leaking memory.
+
+3. **Bridge Callbacks & Error Handling**:
+   - `turnstileToken`: On challenge success, posts the token to Kotlin, dismisses the overlay dialog, and completes `runWebView` with the token string.
+   - `turnstileError`: Maps internal error codes to clear human-readable messages (e.g. expired, timeout, script failure, sitekey rejected `110100`/`110110`/`400020`, unauthorized domain `110200`, incorrect device clock `200100`).
+   - `turnstileCancel`: Rejects the coroutine with `"Captcha cancelled"`.
+
+## API Signatures
+
+`TurnstileHelper` provides two suspend functions:
 
 ```kotlin
-import android.app.Activity
-import android.app.AlertDialog
-import android.app.Application
-import android.os.Bundle
-import android.text.InputType
-import android.widget.EditText
-import android.widget.FrameLayout
+package keiyoushi.utils
+
+import eu.kanade.tachiyomi.source.online.HttpSource
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
+
+// 1. Direct function
+suspend fun getTurnstileToken(
+    url: String,
+    siteKey: String,
+    userAgent: String,
+    action: String? = null,
+    cData: String? = null,
+    timeout: Duration = 2.minutes,
+): String
+
+// 2. Context receiver overload (inside HttpSource / KeiSource)
+context(source: HttpSource)
+suspend fun getTurnstileToken(
+    url: String,
+    siteKey: String,
+    action: String? = null,
+    cData: String? = null,
+    timeout: Duration = 2.minutes,
+): String
+```
+
+- `url`: Target page URL (used as the origin base URL).
+- `siteKey`: The Cloudflare Turnstile sitekey extracted from the target website.
+- `userAgent`: Client user-agent string. In the `context(source: HttpSource)` overload, it is automatically extracted from `source.headers["User-Agent"]!!`.
+- `action`: Optional Turnstile action parameter.
+- `cData`: Optional custom data parameter passed to Turnstile.
+- `timeout`: Maximum wait time before throwing `WebViewTimeoutException` (defaults to `2.minutes`).
+
+## Practical Usage Examples
+
+### 1. Extracting Sitekey and Solving Turnstile in `KeiSource`
+
+Inside any `KeiSource` suspend method (e.g. `getPageList` or `getSearchMangaList`):
+
+```kotlin
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import keiyoushi.network.get
 import keiyoushi.network.post
 import keiyoushi.source.KeiSource
-import keiyoushi.utils.applicationContext
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
+import keiyoushi.utils.asJsoup
+import keiyoushi.utils.getTurnstileToken
 import okhttp3.FormBody
-import org.jsoup.Jsoup
-import java.lang.ref.WeakReference
+import org.jsoup.nodes.Document
 
-abstract class ExampleSource : KeiSource() {
+override suspend fun getPageList(chapter: SChapter): List<Page> {
+    val chapterUrl = getChapterUrl(chapter)
+    val document = client.get(chapterUrl).asJsoup()
 
-    private var currentActivity: WeakReference<Activity>? = null
+    // 1. Check if page contains Turnstile challenge
+    val challengeElement = document.selectFirst(".cf-turnstile, [data-sitekey]")
+    if (challengeElement != null) {
+        val siteKey = challengeElement.attr("data-sitekey")
 
-    init {
-        try {
-            applicationContext.registerActivityLifecycleCallbacks(
-                object : Application.ActivityLifecycleCallbacks {
-                    override fun onActivityResumed(a: Activity) {
-                        currentActivity = WeakReference(a)
-                    }
-                    override fun onActivityPaused(a: Activity) {
-                        if (currentActivity?.get() === a) currentActivity = null
-                    }
-                    override fun onActivityDestroyed(a: Activity) {
-                        if (currentActivity?.get() === a) currentActivity = null
-                    }
-                    override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
-                    override fun onActivityStarted(activity: Activity) = Unit
-                    override fun onActivityStopped(activity: Activity) = Unit
-                    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
-                },
-            )
-        } catch (_: Throwable) {
+        // 2. Solve challenge using the context receiver overload
+        val turnstileToken = getTurnstileToken(
+            url = chapterUrl,
+            siteKey = siteKey,
+        )
+
+        // 3. Submit token in POST body or Header as expected by the site
+        val formBody = FormBody.Builder()
+            .add("cf-turnstile-response", turnstileToken)
+            .build()
+
+        val unlockedDoc = client.post(chapterUrl, formBody).asJsoup()
+        return parsePages(unlockedDoc)
+    }
+
+    return parsePages(document)
+}
+```
+
+### 2. Turnstile via Header / JSON API
+
+When an API endpoint requires the Turnstile token in headers:
+
+```kotlin
+suspend fun fetchProtectedApi(endpoint: String, siteKey: String): ApiResponse {
+    val token = getTurnstileToken(url = baseUrl, siteKey = siteKey)
+
+    val customHeaders = headers.newBuilder()
+        .set("CF-Turnstile-Response", token)
+        .build()
+
+    return client.get(endpoint, customHeaders).parseAs<ApiResponse>()
+}
+```
+
+---
+
+# In-App UI Dialogs & View Rendering (`ActivityTracker` & `DialogHelper`)
+
+Instead of writing manual `ActivityLifecycleCallbacks` and managing `WeakReference<Activity>` boilerplate inside extensions, use the centralized UI helpers in `keiyoushi.utils.ui.*`.
+
+## Activity Tracking (`ActivityTracker.kt`)
+
+The foreground `Activity` is tracked globally by `ActivityTracker`:
+- Registers `Application.ActivityLifecycleCallbacks` once and tracks resumed activities.
+- Includes fallback reflection on `ActivityThread.mActivities` if needed.
+- `topActivity()`: Returns the foreground `Activity` ready to host dialogs. Throws `IllegalStateException` if no usable Activity is available.
+- `Activity.usable()`: Checks `!isFinishing && !isDestroyed`.
+- `Activity.onDestroyed(block)`: Registers a one-time destruction hook that returns an unregister function.
+
+## Standard In-App Dialogs (`DialogHelper.kt`)
+
+All dialog functions in `DialogHelper` run on `Dispatchers.Main`, suspend cleanly, handle screen dismissal, and unhook listeners when the hosting Activity is destroyed.
+
+### 1. Information Dialog: `showInfo`
+Shows an informational dialog with a single button and suspends until dismissed.
+
+```kotlin
+import keiyoushi.utils.ui.showInfo
+
+suspend fun notifyMaintenance() {
+    showInfo(
+        title = "Notice",
+        message = "Source is currently under maintenance. Please try again later.",
+        buttonText = "OK",
+    )
+}
+```
+
+### 2. Confirmation Dialog: `askConfirm`
+Shows a Yes/No question dialog. Returns `true` for positive, `false` for negative or dismiss.
+
+```kotlin
+import keiyoushi.utils.ui.askConfirm
+
+suspend fun promptAdultConfirmation(): Boolean {
+    return askConfirm(
+        title = "Age Verification",
+        message = "This series contains mature content. Do you want to continue?",
+        yesText = "Confirm",
+        noText = "Cancel",
+    )
+}
+```
+
+### 3. Text Input Dialog: `askInput`
+Shows a dialog with a single `EditText` input. When `required = true`, the positive button is automatically disabled until input is entered.
+
+```kotlin
+import keiyoushi.utils.ui.askInput
+
+suspend fun requestSecurityPin(): String? {
+    return askInput(
+        title = "Security Pin",
+        message = "Enter your 6-digit access code:",
+        hint = "123456",
+        required = true,
+    )
+}
+```
+
+### 4. Password Input Dialog: `askPassword`
+Shorthand for `askInput` with masked input and a built-in eye icon toggle (`EyeDrawable`) allowing users to show or hide their password.
+
+```kotlin
+import keiyoushi.utils.ui.askPassword
+
+suspend fun requestChapterPassword(chapterName: String): String? {
+    return askPassword(
+        title = chapterName,
+        message = "This chapter is locked with a password.",
+        hint = "Password",
+        required = true,
+    )
+}
+```
+
+### 5. Selection Dialog: `askSelect` / `askSelectOption`
+Shows a single-choice list of options with radio buttons.
+
+```kotlin
+import keiyoushi.utils.ui.askSelect
+import keiyoushi.utils.ui.askSelectOption
+
+suspend fun chooseServer(servers: List<String>): String? {
+    // Returns selected String directly, or null if canceled
+    return askSelectOption(
+        title = "Select Image Server",
+        options = servers,
+        selectedIndex = 0,
+    )
+}
+```
+
+## Refactored WordPress Password Protection Example
+
+Using `askPassword`, the previous 80-line manual dialog implementation reduces to:
+
+```kotlin
+import eu.kanade.tachiyomi.source.model.Page
+import eu.kanade.tachiyomi.source.model.SChapter
+import keiyoushi.network.get
+import keiyoushi.network.post
+import keiyoushi.source.KeiSource
+import keiyoushi.utils.asJsoup
+import keiyoushi.utils.ui.askPassword
+import okhttp3.FormBody
+
+override suspend fun getPageList(chapter: SChapter): List<Page> {
+    val chapterUrl = getChapterUrl(chapter)
+    var document = client.get(chapterUrl).asJsoup()
+
+    val lockForm = document.selectFirst("form.post-password-form")
+    if (lockForm != null) {
+        val password = askPassword(
+            title = chapter.name,
+            message = "This chapter requires a password",
+        ) ?: throw Exception("Chapter password entry was cancelled")
+
+        val postAction = lockForm.absUrl("action").ifEmpty {
+            "$baseUrl/wp-login.php?action=postpass"
+        }
+        val formBody = FormBody.Builder()
+            .add("post_password", password)
+            .add("redirect_to", chapterUrl)
+            .build()
+
+        val postResponse = client.post(postAction, formBody, ensureSuccess = false)
+        document = if (postResponse.isSuccessful && !postResponse.request.url.toString().contains("wp-login.php")) {
+            postResponse.asJsoup()
+        } else {
+            client.get(chapterUrl).asJsoup()
+        }
+
+        if (document.selectFirst("form.post-password-form") != null) {
+            throw Exception("Incorrect password")
         }
     }
 
-    override suspend fun getPageList(chapter: SChapter): List<Page> {
-        val chapterUrl = getChapterUrl(chapter)
-        val response = client.get(chapterUrl)
-        var html = response.body.string()
-        var document = Jsoup.parse(html, chapterUrl)
+    return parsePages(document)
+}
+```
 
-        val lockForm = document.selectFirst("form.post-password-form")
-        if (lockForm != null) {
-            val password = promptForPassword(chapter.name)
-            val postAction = lockForm.absUrl("action").ifEmpty {
-                "$baseUrl/wp-login.php?action=postpass"
-            }
-            val formBody = FormBody.Builder()
-                .add("post_password", password)
-                .add("redirect_to", chapterUrl)
-                .add("Submit", "Nhập")
-                .build()
+## Custom UI View Rendering on Top Activity
 
-            val postHeaders = headers.newBuilder()
-                .set("Referer", chapterUrl)
-                .build()
+When extensions need to render custom views (such as custom layout containers, image previews, or interactive components), obtain the foreground `Activity` with `topActivity()` and render with Android View APIs inside a coroutine:
 
-            val postResponse = client.post(postAction, postHeaders, formBody, ensureSuccess = false)
-            val responseUrl = postResponse.request.url.toString()
-            val responseBody = postResponse.body.string()
+```kotlin
+import android.app.AlertDialog
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
+import keiyoushi.utils.ui.onDestroyed
+import keiyoushi.utils.ui.topActivity
+import keiyoushi.utils.ui.usable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
-            html = if (postResponse.isSuccessful && !responseUrl.contains("wp-login.php")) {
-                responseBody
-            } else {
-                client.get(chapterUrl).body.string()
-            }
+suspend fun <T> showCustomDialog(
+    configure: AlertDialog.Builder.(resolve: (T) -> Unit) -> Unit,
+): T = withContext(Dispatchers.Main) {
+    val activity = topActivity()
+    if (!activity.usable()) throw IllegalStateException("Activity unavailable for dialog")
 
-            document = Jsoup.parse(html, chapterUrl)
-            if (document.selectFirst("form.post-password-form") != null) {
-                throw Exception("Mật khẩu không chính xác")
-            }
-        }
-
-        return extractImageUrls(html).mapIndexed { index, imageUrl ->
-            Page(index, imageUrl = imageUrl)
-        }
-    }
-
-    private suspend fun promptForPassword(chapterTitle: String): String {
-        val activity = currentActivity?.get()
-            ?: throw Exception(passwordWebviewMessage)
-
-        val deferred = CompletableDeferred<String>()
-        var dialog: AlertDialog? = null
-
+    suspendCancellableCoroutine { cont ->
         try {
-            withContext(Dispatchers.Main.immediate) {
-                val input = EditText(activity).apply {
-                    inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                    hint = "Password"
-                }
-                val container = FrameLayout(activity).apply {
-                    val pad = (16 * resources.displayMetrics.density).toInt()
-                    setPadding(pad, pad / 2, pad, 0)
-                    addView(input)
-                }
+            var resolved = false
+            var unhook: (() -> Unit)? = null
+            val builder = AlertDialog.Builder(activity)
 
-                dialog = AlertDialog.Builder(activity)
-                    .setTitle(chapterTitle)
-                    .setMessage("This chapter requires a password")
-                    .setView(container)
-                    .setPositiveButton("Unlock") { _, _ ->
-                        val text = input.text.toString().trim()
-                        if (text.isNotBlank()) {
-                            deferred.complete(text)
-                        } else {
-                            deferred.completeExceptionally(Exception("Password cannot be empty"))
-                        }
-                    }
-                    .setNegativeButton("Cancel") { _, _ ->
-                        deferred.completeExceptionally(Exception("User cancelled password prompt"))
-                    }
-                    .setOnCancelListener {
-                        deferred.completeExceptionally(Exception("Dialog dismissed"))
-                    }
-                    .setOnDismissListener {
-                        if (!deferred.isCompleted) {
-                            deferred.completeExceptionally(Exception("Dialog dismissed"))
-                        }
-                    }
-                    .show()
+            builder.configure { value ->
+                resolved = true
+                if (cont.isActive) cont.resume(value)
             }
 
-            return deferred.await()
-        } finally {
-            withContext(NonCancellable + Dispatchers.Main.immediate) {
-                dialog?.takeIf { it.isShowing }?.dismiss()
+            builder.setOnDismissListener {
+                unhook?.invoke()
+                unhook = null
+                if (cont.isActive && !resolved) {
+                    cont.resumeWithException(Exception("Dialog dismissed"))
+                }
             }
+
+            val dialog = builder.show()
+            unhook = activity.onDestroyed {
+                runCatching { if (dialog.isShowing) dialog.dismiss() }
+            }
+            cont.invokeOnCancellation {
+                activity.runOnUiThread {
+                    runCatching { if (dialog.isShowing) dialog.dismiss() }
+                }
+            }
+        } catch (t: Throwable) {
+            if (cont.isActive) cont.resumeWithException(t)
         }
     }
 }
 ```
 
-## Key Considerations
+### Key Rules for Custom UI Rendering:
+- **Always run on `Dispatchers.Main`**: Android UI widgets and `AlertDialog` can only be manipulated on the main looper thread.
+- **Check `usable()`**: Verify `!isFinishing && !isDestroyed` before building or displaying dialogs.
+- **Hook `onDestroyed`**: Always unregister and dismiss dialogs when the hosting `Activity` is destroyed to avoid window leaks.
+- **Support Coroutine Cancellation**: Use `cont.invokeOnCancellation` so cancelling the parent job (e.g. user navigating back in Mihon) dismisses the dialog immediately.
 
-- **Lifecycle and Activity Reference**: Always store `Activity` inside `WeakReference` to avoid memory leaks. Clear references when activities pause or are destroyed.
-- **Coroutines Bridge**: Use `CompletableDeferred<String>` to bridge asynchronous user input in `AlertDialog` callbacks with the coroutine in `getPageList`.
-- **UI Dispatcher**: The dialog must be created and displayed on `Dispatchers.Main.immediate`.
-- **Dialog Cleanup**: Dismiss the dialog inside a `finally` block wrapped in `withContext(NonCancellable + Dispatchers.Main.immediate)` to avoid leaking open dialogs on job cancellation.
-- **Cookie Jar Persistence**: WordPress postpass sets cookie `wp-postpass_<hash>` on a `302 Found` response. OkHttp's `CookieJar` in Tachiyomi/Mihon persists this cookie across subsequent chapter requests.
-- **Wrong Password Detection**: When an incorrect password is submitted, WordPress redirects back to the post URL while still displaying `form.post-password-form`. Inspecting the returned document for the presence of this form detects invalid credentials and allows throwing a clear error.
-- The message explains that action instead of reporting a generic parsing error.
-- Returning `emptyList()` would hide the required action from the user.
+---
 
-Continue returning `emptyList()` when content is merely missing, empty, or
-unsupported and there is no useful action for the user to take. Do not replace
-an existing actionable custom message with `emptyList()` solely to follow the
-generic empty-list recommendation.
+# Advanced WebView Execution (`runWebView`)
+
+When a source requires executing client-side scripts, decoding JavaScript obfuscation, solving custom challenges, or reading authentication state, use `keiyoushi.utils.runWebView`.
+
+## Execution Mechanics & Defaults
+
+- `runWebView` runs on `Dispatchers.Main` internally.
+- Sets up viewport matching device metrics (`widthPixels`, `heightPixels`).
+- Automatically enables:
+  - `javaScriptEnabled = true`
+  - `domStorageEnabled = true`
+  - `blockNetworkImage = false`
+- Automatically synchronizes `Sec-CH-UA` client hints when setting `userAgent`.
+- Cleans up WebView on completion, rejection, or timeout: cancels loading, removes from parent hierarchy, and calls `webView.destroy()`.
+
+## DSL Capabilities (`WebViewScope<T>`)
+
+1. **JavaScript Bridge (`jsBridge`)**: Exposes two-way communication from page script to Kotlin coroutine:
+   ```kotlin
+   jsBridge("myBridge") { message ->
+       resolve(message)
+   }
+   ```
+   Inside page JS: `window.myBridge.post("result data")`.
+
+2. **Network Interceptor (`interceptRequest`)**:
+   Inspect, block, or mock network requests made by the WebView:
+   ```kotlin
+   interceptRequest { request ->
+       if (request.url.path?.endsWith(".jpg") == true) {
+           // Block images to save bandwidth
+           WebResourceResponse("text/plain", "UTF-8", null)
+       } else {
+           null // Let request proceed normally
+       }
+   }
+   ```
+
+3. **Lifecycle Hooks**:
+   - `onPageStarted { url -> ... }`
+   - `onPageFinished { url -> ... }`
+   - `onReceivedError { request, error -> ... }`
+
+4. **Polling & Script Evaluation**:
+   - `evaluateJs(script) { result -> ... }`: Runs script on page and receives result.
+   - `poll(interval = 500.milliseconds) { ... }`: Periodically checks conditions until `resolve` or `reject` is invoked.
+
+5. **Synchronous Execution for Interceptors (`runWebViewBlocking`)**:
+   When inside an OkHttp `Interceptor` (non-suspend context), use `runWebViewBlocking(call = chain.call())`. It watches `call.isCanceled()` and cancels the WebView coroutine cleanly if the network call is aborted.
+
+---
 
 ## Pass POST Bodies Positionally
 
