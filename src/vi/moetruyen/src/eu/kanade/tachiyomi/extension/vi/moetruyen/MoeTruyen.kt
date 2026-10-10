@@ -275,8 +275,7 @@ abstract class MoeTruyen : KeiSource() {
         return (Clock.System.now() - duration).toEpochMilliseconds()
     }
 
-    private fun parseAbsoluteDate(date: String?): Long =
-        dateFormat.tryParseDate(date, dateZone)
+    private fun parseAbsoluteDate(date: String?): Long = dateFormat.tryParseDate(date, dateZone)
 
     // ============================== Pages =================================
 
