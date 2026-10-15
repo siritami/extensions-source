@@ -296,61 +296,52 @@ Cloudflare Turnstile challenges can be solved directly within extensions using `
 Turnstile resolution in `:core` (`keiyoushi.utils.TurnstileHelper.kt`) uses a dual headless / interactive strategy:
 
 1. **Headless Execution First**:
-   - Creates a WebView using `runWebView(activity, timeout)`.
+   - Creates a WebView using `runWebView(timeout)`.
    - Configures the WebView with actual device display metrics (`setupWebView`) so Cloudflare receives realistic viewport metrics.
    - Detects system UI dark/light mode via `Configuration.UI_MODE_NIGHT_MASK` and passes `theme: 'dark'` or `'light'` to Turnstile.
    - Renders Turnstile explicitly with `appearance: 'interaction-only'`. If Cloudflare evaluates the request and verifies the client without requiring human interaction, the token is obtained silently without displaying any UI.
 
 2. **Seamless In-App Interactive Overlay (`CaptchaOverlayDialog`)**:
    - If Cloudflare requires user interaction (e.g., clicking a checkbox or solving a puzzle), Turnstile's `before-interactive-callback` fires.
-   - A JavaScript bridge (`window.turnstileShow.post('show')`) instructs Kotlin to display `CaptchaOverlayDialog`.
+   - A single `webMessageBridge` named `turnstileBridge` (scoped to the page origin) posts a `"show"` message to Kotlin, which displays `CaptchaOverlayDialog`.
    - `CaptchaOverlayDialog` attaches a translucent, full-screen dialog (`android.R.style.Theme_Translucent_NoTitleBar`) with a dimmed background (`dimAmount = 0.6f`) to the foreground `Activity` obtained from `topActivity()`.
    - The WebView hosting the challenge is displayed directly inside this dialog at native device dimensions.
    - If user dismisses the dialog or taps outside, the challenge is cancelled and throws an exception.
    - If the hosting Activity is destroyed, lifecycle hooks unhook and dismiss the dialog cleanly without leaking memory.
+   - If no foreground Activity exists when interaction is needed, the run fails with `IllegalStateException` instead of hanging.
 
-3. **Bridge Callbacks & Error Handling**:
-   - `turnstileToken`: On challenge success, posts the token to Kotlin, dismisses the overlay dialog, and completes `runWebView` with the token string.
-   - `turnstileError`: Maps internal error codes to clear human-readable messages (e.g. expired, timeout, script failure, sitekey rejected `110100`/`110110`/`400020`, unauthorized domain `110200`, incorrect device clock `200100`).
-   - `turnstileCancel`: Rejects the coroutine with `"Captcha cancelled"`.
+3. **Bridge Messages & Error Handling**:
+   The page communicates with Kotlin through `window.turnstileBridge.postMessage(...)` (a `webMessageBridge`, not `jsBridge`). Allowed origins are restricted to the target page origin so Cloudflare's iframes cannot post.
+   - `"token:<value>"`: on challenge success, dismisses the overlay and completes `runWebView` with the token string.
+   - `"error:<code>"`: maps internal error codes to clear messages (e.g. expired, timeout, `script_load_failed`, sitekey rejected `110100`/`110110`/`400020`, unauthorized domain `110200`, wrong device clock `200100`).
+   - `"cancel"`: rejects with `"Captcha cancelled"`.
+   - `"show"` / `"hide"`: shows/dismisses the interactive overlay dialog.
 
-## API Signatures
+## API Signature
 
-`TurnstileHelper` provides two suspend functions:
+`TurnstileHelper` exposes a single suspend function:
 
 ```kotlin
 package keiyoushi.utils
 
-import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
-// 1. Direct function
 suspend fun getTurnstileToken(
     url: String,
     siteKey: String,
-    userAgent: String,
-    action: String? = null,
-    cData: String? = null,
-    timeout: Duration = 2.minutes,
-): String
-
-// 2. Context receiver overload (inside HttpSource / KeiSource)
-context(source: HttpSource)
-suspend fun getTurnstileToken(
-    url: String,
-    siteKey: String,
+    userAgent: String? = null,
     action: String? = null,
     cData: String? = null,
     timeout: Duration = 2.minutes,
 ): String
 ```
 
-- `url`: Target page URL (used as the origin base URL).
+- `url`: Target page URL (used as the WebView page origin via `loadData`, and for the `webMessageBridge` allowed-origin rule).
 - `siteKey`: The Cloudflare Turnstile sitekey extracted from the target website.
-- `userAgent`: Client user-agent string. In the `context(source: HttpSource)` overload, it is automatically extracted from `source.headers["User-Agent"]!!`.
-- `action`: Optional Turnstile action parameter.
-- `cData`: Optional custom data parameter passed to Turnstile.
+- `userAgent`: Optional client user-agent. When `null` (default), the helper derives a reduced-Chrome UA from the WebView's own Chrome major version (`Mozilla/5.0 (Linux; Android 10; K) ... Chrome/<major>.0.0.0 Mobile Safari/537.36`) so the claimed browser matches the engine. Turnstile tokens are not tied to a UA, so the token can still be sent on requests that use the source's own `User-Agent` header. Only pass `userAgent` when the site requires a specific one.
+- `action`: Optional Turnstile `action` render option (e.g. `"msr_read"`).
+- `cData`: Optional Turnstile `cData` render option.
 - `timeout`: Maximum wait time before throwing `WebViewTimeoutException` (defaults to `2.minutes`).
 
 ## Practical Usage Examples
@@ -379,7 +370,7 @@ override suspend fun getPageList(chapter: SChapter): List<Page> {
     if (challengeElement != null) {
         val siteKey = challengeElement.attr("data-sitekey")
 
-        // 2. Solve challenge using the context receiver overload
+        // 2. Solve challenge headlessly (interactive overlay appears only if needed)
         val turnstileToken = getTurnstileToken(
             url = chapterUrl,
             siteKey = siteKey,
@@ -650,43 +641,92 @@ When a source requires executing client-side scripts, decoding JavaScript obfusc
   - `javaScriptEnabled = true`
   - `domStorageEnabled = true`
   - `blockNetworkImage = false`
-- Automatically synchronizes `Sec-CH-UA` client hints when setting `userAgent`.
+- Mutes WebView audio when the `MUTE_AUDIO` feature is supported.
+- Automatically spoofs matching `Sec-CH-UA` client hints when setting `userAgent` (requires Chromium 119+ / `USER_AGENT_METADATA`).
 - Cleans up WebView on completion, rejection, or timeout: cancels loading, removes from parent hierarchy, and calls `webView.destroy()`.
 
 ## DSL Capabilities (`WebViewScope<T>`)
 
-1. **JavaScript Bridge (`jsBridge`)**: Exposes two-way communication from page script to Kotlin coroutine:
-   ```kotlin
-   jsBridge("myBridge") { message ->
-       resolve(message)
-   }
-   ```
-   Inside page JS: `window.myBridge.post("result data")`.
+### Settings
 
-2. **Network Interceptor (`interceptRequest`)**:
-   Inspect, block, or mock network requests made by the WebView:
-   ```kotlin
-   interceptRequest { request ->
-       if (request.url.path?.endsWith(".jpg") == true) {
-           // Block images to save bandwidth
-           WebResourceResponse("text/plain", "UTF-8", null)
-       } else {
-           null // Let request proceed normally
-       }
-   }
-   ```
+- `javaScriptEnabled`, `domStorageEnabled`, `blockImages`, `useWideViewPort`, `loadWithOverviewMode` — delegate to `WebSettings`.
+- `userAgent` — sets `userAgentString` and spoofs matching `Sec-CH-UA` client hints when supported.
+- `includeCookiesOnIntercept` — includes the `Cookie` header in `interceptRequest` callbacks and makes the WebView honor `Set-Cookie` from intercepted responses. Requires Chromium 138+ (`COOKIE_INTERCEPT`); silently ignored otherwise.
 
-3. **Lifecycle Hooks**:
-   - `onPageStarted { url -> ... }`
-   - `onPageFinished { url -> ... }`
-   - `onReceivedError { request, error -> ... }`
+### Lifecycle Hooks
 
-4. **Polling & Script Evaluation**:
-   - `evaluateJs(script) { result -> ... }`: Runs script on page and receives result.
-   - `poll(interval = 500.milliseconds) { ... }`: Periodically checks conditions until `resolve` or `reject` is invoked.
+- `onPageStarted { url -> ... }`
+- `onPageFinished { url -> ... }` — can fire multiple times per page (redirects, SPA navigations, iframes).
+- `onReceivedError { request, error -> ... }` — DNS/SSL/network failures.
 
-5. **Synchronous Execution for Interceptors (`runWebViewBlocking`)**:
-   When inside an OkHttp `Interceptor` (non-suspend context), use `runWebViewBlocking(call = chain.call())`. It watches `call.isCanceled()` and cancels the WebView coroutine cleanly if the network call is aborted.
+Exceptions thrown in hooks fail the run via `reject`.
+
+### Resource Interception
+
+`interceptRequest { request -> WebResourceResponse? }` runs on a WebView background thread; return `null` to let the request proceed. Can be registered only once per scope.
+
+```kotlin
+interceptRequest { request ->
+    if (request.url.path?.endsWith(".jpg") == true) {
+        WebResourceResponse("text/plain", "UTF-8", null) // block
+    } else {
+        null
+    }
+}
+```
+
+### JS ↔ Kotlin Messaging
+
+**`webMessageBridge` (preferred)** — modern async, origin-scoped 2-way channel (requires Chromium 82+ / `WEB_MESSAGE_LISTENER`; falls back to `addJavascriptInterface` below Chromium 82):
+
+```kotlin
+webMessageBridge("bridge", allowedOriginRules = setOf("https://example.com")) { message, reply ->
+    if (reply.isMainFrame == true && message.startsWith("done:")) {
+        resolve(message.removePrefix("done:"))
+    }
+}
+```
+
+- JS side: `window.bridge.postMessage(msg)` to send; `window.bridge.onmessage = e => ...` to receive.
+- `reply.sourceOrigin` / `reply.isMainFrame` identify the sender frame (null on the fallback path).
+- `reply.postMessage(msg)` replies into the sending frame; `reply.evaluateJs(script, cb)` runs JS in that frame (Chromium 146+ / `JS_INJECTION_IN_FRAME_AND_WORLD`).
+- With the default `setOf("*")` rule, any frame (ads, third-party iframes) can post. Scope `allowedOriginRules` to the expected origin and check `isMainFrame`/`sourceOrigin` before trusting a message that completes the run.
+- Must be registered before `loadUrl`/`loadData`.
+- A `(message) -> Unit` overload exists when reply is unneeded.
+
+**`jsBridge` (deprecated)** — `window.<name>.post(msg)` via `addJavascriptInterface`; handler runs on a background thread. Only use for engines older than Chromium 82; prefer `webMessageBridge`.
+
+### Script Injection
+
+- `evaluateJs(script) { result -> ... }` — runs in the current page; optional callback gets the JSON-encoded result.
+- `injectAtDocumentStart(script, allowedOriginRules)` — injects before any page script runs. Requires Chromium 91+ (`DOCUMENT_START_SCRIPT`); falls back to `onPageStarted` evaluation on older engines (async, main frame only — page scripts may already have run). Returns a `ScriptHandle` for removal.
+- `addJavaScriptOnEvent(script, event, worldName, allowedOriginRules)` — injects on `InjectionEvent.DOCUMENT_START`/`DOCUMENT_END`, optionally in an isolated world. Requires Chromium 146+ (`JS_INJECTION_IN_FRAME_AND_WORLD`); **no fallback** — rejects on older engines.
+
+### Polling
+
+`poll(interval = 500.milliseconds) { ... }` repeats on the main thread until `resolve`/`reject`. First run fires after one interval.
+
+### Load & Resolve
+
+- `loadUrl(url, headers)` / `loadData(baseUrl, html)` — each may be called only once per scope.
+- `resolve(value)` completes the suspend call; first completion wins. `reject(error)` throws it.
+- `stopLoading()` aborts in-progress loads.
+
+### Blocking Interceptor Entry Point
+
+`runWebViewBlocking(call, timeout, configure)` for non-suspend OkHttp `Interceptor` bodies:
+
+```kotlin
+override fun intercept(chain: Interceptor.Chain): Response {
+    // verify not on main thread — enforced by check()
+    val token = runWebViewBlocking<String>(chain.call(), timeout = 30.seconds) {
+        // ...same DSL...
+    }
+}
+```
+
+- Must not be called on the main thread (`check` enforced).
+- Watches `call.isCanceled()` and cancels the WebView run when the call is aborted; cancellation surfaces as `IOException`, not a raw `CancellationException`.
 
 ---
 
