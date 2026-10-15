@@ -32,19 +32,21 @@ abstract class MangaMori : KeiSource() {
 
     override suspend fun getPopularManga(page: Int): MangasPage {
         val document = client.get(baseUrl).asJsoup()
-        val mangas = document.select("#truyen-moi a[href^=/truyen/]").mapNotNull { card ->
-            val titleElement = card.selectFirst("h3") ?: return@mapNotNull null
-            val href = card.attr("href")
-            val slug = href.substringAfter("/truyen/").substringBefore('/').takeIf(String::isNotBlank)
-                ?: return@mapNotNull null
+        val mangas = document.select("a.group.block.h-full[href^=/truyen/]")
+            .mapNotNull { card ->
+                val titleElement = card.selectFirst("h3") ?: return@mapNotNull null
+                val href = card.attr("href")
+                val slug = href.substringAfter("/truyen/").substringBefore('/').takeIf(String::isNotBlank)
+                    ?: return@mapNotNull null
 
-            SManga.create().apply {
-                url = slug
-                title = titleElement.text()
-                thumbnail_url = card.selectFirst("img")?.absUrl("src")
-                author = titleElement.nextElementSibling()?.text()
+                SManga.create().apply {
+                    url = slug
+                    title = titleElement.text()
+                    thumbnail_url = card.selectFirst("img")?.absUrl("src")
+                    author = titleElement.nextElementSibling()?.text()
+                }
             }
-        }
+            .distinctBy(SManga::url)
         return MangasPage(mangas, false)
     }
 
