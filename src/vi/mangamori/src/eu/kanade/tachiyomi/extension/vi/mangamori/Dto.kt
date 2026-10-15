@@ -58,7 +58,7 @@ class ChapterDto(
 
 @Serializable
 class ReaderPayload(
-    val chapterData: ReaderChapter,
+    val chapter: ReaderChapter,
     val encryptedMap: String,
     val mapNonce: String,
 ) {

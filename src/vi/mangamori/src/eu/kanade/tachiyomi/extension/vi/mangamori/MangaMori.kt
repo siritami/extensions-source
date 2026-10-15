@@ -123,28 +123,6 @@ abstract class MangaMori : KeiSource() {
         )
     }
 
-    // =============================== Pages ================================
-
-    override suspend fun getPageList(chapter: SChapter): List<Page> {
-        val payload = client.get(getChapterUrl(chapter)).extractNextJs<ReaderPayload>()
-            ?: return emptyList()
-        val mapData = decodeMap(
-            encrypted = payload.encryptedMap,
-            nonce = payload.mapNonce,
-            count = payload.rows * payload.cols,
-        ).joinToString(",")
-
-        return payload.chapterData.pages
-            .sortedBy(ReaderPage::pageOrder)
-            .mapIndexed { index, page ->
-                val imageUrl = page.imageUrl.toHttpUrl().newBuilder()
-                    .fragment("mm:${payload.rows}:${payload.cols}:$mapData")
-                    .build()
-                    .toString()
-                Page(index, imageUrl = imageUrl)
-            }
-    }
-
     private val detailStatuses = setOf("đang tiến hành", "hoàn thành")
 
     private fun Document.nextFlightData(): String = select("script:not([src])")
@@ -163,4 +141,32 @@ abstract class MangaMori : KeiSource() {
             }.getOrNull()
         }
         .joinToString("")
+
+    // =============================== Pages ================================
+
+    override suspend fun getPageList(chapter: SChapter): List<Page> {
+        val document = client.get(getChapterUrl(chapter)).asJsoup()
+        val payload = document.nextFlightData().extractNextJsRsc<ReaderPayload> { element ->
+            element is JsonObject &&
+                "chapter" in element &&
+                "encryptedMap" in element &&
+                "mapNonce" in element
+        }
+            ?: return emptyList()
+        val mapData = decodeMap(
+            encrypted = payload.encryptedMap,
+            nonce = payload.mapNonce,
+            count = payload.rows * payload.cols,
+        ).joinToString(",")
+
+        return payload.chapter.pages
+            .sortedBy(ReaderPage::pageOrder)
+            .mapIndexed { index, page ->
+                val imageUrl = page.imageUrl.toHttpUrl().newBuilder()
+                    .fragment("mm:${payload.rows}:${payload.cols}:$mapData")
+                    .build()
+                    .toString()
+                Page(index, imageUrl = imageUrl)
+            }
+    }
 }
