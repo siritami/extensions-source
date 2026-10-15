@@ -1,9 +1,14 @@
 package eu.kanade.tachiyomi.extension.vi.lavibitwindroom
 
 import android.content.SharedPreferences
-import keiyoushi.network.get
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.IOException
+
+private fun OkHttpClient.getString(url: String): String {
+    val response = newCall(Request.Builder().url(url).build()).execute()
+    return response.use { it.body.string() }
+}
 
 object ApiConfigCache {
     private const val KEY_URL = "supabase_api_url"
@@ -52,7 +57,7 @@ object ApiConfigScraper {
     }
 
     private suspend fun scrapeFromSite(client: OkHttpClient, baseUrl: String): Config {
-        val home = client.get(baseUrl).use { it.body.string() }
+        val home = client.getString(baseUrl)
 
         // Key may be inlined in the page itself on some deployments.
         findConfig(home)?.let { return it }
@@ -63,9 +68,7 @@ object ApiConfigScraper {
             .toList()
 
         for (src in scripts) {
-            val body = runCatching {
-                client.get(src).use { it.body.string() }
-            }.getOrDefault("")
+            val body = runCatching { client.getString(src) }.getOrDefault("")
             findConfig(body)?.let { return it }
         }
 
