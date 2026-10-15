@@ -59,8 +59,8 @@ class ChapterDto(
 @Serializable
 class ReaderPayload(
     val chapter: ReaderChapter,
-    val encryptedMap: String,
-    val mapNonce: String,
+    val encryptedMap: String? = null,
+    val mapNonce: String? = null,
 ) {
     val rows = 8
     val cols = 8
@@ -75,4 +75,7 @@ class ReaderChapter(
 class ReaderPage(
     val imageUrl: String,
     val pageOrder: Int,
+    val isScrambled: Boolean = false,
+    val scrambleRows: Int = 8,
+    val scrambleCols: Int = 8,
 )

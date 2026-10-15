@@ -150,19 +150,27 @@ abstract class MangaMori : KeiSource() {
                 "mapNonce" in element
         }
             ?: return emptyList()
-        val mapData = decodeMap(
-            encrypted = payload.encryptedMap,
-            nonce = payload.mapNonce,
-            count = payload.rows * payload.cols,
-        ).joinToString(",")
+        val mapData = payload.encryptedMap?.let { encryptedMap ->
+            payload.mapNonce?.let { mapNonce ->
+                decodeMap(
+                    encrypted = encryptedMap,
+                    nonce = mapNonce,
+                    count = payload.rows * payload.cols,
+                ).joinToString(",")
+            }
+        }
 
         return payload.chapter.pages
             .sortedBy(ReaderPage::pageOrder)
             .mapIndexed { index, page ->
-                val imageUrl = page.imageUrl.toHttpUrl().newBuilder()
-                    .fragment("mm:${payload.rows}:${payload.cols}:$mapData")
-                    .build()
-                    .toString()
+                val imageUrl = if (page.isScrambled && mapData != null) {
+                    page.imageUrl.toHttpUrl().newBuilder()
+                        .fragment("mm:${page.scrambleRows}:${page.scrambleCols}:$mapData")
+                        .build()
+                        .toString()
+                } else {
+                    page.imageUrl
+                }
                 Page(index, imageUrl = imageUrl)
             }
     }
