@@ -76,6 +76,6 @@ class ReaderPage(
     val imageUrl: String,
     val pageOrder: Int,
     val isScrambled: Boolean = false,
-    val scrambleRows: Int = 8,
-    val scrambleCols: Int = 8,
+    val scrambleRows: Int? = null,
+    val scrambleCols: Int? = null,
 )

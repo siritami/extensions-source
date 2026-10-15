@@ -167,7 +167,9 @@ abstract class MangaMori : KeiSource() {
             .mapIndexed { index, page ->
                 val imageUrl = if (page.isScrambled && mapData != null) {
                     page.imageUrl.toHttpUrl().newBuilder()
-                        .fragment("mm:${page.scrambleRows}:${page.scrambleCols}:$mapData")
+                        .fragment(
+                            "mm:${page.scrambleRows ?: payload.rows}:${page.scrambleCols ?: payload.cols}:$mapData",
+                        )
                         .build()
                         .toString()
                 } else {
