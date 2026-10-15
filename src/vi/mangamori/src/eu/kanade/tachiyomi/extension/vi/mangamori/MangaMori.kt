@@ -10,11 +10,9 @@ import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
+import keiyoushi.utils.asJsoup
 import keiyoushi.utils.extractNextJs
-import keiyoushi.utils.getStringOrNull
 import keiyoushi.utils.parseAs
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -31,24 +29,28 @@ abstract class MangaMori : KeiSource() {
     override suspend fun getPopularManga(page: Int): MangasPage {
         if (page > 1) return MangasPage(emptyList(), false)
 
-        val comics = client.get(baseUrl).extractNextJs<List<HomeComic>> { element ->
-            element is JsonArray && element.firstOrNull().let { comic ->
-                comic is JsonObject &&
-                    comic.getStringOrNull("slug") != null &&
-                    comic.getStringOrNull("thumbnail") != null &&
-                    "chapters" in comic &&
-                    "rawChapters" in comic
+        val document = client.get(baseUrl).asJsoup()
+        val mangas = document.select("#truyen-moi a[href^=/truyen/]").mapNotNull { card ->
+            val titleElement = card.selectFirst("h3") ?: return@mapNotNull null
+            val href = card.attr("href")
+            val slug = href.substringAfter("/truyen/").substringBefore('/').takeIf(String::isNotBlank)
+                ?: return@mapNotNull null
+
+            SManga.create().apply {
+                url = slug
+                title = titleElement.text()
+                thumbnail_url = card.selectFirst("img")?.absUrl("src")
+                author = titleElement.nextElementSibling()?.text()
             }
         }
-            ?: return MangasPage(emptyList(), false)
-        return MangasPage(comics.map(HomeComic::toSManga), false)
+        return MangasPage(mangas, false)
     }
 
     // ============================== Latest ================================
 
     override val supportsLatest = false
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage = getPopularManga(page)
+    override suspend fun getLatestUpdates(page: Int): MangasPage = MangasPage(emptyList(), false)
 
     // ============================== Search ================================
 

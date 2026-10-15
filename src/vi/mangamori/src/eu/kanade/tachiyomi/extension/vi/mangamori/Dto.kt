@@ -27,21 +27,6 @@ class SearchComic(
 }
 
 @Serializable
-class HomeComic(
-    private val slug: String,
-    private val title: String,
-    private val thumbnail: String,
-    private val author: String? = null,
-) {
-    fun toSManga() = SManga.create().apply {
-        url = slug
-        title = this@HomeComic.title
-        thumbnail_url = thumbnail
-        author = this@HomeComic.author
-    }
-}
-
-@Serializable
 class ComicPayload(
     private val title: String,
     private val thumbnail: String,
