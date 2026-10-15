@@ -31,13 +31,8 @@ abstract class MangaMori : KeiSource() {
     // ============================== Popular ===============================
 
     override suspend fun getPopularManga(page: Int): MangasPage {
-        val requestUrl = baseUrl.toHttpUrl().newBuilder()
-            .addQueryParameter("page", page.toString())
-            .build()
-        val document = client.get(requestUrl).asJsoup()
-        val cards = document.select("a.group.block.h-full[href^=/truyen/]")
-            .filter { card -> card.parents().none { it.id() == "truyen-moi" } }
-        val mangas = cards.mapNotNull { card ->
+        val document = client.get(baseUrl).asJsoup()
+        val mangas = document.select("#truyen-moi a[href^=/truyen/]").mapNotNull { card ->
             val titleElement = card.selectFirst("h3") ?: return@mapNotNull null
             val href = card.attr("href")
             val slug = href.substringAfter("/truyen/").substringBefore('/').takeIf(String::isNotBlank)
@@ -50,10 +45,7 @@ abstract class MangaMori : KeiSource() {
                 author = titleElement.nextElementSibling()?.text()
             }
         }
-        val pagination = document.nextFlightData().extractNextJsRsc<PaginationPayload> { element ->
-            element is JsonObject && "currentPage" in element && "totalPages" in element
-        }
-        return MangasPage(mangas, pagination?.hasNextPage == true)
+        return MangasPage(mangas, false)
     }
 
     // ============================== Latest ================================
