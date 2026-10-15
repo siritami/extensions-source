@@ -13,7 +13,7 @@ import okhttp3.ResponseBody.Companion.asResponseBody
 import okio.Buffer
 import java.io.IOException
 
-class MangaMoriImageInterceptor : Interceptor {
+class ImageInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val fragment = request.url.fragment ?: return chain.proceed(request)

@@ -27,28 +27,10 @@ class SearchComic(
 }
 
 @Serializable
-class ComicPayload(
-    private val title: String,
-    private val thumbnail: String,
-    private val author: String? = null,
-    private val description: String? = null,
-    private val status: String? = null,
+class ChapterPayload(
     private val chapters: List<ChapterDto>,
     private val rawChapters: List<ChapterDto>,
 ) {
-    fun toSManga(slug: String) = SManga.create().apply {
-        url = slug
-        title = this@ComicPayload.title
-        thumbnail_url = thumbnail
-        author = this@ComicPayload.author
-        description = this@ComicPayload.description
-        status = when (this@ComicPayload.status?.lowercase()) {
-            "ongoing" -> SManga.ONGOING
-            "completed" -> SManga.COMPLETED
-            else -> SManga.UNKNOWN
-        }
-    }
-
     fun toSChapterList(slug: String): List<SChapter> = buildList {
         chapters.mapTo(this) { it.toSChapter(slug, "VietSub") }
         rawChapters.mapTo(this) { it.toSChapter(slug, "Raw", raw = true) }

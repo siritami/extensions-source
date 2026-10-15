@@ -20,7 +20,7 @@ import okhttp3.OkHttpClient
 @Source
 abstract class MangaMori : KeiSource() {
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
-        addInterceptor(MangaMoriImageInterceptor())
+        addInterceptor(ImageInterceptor())
         rateLimit(3)
     }
 
@@ -88,12 +88,31 @@ abstract class MangaMori : KeiSource() {
         fetchChapters: Boolean,
     ): SMangaUpdate {
         val slug = manga.url.substringAfterLast('/')
-        val payload = client.get("$baseUrl/truyen/$slug").extractNextJs<ComicPayload>()
-            ?: return SMangaUpdate(manga, chapters)
+        val document = client.get("$baseUrl/truyen/$slug").asJsoup()
+        val titleElement = document.selectFirst("h1") ?: return SMangaUpdate(manga, chapters)
+        val detailsContainer = titleElement.parent()
+        val statusText = detailsContainer?.select("span")
+            ?.firstOrNull { element ->
+                element.text().lowercase() in detailStatuses
+            }
+            ?.text()
+            ?.lowercase()
+        val chapterPayload = document.extractNextJs<ChapterPayload>()
 
         return SMangaUpdate(
-            manga = payload.toSManga(slug),
-            chapters = payload.toSChapterList(slug),
+            manga = SManga.create().apply {
+                url = slug
+                title = titleElement.text()
+                thumbnail_url = detailsContainer?.parent()?.selectFirst("img")?.absUrl("src")
+                author = titleElement.nextElementSibling()?.select("span")?.last()?.text()
+                description = document.selectFirst("h2:containsOwn(Nội dung) + p")?.text()
+                status = when (statusText) {
+                    "đang tiến hành" -> SManga.ONGOING
+                    "hoàn thành" -> SManga.COMPLETED
+                    else -> SManga.UNKNOWN
+                }
+            },
+            chapters = chapterPayload?.toSChapterList(slug) ?: chapters,
         )
     }
 
@@ -118,4 +137,6 @@ abstract class MangaMori : KeiSource() {
                 Page(index, imageUrl = imageUrl)
             }
     }
+
+    private val detailStatuses = setOf("đang tiến hành", "hoàn thành")
 }
