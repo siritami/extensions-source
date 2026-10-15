@@ -31,10 +31,10 @@ abstract class MangaMori : KeiSource() {
     // ============================== Popular ===============================
 
     override suspend fun getPopularManga(page: Int): MangasPage {
-        val url = baseUrl.toHttpUrl().newBuilder()
+        val requestUrl = baseUrl.toHttpUrl().newBuilder()
             .addQueryParameter("page", page.toString())
             .build()
-        val document = client.get(url).asJsoup()
+        val document = client.get(requestUrl).asJsoup()
         val cards = document.select("a.group.block.h-full[href^=/truyen/]")
             .filter { card -> card.parents().none { it.id() == "truyen-moi" } }
         val mangas = cards.mapNotNull { card ->
