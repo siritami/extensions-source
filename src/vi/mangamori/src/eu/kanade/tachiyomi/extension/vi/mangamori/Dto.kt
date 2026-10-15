@@ -27,6 +27,15 @@ class SearchComic(
 }
 
 @Serializable
+class PaginationPayload(
+    private val currentPage: Int,
+    private val totalPages: Int,
+) {
+    val hasNextPage: Boolean
+        get() = currentPage < totalPages
+}
+
+@Serializable
 class ChapterPayload(
     private val chapters: List<ChapterDto>,
     private val rawChapters: List<ChapterDto>,
