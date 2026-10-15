@@ -16,6 +16,8 @@ import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 
 @Source
 abstract class MangaMori : KeiSource() {
@@ -97,7 +99,19 @@ abstract class MangaMori : KeiSource() {
             }
             ?.text()
             ?.lowercase()
-        val chapterPayload = document.extractNextJs<ChapterPayload>()
+        val translatedChapters = document.extractNextJs<List<ChapterDto>> { element ->
+            element is JsonArray &&
+                (element.firstOrNull() as? JsonObject)?.let { chapter ->
+                    "chapterNumber" in chapter && "downloadAdsRequired" in chapter
+                } == true
+        }.orEmpty()
+        val rawChapters = document.extractNextJs<List<ChapterDto>> { element ->
+            element is JsonArray &&
+                (element.firstOrNull() as? JsonObject)?.let { chapter ->
+                    "chapterNumber" in chapter && "downloadAdsRequired" !in chapter
+                } == true
+        }.orEmpty()
+        val updatedChapters = buildChapterList(slug, translatedChapters, rawChapters)
 
         return SMangaUpdate(
             manga = SManga.create().apply {
@@ -112,7 +126,7 @@ abstract class MangaMori : KeiSource() {
                     else -> SManga.UNKNOWN
                 }
             },
-            chapters = chapterPayload?.toSChapterList(slug) ?: chapters,
+            chapters = updatedChapters.ifEmpty { chapters },
         )
     }
 

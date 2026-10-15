@@ -26,16 +26,14 @@ class SearchComic(
     }
 }
 
-@Serializable
-class ChapterPayload(
-    private val chapters: List<ChapterDto>,
-    private val rawChapters: List<ChapterDto>,
-) {
-    fun toSChapterList(slug: String): List<SChapter> = buildList {
-        chapters.mapTo(this) { it.toSChapter(slug, "VietSub") }
-        rawChapters.mapTo(this) { it.toSChapter(slug, "Raw", raw = true) }
-    }.sortedByDescending(SChapter::chapter_number)
-}
+fun buildChapterList(
+    slug: String,
+    chapters: List<ChapterDto>,
+    rawChapters: List<ChapterDto>,
+): List<SChapter> = buildList {
+    chapters.mapTo(this) { it.toSChapter(slug, "VietSub") }
+    rawChapters.mapTo(this) { it.toSChapter(slug, "Raw", raw = true) }
+}.sortedByDescending(SChapter::chapter_number)
 
 @Serializable
 class ChapterDto(
