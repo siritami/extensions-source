@@ -140,15 +140,13 @@ abstract class LavibitWindroom : KeiSource() {
 
     // ============================== Chapters ==============================
 
-    private suspend fun fetchChapterList(seriesId: Int, slug: String): List<SChapter> {
-        return apiGet(
-            "/chapters?select=id,chapter_number,title,created_at" +
-                "&series_id=eq.$seriesId&order=chapter_number.asc",
-        )
-            .parseAs<List<ChapterDto>>()
-            .map { it.toSChapter(slug) }
-            .sortedByDescending { it.chapter_number }
-    }
+    private suspend fun fetchChapterList(seriesId: Int, slug: String): List<SChapter> = apiGet(
+        "/chapters?select=id,chapter_number,title,created_at" +
+            "&series_id=eq.$seriesId&order=chapter_number.asc",
+    )
+        .parseAs<List<ChapterDto>>()
+        .map { it.toSChapter(slug) }
+        .sortedByDescending { it.chapter_number }
 
     // =============================== Pages ================================
 
