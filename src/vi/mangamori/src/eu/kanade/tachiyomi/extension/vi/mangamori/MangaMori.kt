@@ -13,11 +13,11 @@ import keiyoushi.source.KeiSource
 import keiyoushi.utils.asJsoup
 import keiyoushi.utils.extractNextJs
 import keiyoushi.utils.parseAs
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
 
 @Source
 abstract class MangaMori : KeiSource() {
