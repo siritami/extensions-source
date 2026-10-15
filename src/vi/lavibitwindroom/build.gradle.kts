@@ -12,7 +12,9 @@ keiyoushi {
 
     source {
         lang = "vi"
-        baseUrl = "https://lavibitwindroomgl.vercel.app"
+        baseUrl {
+            custom("https://lavibitwindroomgl.vercel.app")
+        }
     }
 
     deeplink {
