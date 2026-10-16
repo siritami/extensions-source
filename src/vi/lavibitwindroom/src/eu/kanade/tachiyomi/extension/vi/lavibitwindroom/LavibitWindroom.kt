@@ -100,7 +100,7 @@ abstract class LavibitWindroom : KeiSource() {
             .parseAs<List<SeriesDto>>()
             .first()
         val chapterList = if (fetchChapters) series.toChapterList() else chapters
-        SMangaUpdate(
+        return SMangaUpdate(
             manga = if (fetchDetails) series.toSMangaDetails() else manga,
             chapters = chapterList,
         )
