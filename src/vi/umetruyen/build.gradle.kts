@@ -13,6 +13,6 @@ keiyoushi {
 
     source {
         lang = "vi"
-        baseUrl = "https://umetruyenz.org"
+        baseUrl = "https://umetruyen.co"
     }
 }
