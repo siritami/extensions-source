@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.extension.vi.leesincomic
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonNames
+import keiyoushi.utils.parseAs
 
 @Serializable
 class ComicsResponse(
@@ -35,7 +36,12 @@ class ComicDto(
     val likes: Long = 0,
     val rating: Double = 0.0,
     val chapters: List<ChapterDto> = emptyList(),
-)
+) {
+    val altTitles: List<String>
+        get() = otherNames?.takeIf { it.startsWith("[") }
+            ?.runCatching { parseAs<List<String>>() }?.getOrNull()
+            ?: emptyList()
+}
 
 @Serializable
 class ChapterDto(

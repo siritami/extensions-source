@@ -144,9 +144,8 @@ abstract class LeesinComic : KeiSource() {
                 genre = comic.genres.joinToString()
                 author = comic.authors.joinToString().takeIf { it.isNotBlank() }
                 description = buildString {
-                    comic.otherNames?.takeIf { it.isNotBlank() }?.let {
-                        append("Tên khác: ").append(it).append("\n\n")
-                    }
+                    comic.altTitles.takeIf { it.isNotEmpty() }
+                        ?.let { append("Tên khác: ").append(it.joinToString(" / ")).append("\n\n") }
                     comic.summary?.takeIf { it.isNotBlank() }?.let { append(it) }
                 }.trim()
                 status = when {
@@ -155,7 +154,9 @@ abstract class LeesinComic : KeiSource() {
                     else -> SManga.UNKNOWN
                 }
             },
-            chapters = comic.chapters.map { it.toSChapter(comic.slug) },
+            chapters = comic.chapters
+                .sortedByDescending { it.chapterNumber ?: 0.0 }
+                .map { it.toSChapter(comic.slug) },
         )
     }
 
