@@ -29,16 +29,14 @@ import kotlin.time.Instant
 @Source
 abstract class LeesinComic : KeiSource() {
 
-    // The tachserver CDN rejects image requests that carry an Origin header.
-    override fun Headers.Builder.configureHeaders(): Headers.Builder = removeAll("Origin")
-
     override fun OkHttpClient.Builder.configureClient() = apply {
         rateLimit(3)
     }
 
-    // Some covers are served from the site itself, others via the tachserver
-    // CDN. tachserver.online drops connections; identical paths live on
-    // tachserver.site.
+    // The tachserver CDN rejects image requests that carry an Origin header.
+    override fun Headers.Builder.configureHeaders(): Headers.Builder = removeAll("Origin")
+
+    // CDN. tachserver.online drops connections; identical paths live on tachserver.site.
     private fun String.fixImageHost(): String = replace("://tachserver.online/", "://tachserver.site/")
 
     // ============================== Popular ===============================
@@ -55,7 +53,7 @@ abstract class LeesinComic : KeiSource() {
 
     private fun ComicDto.toSManga(): SManga = SManga.create().apply {
         setUrlWithoutDomain("/truyen/$slug")
-        title = this@ComicDto.title
+        title = this@toSManga.title
         thumbnail_url = coverImage?.fixImageHost()
     }
 
