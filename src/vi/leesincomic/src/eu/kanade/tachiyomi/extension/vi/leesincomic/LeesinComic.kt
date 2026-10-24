@@ -17,6 +17,7 @@ import keiyoushi.utils.tryParse
 import keiyoushi.utils.tryParseDate
 import keiyoushi.utils.tryParseDateTime
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -208,9 +209,10 @@ abstract class LeesinComic : KeiSource() {
     override val supportsFilterFetching: Boolean get() = true
 
     override suspend fun fetchFilterData(): JsonElement {
-        val genres = fetchCatalog()
-            .flatMap { it.genres }
-            .map { it.trim() }
+        val root = client.get("$baseUrl/api.php?action=get_comics").parseAs<JsonElement>()
+        val genres = root.obj.getArrayOrNull("comics").orEmpty()
+            .flatMap { (it as? JsonObject)?.getArrayOrNull("genres").orEmpty() }
+            .mapNotNull { it.stringOrNull?.trim() }
             .filter { it.isNotEmpty() }
             .distinctBy { it.lowercase() }
             .sorted()
