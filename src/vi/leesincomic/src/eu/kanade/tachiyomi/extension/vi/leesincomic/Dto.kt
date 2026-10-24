@@ -51,16 +51,5 @@ class ChapterDto(
 
 @Serializable
 class ChapterImagesDto(
-    val id: String,
     val images: List<String> = emptyList(),
-    val password: String? = null,
-    @SerialName("is_password_protected")
-    val isPasswordProtected: Int = 0,
-) {
-    val needsPassword: Boolean get() = isPasswordProtected != 0
-    val effectivePassword: String get() = password?.takeIf { it.isNotBlank() } ?: DEFAULT_PASSWORD
-
-    companion object {
-        const val DEFAULT_PASSWORD = "leesin2026"
-    }
-}
+)
