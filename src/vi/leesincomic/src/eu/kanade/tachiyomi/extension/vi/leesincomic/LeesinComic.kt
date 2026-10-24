@@ -39,13 +39,11 @@ abstract class LeesinComic : KeiSource() {
     // Some covers are served from the site itself, others via the tachserver
     // CDN. tachserver.online drops connections; identical paths live on
     // tachserver.site.
-    private fun String.fixImageHost(): String =
-        replace("://tachserver.online/", "://tachserver.site/")
+    private fun String.fixImageHost(): String = replace("://tachserver.online/", "://tachserver.site/")
 
     // ============================== Popular ===============================
 
-    private suspend fun fetchCatalog(): List<ComicDto> =
-        client.get("$baseUrl/api.php?action=get_comics").parseAs<ComicsResponse>().comics
+    private suspend fun fetchCatalog(): List<ComicDto> = client.get("$baseUrl/api.php?action=get_comics").parseAs<ComicsResponse>().comics
 
     private fun List<ComicDto>.toMangasPage(page: Int): MangasPage {
         val pageSize = 32
@@ -61,17 +59,15 @@ abstract class LeesinComic : KeiSource() {
         thumbnail_url = coverImage?.fixImageHost()
     }
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        fetchCatalog()
-            .sortedByDescending { it.views }
-            .toMangasPage(page)
+    override suspend fun getPopularManga(page: Int): MangasPage = fetchCatalog()
+        .sortedByDescending { it.views }
+        .toMangasPage(page)
 
     // ============================== Latest ================================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        fetchCatalog()
-            .sortedByDescending { it.updatedAt.parseApiDate() }
-            .toMangasPage(page)
+    override suspend fun getLatestUpdates(page: Int): MangasPage = fetchCatalog()
+        .sortedByDescending { it.updatedAt.parseApiDate() }
+        .toMangasPage(page)
 
     // ============================== Search ================================
 
@@ -111,12 +107,10 @@ abstract class LeesinComic : KeiSource() {
         return comics.toMangasPage(page)
     }
 
-    private fun ComicDto.isOngoing(): Boolean =
-        status.equals("Đang tiến hành", ignoreCase = true)
+    private fun ComicDto.isOngoing(): Boolean = status.equals("Đang tiến hành", ignoreCase = true)
 
-    private fun ComicDto.isCompleted(): Boolean =
-        status.equals("Hoàn thành", ignoreCase = true) ||
-            status.equals("Đã hoàn thành", ignoreCase = true)
+    private fun ComicDto.isCompleted(): Boolean = status.equals("Hoàn thành", ignoreCase = true) ||
+        status.equals("Đã hoàn thành", ignoreCase = true)
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         if (url.host != baseUrl.toHttpUrl().host) return null
@@ -179,17 +173,15 @@ abstract class LeesinComic : KeiSource() {
         return if (d % 1.0 == 0.0) d.toLong().toString() else d.toString()
     }
 
-    private fun String.slugFromUrl(): String =
-        removeSuffix("/").substringAfterLast("/")
+    private fun String.slugFromUrl(): String = removeSuffix("/").substringAfterLast("/")
 
     private val localDateTime = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT)
     private val localDate = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
     private val siteZone: ZoneId = ZoneId.of("Asia/Ho_Chi_Minh")
 
-    private fun String?.parseApiDate(): Long =
-        Instant.tryParse(this).takeIf { it > 0L }
-            ?: localDateTime.tryParseDateTime(this, siteZone).takeIf { it > 0L }
-            ?: localDate.tryParseDate(this, siteZone)
+    private fun String?.parseApiDate(): Long = Instant.tryParse(this).takeIf { it > 0L }
+        ?: localDateTime.tryParseDateTime(this, siteZone).takeIf { it > 0L }
+        ?: localDate.tryParseDate(this, siteZone)
 
     // =============================== Pages ================================
 
@@ -226,6 +218,5 @@ abstract class LeesinComic : KeiSource() {
         return FilterData(genres = genres).toJsonElement()
     }
 
-    override fun getFilterList(data: JsonElement?): FilterList =
-        buildFilterList(data?.parseAs<FilterData>())
+    override fun getFilterList(data: JsonElement?): FilterList = buildFilterList(data?.parseAs<FilterData>())
 }
