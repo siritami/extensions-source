@@ -1,9 +1,9 @@
 package eu.kanade.tachiyomi.extension.vi.leesincomic
 
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonNames
-import keiyoushi.utils.parseAs
 
 @Serializable
 class ComicsResponse(
