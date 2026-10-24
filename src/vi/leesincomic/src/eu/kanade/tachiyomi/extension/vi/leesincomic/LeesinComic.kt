@@ -16,6 +16,7 @@ import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.tryParseDate
 import keiyoushi.utils.tryParseDateTime
+import keiyoushi.utils.ui.askPassword
 import kotlinx.serialization.json.JsonElement
 import okhttp3.Headers
 import okhttp3.HttpUrl
@@ -196,8 +197,21 @@ abstract class LeesinComic : KeiSource() {
             .addQueryParameter("chapterNumber", chapterNumber)
             .build()
 
-        val images = client.get(apiUrl).parseAs<ChapterResponse>().chapter.images
-        return images.mapIndexed { index, url ->
+        val ch = client.get(apiUrl).parseAs<ChapterResponse>().chapter
+
+        if (ch.needsPassword) {
+            val expected = ch.effectivePassword
+            if (expected != ChapterImagesDto.DEFAULT_PASSWORD) {
+                val input = askPassword(
+                    title = chapter.name,
+                    message = "Chương này yêu cầu mật khẩu",
+                    hint = "Mật khẩu",
+                ) ?: throw Exception("Đã hủy nhập mật khẩu")
+                if (input != expected) throw Exception("Mật khẩu không chính xác")
+            }
+        }
+
+        return ch.images.mapIndexed { index, url ->
             Page(index, imageUrl = url.fixImageHost())
         }
     }
