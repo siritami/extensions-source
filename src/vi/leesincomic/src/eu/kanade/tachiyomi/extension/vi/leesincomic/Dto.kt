@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonNames
 
 @Serializable
 class ComicsResponse(
-    val comics: List<ComicDto> = emptyList(),
+    val comics: List<CatalogComicDto> = emptyList(),
 )
 
 @Serializable
@@ -20,8 +20,9 @@ class ChapterResponse(
     val chapter: ChapterImagesDto,
 )
 
+// get_comics embeds every chapter (most of the ~6 MB) but browsing never needs them, so the parser skips those subtrees.
 @Serializable
-class ComicDto(
+open class CatalogComicDto(
     val id: String,
     val slug: String,
     val title: String,
@@ -35,13 +36,33 @@ class ComicDto(
     val views: Long = 0,
     val likes: Long = 0,
     val rating: Double = 0.0,
-    val chapters: List<ChapterDto> = emptyList(),
 ) {
     val altTitles: List<String>
         get() = otherNames?.takeIf { it.startsWith("[") }
             ?.runCatching { parseAs<List<String>>() }?.getOrNull()
             ?: emptyList()
 }
+
+@Serializable
+class ComicDto(
+    id: String,
+    slug: String,
+    title: String,
+    status: String? = null,
+    genres: List<String> = emptyList(),
+    summary: String? = null,
+    @SerialName("cover_image") coverImage: String? = null,
+    @SerialName("other_names") otherNames: String? = null,
+    authors: List<String> = emptyList(),
+    @SerialName("updated_at") updatedAt: String? = null,
+    views: Long = 0,
+    likes: Long = 0,
+    rating: Double = 0.0,
+    val chapters: List<ChapterDto> = emptyList(),
+) : CatalogComicDto(
+    id, slug, title, status, genres, summary, coverImage, otherNames,
+    authors, updatedAt, views, likes, rating,
+)
 
 @Serializable
 class ChapterDto(
