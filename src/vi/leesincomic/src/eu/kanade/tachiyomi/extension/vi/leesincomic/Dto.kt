@@ -20,7 +20,7 @@ class ChapterResponse(
     val chapter: ChapterImagesDto,
 )
 
-// get_comics embeds every chapter (most of the ~6 MB) but browsing never needs them, so the parser skips those subtrees.
+// get_comics embeds every chapter, so skips those subtrees.
 @Serializable
 class CatalogComicDto(
     val id: String,
