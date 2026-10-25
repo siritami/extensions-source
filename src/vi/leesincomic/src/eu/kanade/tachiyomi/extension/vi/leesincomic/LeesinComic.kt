@@ -47,13 +47,8 @@ abstract class LeesinComic : KeiSource() {
 
     private suspend fun fetchCatalog(): List<ComicDto> = client.get("$baseUrl/api.php?action=get_comics").parseAs<ComicsResponse>().comics
 
-    private fun List<ComicDto>.toMangasPage(page: Int): MangasPage {
-        val pageSize = 32
-        val from = (page - 1) * pageSize
-        if (from >= size) return MangasPage(emptyList(), false)
-        val slice = subList(from, minOf(from + pageSize, size))
-        return MangasPage(slice.map { it.toSManga() }, hasNextPage = from + pageSize < size)
-    }
+    private fun List<ComicDto>.toMangasPage(): MangasPage =
+        MangasPage(map { it.toSManga() }, hasNextPage = false)
 
     private fun ComicDto.toSManga(): SManga = SManga.create().apply {
         setUrlWithoutDomain("/truyen/$slug")
