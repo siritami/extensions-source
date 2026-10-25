@@ -58,13 +58,13 @@ abstract class LeesinComic : KeiSource() {
 
     override suspend fun getPopularManga(page: Int): MangasPage = fetchCatalog()
         .sortedByDescending { it.views }
-        .toMangasPage(page)
+        .toMangasPage()
 
     // ============================== Latest ================================
 
     override suspend fun getLatestUpdates(page: Int): MangasPage = fetchCatalog()
         .sortedByDescending { it.updatedAt.parseApiDate() }
-        .toMangasPage(page)
+        .toMangasPage()
 
     // ============================== Search ================================
 
@@ -101,7 +101,7 @@ abstract class LeesinComic : KeiSource() {
             else -> comics.sortedByDescending { it.views }
         }
 
-        return comics.toMangasPage(page)
+        return comics.toMangasPage()
     }
 
     private fun ComicDto.isOngoing(): Boolean = status.equals("Đang tiến hành", ignoreCase = true)
