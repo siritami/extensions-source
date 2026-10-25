@@ -22,7 +22,7 @@ class ChapterResponse(
 
 // get_comics embeds every chapter (most of the ~6 MB) but browsing never needs them, so the parser skips those subtrees.
 @Serializable
-open class CatalogComicDto(
+class CatalogComicDto(
     val id: String,
     val slug: String,
     val title: String,
@@ -38,31 +38,34 @@ open class CatalogComicDto(
     val rating: Double = 0.0,
 ) {
     val altTitles: List<String>
-        get() = otherNames?.takeIf { it.startsWith("[") }
-            ?.runCatching { parseAs<List<String>>() }?.getOrNull()
-            ?: emptyList()
+        get() = parseAltTitles(otherNames)
 }
 
 @Serializable
 class ComicDto(
-    id: String,
-    slug: String,
-    title: String,
-    status: String? = null,
-    genres: List<String> = emptyList(),
-    summary: String? = null,
-    @SerialName("cover_image") coverImage: String? = null,
-    @SerialName("other_names") otherNames: String? = null,
-    authors: List<String> = emptyList(),
-    @SerialName("updated_at") updatedAt: String? = null,
-    views: Long = 0,
-    likes: Long = 0,
-    rating: Double = 0.0,
+    val id: String,
+    val slug: String,
+    val title: String,
+    val status: String? = null,
+    val genres: List<String> = emptyList(),
+    val summary: String? = null,
+    @SerialName("cover_image") val coverImage: String? = null,
+    @SerialName("other_names") val otherNames: String? = null,
+    val authors: List<String> = emptyList(),
+    @SerialName("updated_at") val updatedAt: String? = null,
+    val views: Long = 0,
+    val likes: Long = 0,
+    val rating: Double = 0.0,
     val chapters: List<ChapterDto> = emptyList(),
-) : CatalogComicDto(
-    id, slug, title, status, genres, summary, coverImage, otherNames,
-    authors, updatedAt, views, likes, rating,
-)
+) {
+    val altTitles: List<String>
+        get() = parseAltTitles(otherNames)
+}
+
+private fun parseAltTitles(otherNames: String?): List<String> =
+    otherNames?.takeIf { it.startsWith("[") }
+        ?.runCatching { parseAs<List<String>>() }?.getOrNull()
+        ?: emptyList()
 
 @Serializable
 class ChapterDto(

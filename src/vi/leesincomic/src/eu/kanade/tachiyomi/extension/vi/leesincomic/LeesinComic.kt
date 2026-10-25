@@ -149,10 +149,18 @@ abstract class LeesinComic : KeiSource() {
         return comics.toMangasPage()
     }
 
-    private fun CatalogComicDto.isOngoing(): Boolean = status.equals("Đang tiến hành", ignoreCase = true)
+    private fun CatalogComicDto.isOngoing(): Boolean = status.isOngoing()
 
-    private fun CatalogComicDto.isCompleted(): Boolean = status.equals("Hoàn thành", ignoreCase = true) ||
-        status.equals("Đã hoàn thành", ignoreCase = true)
+    private fun CatalogComicDto.isCompleted(): Boolean = status.isCompleted()
+
+    private fun ComicDto.isOngoing(): Boolean = status.isOngoing()
+
+    private fun ComicDto.isCompleted(): Boolean = status.isCompleted()
+
+    private fun String?.isOngoing(): Boolean = equals("Đang tiến hành", ignoreCase = true)
+
+    private fun String?.isCompleted(): Boolean = equals("Hoàn thành", ignoreCase = true) ||
+        equals("Đã hoàn thành", ignoreCase = true)
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         if (url.host != baseUrl.toHttpUrl().host) return null
