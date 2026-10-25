@@ -65,12 +65,12 @@ abstract class LeesinComic : KeiSource() {
     private var catalogJob: Deferred<List<CatalogComicDto>>? = null
 
     private suspend fun fetchCatalog(): List<CatalogComicDto> {
-        catalogCache?.takeIf { Clock.System.now().toEpochMilliseconds() - it.first < CATALOG_TTL }
+        catalogCache?.takeIf { Clock.System.now().toEpochMilliseconds() - it.first < catalogTtl }
             ?.let { return it.second }
 
         return coroutineScope {
             catalogMutex.withLock {
-                catalogCache?.takeIf { Clock.System.now().toEpochMilliseconds() - it.first < CATALOG_TTL }
+                catalogCache?.takeIf { Clock.System.now().toEpochMilliseconds() - it.first < catalogTtl }
                     ?.let { return@coroutineScope it.second }
 
                 val job = catalogJob ?: async {
@@ -91,7 +91,7 @@ abstract class LeesinComic : KeiSource() {
         }
     }
 
-    private val CATALOG_TTL = 5.minutes.inWholeMilliseconds
+    private val catalogTtl = 5.minutes.inWholeMilliseconds
 
     private fun List<CatalogComicDto>.toMangasPage(): MangasPage = MangasPage(map { it.toSManga() }, hasNextPage = false)
 
