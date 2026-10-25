@@ -62,10 +62,9 @@ class ComicDto(
         get() = parseAltTitles(otherNames)
 }
 
-private fun parseAltTitles(otherNames: String?): List<String> =
-    otherNames?.takeIf { it.startsWith("[") }
-        ?.runCatching { parseAs<List<String>>() }?.getOrNull()
-        ?: emptyList()
+private fun parseAltTitles(otherNames: String?): List<String> = otherNames?.takeIf { it.startsWith("[") }
+    ?.runCatching { parseAs<List<String>>() }?.getOrNull()
+    ?: emptyList()
 
 @Serializable
 class ChapterDto(
