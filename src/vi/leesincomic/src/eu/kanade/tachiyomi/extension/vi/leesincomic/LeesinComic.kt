@@ -47,8 +47,7 @@ abstract class LeesinComic : KeiSource() {
 
     private suspend fun fetchCatalog(): List<ComicDto> = client.get("$baseUrl/api.php?action=get_comics").parseAs<ComicsResponse>().comics
 
-    private fun List<ComicDto>.toMangasPage(): MangasPage =
-        MangasPage(map { it.toSManga() }, hasNextPage = false)
+    private fun List<ComicDto>.toMangasPage(): MangasPage = MangasPage(map { it.toSManga() }, hasNextPage = false)
 
     private fun ComicDto.toSManga(): SManga = SManga.create().apply {
         setUrlWithoutDomain("/truyen/$slug")
