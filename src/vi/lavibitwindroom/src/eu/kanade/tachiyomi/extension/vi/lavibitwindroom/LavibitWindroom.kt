@@ -37,7 +37,7 @@ abstract class LavibitWindroom : KeiSource() {
     private suspend fun apiGet(url: HttpUrl): Response = client.get(url, apiHeaders)
 
     private fun apiUrlBuilder() = "$apiUrl/series".toHttpUrl().newBuilder()
-        .addQueryParameter("select", SERIES_SELECT)
+        .addQueryParameter("select", seriesSelect)
         .addQueryParameter("type", "eq.comic")
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
@@ -49,8 +49,8 @@ abstract class LavibitWindroom : KeiSource() {
     override suspend fun getPopularManga(page: Int): MangasPage {
         val url = apiUrlBuilder()
             .addQueryParameter("order", "total_views.desc")
-            .addQueryParameter("offset", ((page - 1) * PAGE_SIZE).toString())
-            .addQueryParameter("limit", PAGE_SIZE.toString())
+            .addQueryParameter("offset", ((page - 1) * pageSize).toString())
+            .addQueryParameter("limit", pageSize.toString())
             .build()
 
         val mangas = apiGet(url)
@@ -65,8 +65,8 @@ abstract class LavibitWindroom : KeiSource() {
     override suspend fun getLatestUpdates(page: Int): MangasPage {
         val url = apiUrlBuilder()
             .addQueryParameter("order", "updated_at.desc")
-            .addQueryParameter("offset", ((page - 1) * PAGE_SIZE).toString())
-            .addQueryParameter("limit", PAGE_SIZE.toString())
+            .addQueryParameter("offset", ((page - 1) * pageSize).toString())
+            .addQueryParameter("limit", pageSize.toString())
             .build()
 
         val mangas = apiGet(url)
@@ -102,8 +102,8 @@ abstract class LavibitWindroom : KeiSource() {
             }
 
             addQueryParameter("order", "updated_at.desc")
-            addQueryParameter("offset", ((page - 1) * PAGE_SIZE).toString())
-            addQueryParameter("limit", PAGE_SIZE.toString())
+            addQueryParameter("offset", ((page - 1) * pageSize).toString())
+            addQueryParameter("limit", pageSize.toString())
         }.build()
 
         val mangas = apiGet(url)
@@ -130,7 +130,7 @@ abstract class LavibitWindroom : KeiSource() {
         val slug = url.pathSegments.getOrNull(1) ?: return null
 
         val detailUrl = "$apiUrl/series".toHttpUrl().newBuilder()
-            .addQueryParameter("select", SERIES_SELECT)
+            .addQueryParameter("select", "*")
             .addQueryParameter("slug", "eq.$slug")
             .build()
 
@@ -194,9 +194,7 @@ abstract class LavibitWindroom : KeiSource() {
         return getFilters(tags)
     }
 
-    private companion object {
-        const val SERIES_SELECT = "slug,title,cover_url,author,status,tags"
-        const val PAGE_SIZE = 24
-    }
+    private val seriesSelect = "slug,title,cover_url,author,status,tags"
+    private val pageSize = 24
 }
 
