@@ -197,4 +197,3 @@ abstract class LavibitWindroom : KeiSource() {
     private val seriesSelect = "slug,title,cover_url,author,status,tags"
     private val pageSize = 24
 }
-
