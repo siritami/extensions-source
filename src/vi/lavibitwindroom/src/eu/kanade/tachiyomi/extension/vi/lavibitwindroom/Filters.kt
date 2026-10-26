@@ -11,11 +11,11 @@ class TagFilter(tags: List<String>) :
         tags.map { TagTriState(it) },
     ) {
     fun included(): List<String> = state
-        .filter { it.state == Filter.TriState.STATE_INCLUDE }
+        .filter { it.isIncluded() }
         .map { it.name }
 
     fun excluded(): List<String> = state
-        .filter { it.state == Filter.TriState.STATE_EXCLUDE }
+        .filter { it.isExcluded() }
         .map { it.name }
 }
 

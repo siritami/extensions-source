@@ -195,7 +195,7 @@ abstract class LavibitWindroom : KeiSource() {
     }
 
     private companion object {
-        const val SERIES_SELECT = "id,slug,title,cover_url,author,status,tags,total_views,updated_at"
+        const val SERIES_SELECT = "slug,title,cover_url,author,status,tags"
         const val PAGE_SIZE = 24
     }
 }
