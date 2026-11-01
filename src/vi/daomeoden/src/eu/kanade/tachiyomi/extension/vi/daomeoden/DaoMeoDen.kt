@@ -18,6 +18,7 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -123,7 +124,9 @@ abstract class DaoMeoDen : KeiSource() {
         if (mangaId(manga) == null) return emptyList()
         return fetchMangaDetail(manga)
             .recommendations
-            .map { it.toSManga() }
+            .let { it as? JsonArray }
+            ?.map { it.parseAs<BookDto>().toSManga() }
+            .orEmpty()
             .filterNot { it.url == manga.url }
             .distinctBy { it.url }
     }

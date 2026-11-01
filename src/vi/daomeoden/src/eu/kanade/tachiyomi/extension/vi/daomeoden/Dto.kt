@@ -5,6 +5,8 @@ import eu.kanade.tachiyomi.source.model.SManga
 import keiyoushi.utils.tryParseDateTime
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import org.jsoup.Jsoup
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -77,7 +79,7 @@ class MangaDetailDto(
     val images: ImagesDto = ImagesDto(),
     val categories: List<NamedDto> = emptyList(),
     val tags: List<NamedDto> = emptyList(),
-    val recommendations: List<BookDto> = emptyList(),
+    val recommendations: JsonElement = JsonNull,
 ) {
     fun toSManga(mangaUrl: String): SManga = SManga.create().apply {
         url = mangaUrl
