@@ -119,6 +119,17 @@ abstract class DaoMeoDen : KeiSource() {
             .data
     }
 
+    private suspend fun fetchRelatedFromApi(manga: SManga): List<SManga> {
+        if (mangaId(manga) == null) return emptyList()
+        return fetchMangaDetail(manga)
+            .recommendations
+            .let { it as? JsonArray }
+            ?.map { it.parseAs<BookDto>().toSManga() }
+            .orEmpty()
+            .filterNot { it.url == manga.url }
+            .distinctBy { it.url }
+    }
+
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         if (url.host != baseUrl.toHttpUrl().host) return null
 
@@ -209,15 +220,4 @@ abstract class DaoMeoDen : KeiSource() {
     override val supportsRelatedMangas get() = true
 
     override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> = fetchRelatedFromApi(manga)
-
-    private suspend fun fetchRelatedFromApi(manga: SManga): List<SManga> {
-        if (mangaId(manga) == null) return emptyList()
-        return fetchMangaDetail(manga)
-            .recommendations
-            .let { it as? JsonArray }
-            ?.map { it.parseAs<BookDto>().toSManga() }
-            .orEmpty()
-            .filterNot { it.url == manga.url }
-            .distinctBy { it.url }
-    }
 }
