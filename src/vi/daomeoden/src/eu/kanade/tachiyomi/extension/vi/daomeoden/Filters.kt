@@ -52,11 +52,9 @@ class SortFilter :
         ),
     )
 
-class GenreFilter(options: List<FilterOption>) :
-    CheckBoxGroupFilter("Thể Loại", options)
+class GenreFilter(options: List<FilterOption>) : CheckBoxGroupFilter("Thể Loại", options)
 
-class TagFilter(options: List<FilterOption>) :
-    CheckBoxGroupFilter("Tags Truyện", options)
+class TagFilter(options: List<FilterOption>) : CheckBoxGroupFilter("Tags Truyện", options)
 
 open class CheckBoxGroupFilter(
     displayName: String,
