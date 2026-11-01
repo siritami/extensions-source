@@ -38,7 +38,7 @@ class BookDto(
 ) {
     fun toSManga(): SManga = SManga.create().apply {
         title = name.ifEmpty { this@BookDto.title }
-        setUrlWithoutDomain(this@BookDto.url)
+        url = this@BookDto.url
         thumbnail_url = images.coverUrl
         status = parseStatus(this@BookDto.status)
     }
