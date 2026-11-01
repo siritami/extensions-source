@@ -216,13 +216,11 @@ abstract class LuvEvaLand : KeiSource() {
 
     // ============================== Chapters ==============================
 
-    private fun parseChapterList(document: Document): List<SChapter> {
-        return extractChapterRows(document)
-            .mapNotNull(::chapterFromRow)
-            .sortedByDescending { it.first }
-            .map { it.second }
-            .distinctBy { it.url }
-    }
+    private fun parseChapterList(document: Document): List<SChapter> = extractChapterRows(document)
+        .mapNotNull(::chapterFromRow)
+        .sortedByDescending { it.first }
+        .map { it.second }
+        .distinctBy { it.url }
 
     private fun extractChapterRows(document: Document): List<Element> = document
         .select("table.list-chapter tbody tr, table.list-chapter__container tbody tr, .chapter-list-inner tr, tr.sort-item")
