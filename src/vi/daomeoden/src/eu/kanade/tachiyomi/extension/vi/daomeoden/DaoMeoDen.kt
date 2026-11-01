@@ -16,19 +16,14 @@ import keiyoushi.utils.asJsoup
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
-import keiyoushi.utils.tryParseDateTime
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 @Source
 abstract class DaoMeoDen : KeiSource() {
@@ -106,24 +101,31 @@ abstract class DaoMeoDen : KeiSource() {
 
     // ============================== Details ===============================
 
-    private fun parseMangaDetails(document: Document, manga: SManga): SManga = SManga.create().apply {
-        setUrlWithoutDomain(manga.url)
-        title = document.selectFirst("main h1")!!.text()
-        thumbnail_url = document.selectFirst("main img[src*=cover_]")?.absUrl("src")
-        genre = document.select("""main a[href*="advanced-search?genre="], main a[href*="advanced-search?tag="]""")
-            .mapNotNull { it.ownText().ifEmpty { it.text() }.takeIf { t -> t.isNotEmpty() && t != "Xem thêm" } }
-            .distinct()
-            .joinToString()
-            .ifEmpty { null }
-        status = document.select("main span")
-            .firstOrNull { it.text().trim().lowercase() in knownStatuses }
-            ?.text()
-            .let { parseStatus(it) }
-        description = document.select("main h3")
-            .firstOrNull { it.text().contains("GIỚI THIỆU", ignoreCase = true) }
-            ?.nextElementSibling()
-            ?.text()
-            ?.let { Jsoup.parseBodyFragment(it).text() }
+    private fun mangaId(manga: SManga): Int? = manga.url
+        .substringAfterLast('-')
+        .toIntOrNull()
+
+    private fun chapterId(chapter: SChapter): Int? = chapter.url
+        .substringAfterLast('/')
+        .substringAfter("chuong-")
+        .split('-')
+        .getOrNull(1)
+        ?.toIntOrNull()
+
+    private suspend fun fetchMangaDetail(manga: SManga): MangaDetailDto {
+        val id = mangaId(manga) ?: return MangaDetailDto()
+        return client.get("$apiUrl/api/manga/$id", Fetch.XHR.from(getMangaUrl(manga)))
+            .parseAs<MangaDetailResponse>()
+            .data
+    }
+
+    private suspend fun fetchRelatedFromApi(manga: SManga): List<SManga> {
+        if (mangaId(manga) == null) return emptyList()
+        return fetchMangaDetail(manga)
+            .recommendations
+            .map { it.toSManga() }
+            .filterNot { it.url == manga.url }
+            .distinctBy { it.url }
     }
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
@@ -150,56 +152,42 @@ abstract class DaoMeoDen : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate {
-        val document = client.get(getMangaUrl(manga), Fetch.DOCUMENT).asJsoup()
-        return SMangaUpdate(
-            manga = parseMangaDetails(document, manga),
-            chapters = parseChapterList(document),
-        )
-    }
+        val id = mangaId(manga)
+            ?: return SMangaUpdate(manga = manga, chapters = chapters)
 
-    // ============================== Chapters ==============================
-
-    private fun parseChapterList(document: Document): List<SChapter> = document.select("main a[data-chapter-number]")
-        .mapNotNull { element -> chapterFromElement(element) }
-        .distinctBy { it.url }
-
-    private fun chapterFromElement(element: Element): SChapter? {
-        val href = element.absUrl("href").takeIf { it.isNotEmpty() } ?: return null
-        val number = element.attr("data-chapter-number").toFloatOrNull()
-        val name = element.selectFirst("span.truncate")?.text()
-            ?: element.text().let { text ->
-                chapterLabelRegex.find(text)?.value ?: return null
+        return coroutineScope {
+            val detailDeferred = async {
+                if (fetchDetails) fetchMangaDetail(manga).toSManga(manga.url) else manga
             }
-
-        return SChapter.create().apply {
-            setUrlWithoutDomain(href)
-            this.name = name
-            date_upload = element.select("span")
-                .mapNotNull { chapterDateRegex.find(it.text())?.value }
-                .firstOrNull()
-                .let { parseChapterDate(it) }
-            number?.let { chapter_number = it }
+            val chaptersDeferred = async {
+                if (fetchChapters) {
+                    client.get("$apiUrl/api/manga/$id/chapters", Fetch.XHR.from(getMangaUrl(manga)))
+                        .parseAs<ChapterListResponse>()
+                        .data
+                        .map { it.toSChapter() }
+                        .sortedByDescending { it.chapter_number }
+                } else {
+                    chapters
+                }
+            }
+            SMangaUpdate(manga = detailDeferred.await(), chapters = chaptersDeferred.await())
         }
     }
-
-    private fun parseChapterDate(date: String?): Long = chapterDateFormat.tryParseDateTime(date, chapterDateZone)
 
     // ============================== Pages =================================
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
-        val response = client.get(getChapterUrl(chapter), Fetch.DOCUMENT)
-        val chapterUrl = response.request.url.toString()
-        val document = response.asJsoup()
+        val id = chapterId(chapter) ?: return emptyList()
+        val chapterUrl = getChapterUrl(chapter)
 
-        return document.select("""main img[src*="imggo.net"], main img[data-src*="imggo.net"]""")
-            .mapIndexedNotNull { index, element ->
-                val imageUrl = element.absUrl("data-src")
-                    .ifEmpty { element.absUrl("src") }
-                    .takeIf { it.isNotEmpty() }
-                    ?: return@mapIndexedNotNull null
-                Page(index, url = chapterUrl, imageUrl = imageUrl)
-            }
-            .distinctBy { it.imageUrl }
+        val images = client.get("$apiUrl/api/chapters/$id", Fetch.XHR.from(chapterUrl))
+            .parseAs<ChapterDetailResponse>()
+            .data
+            .images
+
+        return images.mapIndexed { index, imageUrl ->
+            Page(index, url = chapterUrl, imageUrl = imageUrl)
+        }
     }
 
     override fun getImageRequest(page: Page): Request {
@@ -230,6 +218,9 @@ abstract class DaoMeoDen : KeiSource() {
     override val supportsRelatedMangas get() = true
 
     override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
+        val fromApi = fetchRelatedFromApi(manga)
+        if (fromApi.isNotEmpty()) return fromApi
+
         val document = client.get(getMangaUrl(manga), Fetch.DOCUMENT).asJsoup()
 
         val relatedSection = document.select("main h3")
@@ -249,10 +240,4 @@ abstract class DaoMeoDen : KeiSource() {
             .distinctBy { it.url }
             .filterNot { it.url == manga.url }
     }
-
-    private val knownStatuses = setOf("ongoing", "completed", "hiatus", "cancelled", "dropped")
-    private val chapterDateRegex = Regex("""\d{2}\.\d{2}\.\d{4}\s*-\s*\d{2}:\d{2}""")
-    private val chapterLabelRegex = Regex("""CHAP\s*\S+""", RegexOption.IGNORE_CASE)
-    private val chapterDateFormat = DateTimeFormatter.ofPattern("dd.MM.yyyy - HH:mm", Locale.ROOT)
-    private val chapterDateZone = ZoneId.of("Asia/Ho_Chi_Minh")
 }

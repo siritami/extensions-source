@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.extension.vi.daomeoden
 
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
-import kotlinx.serialization.Serializable
 
 fun getFilters(genres: List<FilterOption>? = null, tags: List<FilterOption>? = null): FilterList {
     val filters = mutableListOf<Filter<*>>(
@@ -15,7 +14,6 @@ fun getFilters(genres: List<FilterOption>? = null, tags: List<FilterOption>? = n
     return FilterList(filters)
 }
 
-@Serializable
 class FilterOption(
     val name: String,
     val slug: String,
