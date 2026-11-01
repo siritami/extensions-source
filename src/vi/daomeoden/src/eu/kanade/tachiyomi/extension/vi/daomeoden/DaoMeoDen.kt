@@ -12,7 +12,6 @@ import keiyoushi.network.Fetch
 import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
-import keiyoushi.utils.asJsoup
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonElement
@@ -120,17 +119,6 @@ abstract class DaoMeoDen : KeiSource() {
             .data
     }
 
-    private suspend fun fetchRelatedFromApi(manga: SManga): List<SManga> {
-        if (mangaId(manga) == null) return emptyList()
-        return fetchMangaDetail(manga)
-            .recommendations
-            .let { it as? JsonArray }
-            ?.map { it.parseAs<BookDto>().toSManga() }
-            .orEmpty()
-            .filterNot { it.url == manga.url }
-            .distinctBy { it.url }
-    }
-
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         if (url.host != baseUrl.toHttpUrl().host) return null
 
@@ -220,27 +208,16 @@ abstract class DaoMeoDen : KeiSource() {
 
     override val supportsRelatedMangas get() = true
 
-    override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
-        val fromApi = fetchRelatedFromApi(manga)
-        if (fromApi.isNotEmpty()) return fromApi
+    override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> = fetchRelatedFromApi(manga)
 
-        val document = client.get(getMangaUrl(manga), Fetch.DOCUMENT).asJsoup()
-
-        val relatedSection = document.select("main h3")
-            .firstOrNull { it.text().equals("Truyện đề xuất cùng loại", ignoreCase = true) }
-            ?.closest("section")
-            ?: return emptyList()
-
-        return relatedSection.select("""a[href^="/truyen-tranh/"]:has(img)""")
-            .mapNotNull { element ->
-                val titleEl = element.selectFirst("img") ?: return@mapNotNull null
-                SManga.create().apply {
-                    setUrlWithoutDomain(element.absUrl("href"))
-                    title = titleEl.attr("alt").ifEmpty { element.text() }
-                    thumbnail_url = titleEl.absUrl("src")
-                }
-            }
-            .distinctBy { it.url }
+    private suspend fun fetchRelatedFromApi(manga: SManga): List<SManga> {
+        if (mangaId(manga) == null) return emptyList()
+        return fetchMangaDetail(manga)
+            .recommendations
+            .let { it as? JsonArray }
+            ?.map { it.parseAs<BookDto>().toSManga() }
+            .orEmpty()
             .filterNot { it.url == manga.url }
+            .distinctBy { it.url }
     }
 }
