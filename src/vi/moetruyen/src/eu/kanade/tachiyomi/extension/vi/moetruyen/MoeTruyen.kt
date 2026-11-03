@@ -17,7 +17,6 @@ import keiyoushi.utils.applicationContext
 import keiyoushi.utils.asJsoup
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.runWebView
 import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.toJsonRequestBody
 import keiyoushi.utils.tryParseDate
@@ -54,11 +53,8 @@ abstract class MoeTruyen : KeiSource() {
         rateLimit(3)
     }
 
-    // The site only embeds the reader-instance token and issues the imgx_document cookie for
-    // requests that look like a real browser navigation. Any Accept-Encoding other than
-    // "identity" (OkHttp adds "Accept-Encoding: gzip" via transparent gzip) makes the server
-    // withhold the token — force identity. The app-level UA already names Chrome/Firefox,
-    // which is what BrowserHeadersInterceptor needs to inject the Sec-Fetch nav headers.
+    // Server withholds the reader token when Accept-Encoding is set (OkHttp transparent
+    // gzip injects "gzip"), so force identity to look like a real navigation.
     override fun Headers.Builder.configureHeaders(): Headers.Builder = set("Accept-Encoding", "identity")
 
     // ============================== Popular ===============================
@@ -312,15 +308,9 @@ abstract class MoeTruyen : KeiSource() {
 
         if (shouldTryImgx) {
             try {
-                // The reader-instance token is only embedded for real browser TLS sessions
-                // and bound to that session, so the whole channel must run inside a WebView
-                // when OkHttp receives a page without it.
-                val pages = if (ImgxAccessClient.parseBootstrapConfig(document).bootstrapUrl.isBlank()) {
-                    fetchPagesViaWebView(chapterUrl)
-                } else {
-                    ImgxAccessClient(client, baseUrl, chapterUrl, document)
-                        .fetchPages(encryptedMedia, totalPages)
-                }.filter { isRealPageUrl(it.storageKey) && isRealPageUrl(it.downloadUrl) }
+                val pages = ImgxAccessClient(client, baseUrl, chapterUrl, document)
+                    .fetchPages(encryptedMedia, totalPages)
+                    .filter { isRealPageUrl(it.storageKey) && isRealPageUrl(it.downloadUrl) }
                 if (pages.isNotEmpty()) {
                     pages.forEach { page ->
                         val grant = page.grant
@@ -340,33 +330,6 @@ abstract class MoeTruyen : KeiSource() {
             .filter { isRealPageUrl(it) }
             .distinct()
             .mapIndexed { index, imageUrl -> Page(index, imageUrl = imageUrl) }
-    }
-
-    /**
-     * Runs the IMGX reader channel inside a real WebView: bootstrap ECDH channel,
-     * unseal capability, sign page-access proofs, unseal page grants. Returns the
-     * granted pages so OkHttp can download and decode the images natively.
-     */
-    private suspend fun fetchPagesViaWebView(chapterUrl: String): List<ImgxPageAccess> = runWebView(timeout = 60.seconds) {
-        Toast.makeText(
-            applicationContext,
-            "Mòe Truyện: dùng WebView để tải trang (trang chờ chậm hơn)",
-            Toast.LENGTH_LONG,
-        ).show()
-        webMessageBridge(BRIDGE_NAME, setOf(baseUrl)) { message ->
-            val result = runCatching { message.parseAs<ImgxWebViewResult>() }.getOrNull()
-            if (result == null) {
-                reject(IllegalStateException("IMGX WebView result invalid"))
-            } else if (!result.ok) {
-                reject(IllegalStateException("IMGX WebView channel failed: ${result.error ?: "unknown"}"))
-            } else {
-                resolve(result.pages.orEmpty())
-            }
-        }
-        onPageFinished {
-            evaluateJs(imgxWebViewScript)
-        }
-        loadUrl(chapterUrl)
     }
 
     private fun isCommentLocked(document: Document): Boolean {
@@ -536,7 +499,4 @@ abstract class MoeTruyen : KeiSource() {
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val numberRegex = Regex("""\d+""")
     private val loginRequiredMessage = "Chương này cần đăng nhập webview bằng tài khoản phù hợp để xem"
-    private val imgxWebViewScript by lazy { javaClass.getResource("/assets/imgx_channel.js")!!.readText() }
 }
-
-private const val BRIDGE_NAME = "__imgxKt"

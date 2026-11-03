@@ -127,9 +127,3 @@ class ApiError(
     val error: String? = null,
 )
 
-@Serializable
-class ImgxWebViewResult(
-    val ok: Boolean,
-    val pages: List<ImgxPageAccess>? = null,
-    val error: String? = null,
-)
