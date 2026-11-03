@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.moetruyen
 
+import android.widget.Toast
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -9,6 +10,7 @@ import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import keiyoushi.annotation.Source
 import keiyoushi.network.Fetch
 import keiyoushi.network.get
+import keiyoushi.utils.applicationContext
 import keiyoushi.network.post
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
@@ -21,6 +23,7 @@ import keiyoushi.utils.toJsonRequestBody
 import keiyoushi.utils.tryParseDate
 import keiyoushi.utils.ui.askInput
 import kotlinx.serialization.json.JsonElement
+import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
@@ -49,6 +52,15 @@ abstract class MoeTruyen : KeiSource() {
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         addInterceptor(imgxInterceptor())
         rateLimit(3)
+    }
+
+    // The site only embeds the reader-instance token and issues the imgx_document cookie for
+    // requests that look like a real browser navigation. Any Accept-Encoding other than
+    // "identity" (OkHttp adds "Accept-Encoding: gzip" via transparent gzip) makes the server
+    // withhold the token — force identity. The app-level UA already names Chrome/Firefox,
+    // which is what BrowserHeadersInterceptor needs to inject the Sec-Fetch nav headers.
+    override fun Headers.Builder.configureHeaders(): Headers.Builder =
+        set("Accept-Encoding", "identity")
     }
 
     // ============================== Popular ===============================
@@ -283,7 +295,8 @@ abstract class MoeTruyen : KeiSource() {
             unlockByComment(chapter, document, chapterUrl)
             document = client.get(chapterUrl, Fetch.DOCUMENT).asJsoup()
             if (isCommentLocked(document)) {
-                throw Exception("Không thể mở khóa chương này")
+                Toast.makeText(applicationContext, "Không thể mở khóa chương này", Toast.LENGTH_LONG).show()
+                return emptyList()
             }
         }
 
@@ -337,6 +350,13 @@ abstract class MoeTruyen : KeiSource() {
      * granted pages so OkHttp can download and decode the images natively.
      */
     private suspend fun fetchPagesViaWebView(chapterUrl: String): List<ImgxPageAccess> = runWebView(timeout = 60.seconds) {
+        webView.post {
+            Toast.makeText(
+                webView.context,
+                "Mòe Truyện: dùng WebView để tải trang (trang chờ chậm hơn)",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
         webMessageBridge(BRIDGE_NAME, setOf(baseUrl)) { message ->
             val result = runCatching { message.parseAs<ImgxWebViewResult>() }.getOrNull()
             if (result == null) {
