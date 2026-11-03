@@ -540,16 +540,7 @@ abstract class MoeTruyen : KeiSource() {
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val numberRegex = Regex("""\d+""")
     private val loginRequiredMessage = "Chương này cần đăng nhập webview bằng tài khoản phù hợp để xem"
-
-    companion object {
-
-        private const val BRIDGE_NAME = "__imgxKt"
-
-        /**
-         * Mirrors imgx-reader.js + imgx-worker.js channel flow:
-         * bootstrap ECDH channel -> unseal capability -> HMAC page proofs ->
-         * unseal pages -> open channelKeys grants. Result posted to the bridge.
-         */
-        private val imgxWebViewScript by lazy { javaClass.getResource("/assets/imgx_channel.js")!!.readText() }
-    }
+    private const val BRIDGE_NAME = "__imgxKt"
+    private val imgxWebViewScript by lazy { javaClass.getResource("/assets/imgx_channel.js")!!.readText() }
+    
 }
