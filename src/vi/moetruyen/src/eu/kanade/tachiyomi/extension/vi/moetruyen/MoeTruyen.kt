@@ -10,10 +10,10 @@ import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import keiyoushi.annotation.Source
 import keiyoushi.network.Fetch
 import keiyoushi.network.get
-import keiyoushi.utils.applicationContext
 import keiyoushi.network.post
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
+import keiyoushi.utils.applicationContext
 import keiyoushi.utils.asJsoup
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
@@ -59,8 +59,7 @@ abstract class MoeTruyen : KeiSource() {
     // "identity" (OkHttp adds "Accept-Encoding: gzip" via transparent gzip) makes the server
     // withhold the token — force identity. The app-level UA already names Chrome/Firefox,
     // which is what BrowserHeadersInterceptor needs to inject the Sec-Fetch nav headers.
-    override fun Headers.Builder.configureHeaders(): Headers.Builder =
-        set("Accept-Encoding", "identity")
+    override fun Headers.Builder.configureHeaders(): Headers.Builder = set("Accept-Encoding", "identity")
 
     // ============================== Popular ===============================
 
