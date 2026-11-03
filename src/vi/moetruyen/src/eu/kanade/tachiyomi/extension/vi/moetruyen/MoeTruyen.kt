@@ -542,5 +542,4 @@ abstract class MoeTruyen : KeiSource() {
     private val loginRequiredMessage = "Chương này cần đăng nhập webview bằng tài khoản phù hợp để xem"
     private const val BRIDGE_NAME = "__imgxKt"
     private val imgxWebViewScript by lazy { javaClass.getResource("/assets/imgx_channel.js")!!.readText() }
-    
 }
