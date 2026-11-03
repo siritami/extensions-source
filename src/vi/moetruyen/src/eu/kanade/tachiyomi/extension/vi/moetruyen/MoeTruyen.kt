@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.vi.moetruyen
 
-import android.widget.Toast
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -13,7 +12,6 @@ import keiyoushi.network.get
 import keiyoushi.network.post
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
-import keiyoushi.utils.applicationContext
 import keiyoushi.utils.asJsoup
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
@@ -289,13 +287,12 @@ abstract class MoeTruyen : KeiSource() {
             unlockByComment(chapter, document, chapterUrl)
             document = client.get(chapterUrl, Fetch.DOCUMENT).asJsoup()
             if (isCommentLocked(document)) {
-                Toast.makeText(applicationContext, "Không thể mở khóa chương này", Toast.LENGTH_LONG).show()
-                return emptyList()
+                throw Exception("Không thể mở khóa chương này")
             }
         }
 
-        var readerPages = document.selectFirst("[data-reader-lazy-pages]")
-        var encryptedMedia = ImgxAccessClient.encryptedMedia(document)
+        val readerPages = document.selectFirst("[data-reader-lazy-pages]")
+        val encryptedMedia = ImgxAccessClient.encryptedMedia(document)
         val totalPages = readerPages?.attr("data-reader-total-pages")?.toIntOrNull() ?: 0
         val accessUrl = readerPages?.attr("data-reader-imgx-access-url").orEmpty()
         val isImgx = accessUrl.isNotBlank()
@@ -308,8 +305,8 @@ abstract class MoeTruyen : KeiSource() {
 
         if (shouldTryImgx) {
             try {
-                val pages = ImgxAccessClient(client, baseUrl, chapterUrl, document)
-                    .fetchPages(encryptedMedia, totalPages)
+                val access = ImgxAccessClient(client, baseUrl, chapterUrl, document)
+                val pages = access.fetchPages(encryptedMedia, totalPages)
                     .filter { isRealPageUrl(it.storageKey) && isRealPageUrl(it.downloadUrl) }
                 if (pages.isNotEmpty()) {
                     pages.forEach { page ->
