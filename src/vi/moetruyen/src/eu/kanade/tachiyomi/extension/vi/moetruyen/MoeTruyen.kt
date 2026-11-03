@@ -541,15 +541,16 @@ abstract class MoeTruyen : KeiSource() {
     private val numberRegex = Regex("""\d+""")
     private val loginRequiredMessage = "Chương này cần đăng nhập webview bằng tài khoản phù hợp để xem"
 
-    private companion object {
-        const val BRIDGE_NAME = "__imgxKt"
+    companion object {
+
+        private const val BRIDGE_NAME = "__imgxKt"
 
         /**
          * Mirrors imgx-reader.js + imgx-worker.js channel flow:
          * bootstrap ECDH channel -> unseal capability -> HMAC page proofs ->
          * unseal pages -> open channelKeys grants. Result posted to the bridge.
          */
-        const val IMGX_WEBVIEW_SCRIPT = """
+        private const val IMGX_WEBVIEW_SCRIPT = """
             (async () => {
                 const send = (obj) => window.__imgxKt.postMessage(JSON.stringify(obj));
                 try {
