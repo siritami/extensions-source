@@ -61,7 +61,6 @@ abstract class MoeTruyen : KeiSource() {
     // which is what BrowserHeadersInterceptor needs to inject the Sec-Fetch nav headers.
     override fun Headers.Builder.configureHeaders(): Headers.Builder =
         set("Accept-Encoding", "identity")
-    }
 
     // ============================== Popular ===============================
 
