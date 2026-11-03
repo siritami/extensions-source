@@ -348,13 +348,11 @@ abstract class MoeTruyen : KeiSource() {
      * granted pages so OkHttp can download and decode the images natively.
      */
     private suspend fun fetchPagesViaWebView(chapterUrl: String): List<ImgxPageAccess> = runWebView(timeout = 60.seconds) {
-        webView.post {
-            Toast.makeText(
-                webView.context,
-                "Mòe Truyện: dùng WebView để tải trang (trang chờ chậm hơn)",
-                Toast.LENGTH_LONG,
-            ).show()
-        }
+        Toast.makeText(
+            applicationContext,
+            "Mòe Truyện: dùng WebView để tải trang (trang chờ chậm hơn)",
+            Toast.LENGTH_LONG,
+        ).show()
         webMessageBridge(BRIDGE_NAME, setOf(baseUrl)) { message ->
             val result = runCatching { message.parseAs<ImgxWebViewResult>() }.getOrNull()
             if (result == null) {
@@ -538,6 +536,7 @@ abstract class MoeTruyen : KeiSource() {
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val numberRegex = Regex("""\d+""")
     private val loginRequiredMessage = "Chương này cần đăng nhập webview bằng tài khoản phù hợp để xem"
-    private const val BRIDGE_NAME = "__imgxKt"
     private val imgxWebViewScript by lazy { javaClass.getResource("/assets/imgx_channel.js")!!.readText() }
 }
+
+private const val BRIDGE_NAME = "__imgxKt"
