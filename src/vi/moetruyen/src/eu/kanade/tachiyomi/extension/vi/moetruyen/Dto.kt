@@ -126,4 +126,3 @@ class AuthSession(
 class ApiError(
     val error: String? = null,
 )
-
