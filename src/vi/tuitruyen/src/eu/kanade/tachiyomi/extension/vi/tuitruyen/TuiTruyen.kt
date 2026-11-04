@@ -51,19 +51,12 @@ abstract class TuiTruyen : KeiSource() {
     // ============================== Popular ===============================
 
     override suspend fun getPopularManga(page: Int): MangasPage {
-        val mangas = client.get(baseUrl, Fetch.DOCUMENT).asJsoup()
-            .select("ol.homepage-ranking-list[data-ranking-period=total] a.homepage-ranking-item__link")
-            .map(::popularMangaFromElement)
+        val url = "$baseUrl/manga".toHttpUrl().newBuilder()
+            .addQueryParameter("sort", "views_desc")
+            .addQueryParameter("page", page.toString())
+            .build()
 
-        return MangasPage(mangas, false)
-    }
-
-    private fun popularMangaFromElement(element: Element): SManga = SManga.create().apply {
-        setUrlWithoutDomain(element.absUrl("href"))
-        val titleElement = element.selectFirst(".homepage-ranking-item__title")!!
-        val titleAttr = titleElement.attr("title")
-        title = titleAttr.ifEmpty { titleElement.text() }
-        thumbnail_url = element.selectFirst("img")?.absUrl("src")
+        return parseMangaList(client.get(url, Fetch.DOCUMENT).asJsoup())
     }
 
     // ============================== Latest ================================
@@ -76,7 +69,7 @@ abstract class TuiTruyen : KeiSource() {
         return parseMangaList(client.get(url, Fetch.DOCUMENT).asJsoup())
     }
 
-    private fun latestMangaFromElement(element: Element): SManga = SManga.create().apply {
+    private fun mangaFromElement(element: Element): SManga = SManga.create().apply {
         val linkElement = element.selectFirst("a[href^=/manga/]")!!
         setUrlWithoutDomain(linkElement.absUrl("href"))
         title = getFullListTitle(element)
@@ -100,7 +93,7 @@ abstract class TuiTruyen : KeiSource() {
 
     private fun parseMangaList(document: Document): MangasPage {
         val mangas = document.select("article.manga-card--list")
-            .map(::latestMangaFromElement)
+            .map(::mangaFromElement)
         val hasNextPage = document
             .selectFirst("nav[aria-label='Phân trang truyện'] a[aria-label='Trang sau']:not(.is-disabled)")
             ?.attr("href")
