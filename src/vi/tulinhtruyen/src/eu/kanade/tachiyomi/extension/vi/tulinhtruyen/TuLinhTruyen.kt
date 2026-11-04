@@ -38,7 +38,6 @@ abstract class TuLinhTruyen :
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         rateLimit(3)
 
-        // The token is user-configurable, so it cannot live in the static `headers` KeiSource builds once.
         addInterceptor { chain ->
             val request = chain.request()
             chain.proceed(
@@ -82,7 +81,6 @@ abstract class TuLinhTruyen :
             val (key, direction) = sort.toQuery()
             url.addQueryParameter("order[$key]", direction)
         } else if (query.isNotBlank()) {
-            // Default sort doubles as "auto": relevance for a text search, top view for browsing.
             url.addQueryParameter("order[relevance]", "desc")
         } else {
             url.addQueryParameter("order[view_count]", "desc")
