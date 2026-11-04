@@ -62,13 +62,11 @@ abstract class TuLinhTruyen :
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage =
-        mangaListPage(mangaListUrl(page, "view_count" to "desc").toString())
+    override suspend fun getPopularManga(page: Int): MangasPage = mangaListPage(mangaListUrl(page, "view_count" to "desc").toString())
 
     // =============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        mangaListPage(mangaListUrl(page, "latestUploadedChapter" to "desc").toString())
+    override suspend fun getLatestUpdates(page: Int): MangasPage = mangaListPage(mangaListUrl(page, "latestUploadedChapter" to "desc").toString())
 
     // =============================== Search ===============================
 
@@ -103,13 +101,12 @@ abstract class TuLinhTruyen :
         return mangaListPage(url.build().toString())
     }
 
-    private fun mangaListUrl(page: Int, order: Pair<String, String>? = null): HttpUrl =
-        "$baseUrl/manga".toHttpUrl().newBuilder()
-            .addQueryParameter("limit", PAGE_LIMIT.toString())
-            .addQueryParameter("offset", ((page - 1) * PAGE_LIMIT).toString())
-            .addQueryParameter("includes[]", "cover_art")
-            .apply { order?.let { addQueryParameter("order[${it.first}]", it.second) } }
-            .build()
+    private fun mangaListUrl(page: Int, order: Pair<String, String>? = null): HttpUrl = "$baseUrl/manga".toHttpUrl().newBuilder()
+        .addQueryParameter("limit", PAGE_LIMIT.toString())
+        .addQueryParameter("offset", ((page - 1) * PAGE_LIMIT).toString())
+        .addQueryParameter("includes[]", "cover_art")
+        .apply { order?.let { addQueryParameter("order[${it.first}]", it.second) } }
+        .build()
 
     private suspend fun mangaListPage(url: String): MangasPage {
         val res = client.get(url, Fetch.XHR).parseAs<MangaListResponse>()
