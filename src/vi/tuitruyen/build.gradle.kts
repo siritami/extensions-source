@@ -4,6 +4,11 @@ plugins {
     alias(kei.plugins.extension)
 }
 
+dependencies {
+    implementation(project(":lib:aessiv"))
+    implementation(project(":lib:ece"))
+}
+
 keiyoushi {
     name = "TuiTruyen"
     versionCode = 6
