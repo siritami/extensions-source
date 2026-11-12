@@ -34,6 +34,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+private const val TAG = "TeamLanhLung"
+
 @Source
 abstract class TeamLanhLung : KeiSource() {
 
@@ -397,7 +399,6 @@ abstract class TeamLanhLung : KeiSource() {
     }
 
     private val dateFormatFull = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
-    private val TAG = "TeamLanhLung"
     private val dateFormatShort = DateTimeFormatter.ofPattern("dd/MM/yy", Locale.ROOT)
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val chapterNameRegex = Regex("chap\\s*\\d+(?:\\.\\d+)?", RegexOption.IGNORE_CASE)
