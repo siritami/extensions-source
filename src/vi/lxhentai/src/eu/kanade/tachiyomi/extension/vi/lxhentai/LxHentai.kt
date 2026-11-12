@@ -346,8 +346,21 @@ abstract class LxHentai : KeiSource() {
                 siteKey = siteKey,
             )
 
+            // The WebView session can rotate cookies the page's CSRF token was issued
+            // for. Re-fetch the page so the token matches the current session.
+            val freshCsrf = client.get(chapterUrl, Fetch.DOCUMENT).asJsoup().html()
+                .let { csrfTokenRegex.find(it)?.groupValues?.get(1) }
+                ?: csrfToken
+            val postHeaders = headersBuilder()
+                .set("Accept", "application/json")
+                .set("Content-Type", "application/json")
+                .set("X-CSRF-TOKEN", freshCsrf)
+                .set("Referer", chapterUrl.toHttpUrlOrNull()?.toString() ?: chapterUrl)
+                .set("Origin", baseUrl)
+                .build()
+
             val payload = TurnstilePayload(turnstileResponse = turnstileToken).toJsonRequestBody()
-            val postResponse = client.post(tokenUrl, tokenHeaders, Fetch.XHR, payload, ensureSuccess = false)
+            val postResponse = client.post(tokenUrl, postHeaders, Fetch.XHR, payload, ensureSuccess = false)
             if (postResponse.isSuccessful) {
                 val data = postResponse.parseAs<TokenResponse>()
                 if (!data.is_bot) {
