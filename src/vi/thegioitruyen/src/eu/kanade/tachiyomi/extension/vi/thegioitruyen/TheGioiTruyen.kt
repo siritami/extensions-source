@@ -169,7 +169,6 @@ abstract class TheGioiTruyen : KeiSource() {
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         if (url.host != baseUrl.toHttpUrl().host) return null
         val segments = url.pathSegments.filter { it.isNotEmpty() }
-        // /truyen/<slug>/ or /truyen/<slug>/chap-N/
         if (segments.size < 2 || segments[0] != "truyen") return null
         val mangaUrl = "$baseUrl/truyen/${segments[1]}/"
         val document = client.get(mangaUrl, Fetch.DOCUMENT).asJsoup()
