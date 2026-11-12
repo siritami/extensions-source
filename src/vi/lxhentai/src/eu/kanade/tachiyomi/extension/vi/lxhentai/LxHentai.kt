@@ -379,7 +379,12 @@ abstract class LxHentai : KeiSource() {
             manifestHeaders,
             Fetch.XHR,
             message.toJsonRequestBody(),
+            ensureSuccess = false,
         )
+        if (!response.isSuccessful) {
+            response.close()
+            return emptyList()
+        }
 
         val payload = response.parseAs<LivewireResponse>()
             .effects
