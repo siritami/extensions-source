@@ -24,7 +24,6 @@ import keiyoushi.utils.stringOrNull
 import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.toJsonRequestBody
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -41,7 +40,6 @@ abstract class LxHentai : KeiSource() {
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         rateLimit(3)
-        addInterceptor(::refreshTokenOnImage403)
     }
 
     // ============================== Popular ===============================
@@ -377,13 +375,7 @@ abstract class LxHentai : KeiSource() {
         return String(bytes, Charsets.UTF_8)
     }
 
-    private suspend fun getActionToken(chapterUrl: String, csrfToken: String, chapterHtml: String, mfKey: String, mfKid: String?, forceRefresh: Boolean = false): String {
-        // The token is bound to the chapter's manifestKid, so it must not be
-        // reused across chapters.
-        if (!forceRefresh) {
-            cachedActionToken?.takeIf { cachedActionTokenChapter == chapterUrl }?.let { return it }
-        }
-
+    private suspend fun getActionToken(chapterUrl: String, csrfToken: String, chapterHtml: String, mfKey: String, mfKid: String?): String {
         val siteKey = recaptchaRegex.find(chapterHtml)?.groupValues?.get(1).orEmpty()
             .ifEmpty { cachedActionTokenSiteKey.orEmpty() }
             .also { if (it.isNotEmpty()) cachedActionTokenSiteKey = it }
@@ -411,18 +403,11 @@ abstract class LxHentai : KeiSource() {
                 ?.at
         }
 
-        fun TokenResponse.store(): String? = actionToken()?.also { token ->
-            cachedActionToken = token
-            cachedActionTokenChapter = chapterUrl
-            cachedActionTokenCsrf = csrfToken
-            cachedActionTokenMfKey = mfKey
-        }
-
         val getResponse = client.get(tokenUrl, tokenHeaders, Fetch.XHR, ensureSuccess = false)
         if (getResponse.isSuccessful) {
             val data = getResponse.parseAs<TokenResponse>()
             if (!data.is_bot) {
-                data.store()?.let { return it }
+                data.actionToken()?.let { return it }
             }
         } else {
             getResponse.close()
@@ -452,13 +437,7 @@ abstract class LxHentai : KeiSource() {
             if (postResponse.isSuccessful) {
                 val data = postResponse.parseAs<TokenResponse>()
                 if (!data.is_bot) {
-                    data.actionToken()?.also { token ->
-                        cachedActionToken = token
-                        cachedActionTokenChapter = chapterUrl
-                        cachedActionTokenCsrf = csrfToken
-                        cachedActionTokenMfKey = mfKey
-                        return token
-                    }
+                    data.actionToken()?.let { return it }
                 }
             } else {
                 postResponse.close()
@@ -519,59 +498,6 @@ abstract class LxHentai : KeiSource() {
         return GET(imageUrl, imageHeaders(chapterUrl, actionToken))
     }
 
-    /**
-     * Refreshes the action token when an image fetch is rejected with 403, then
-     * retries the request once with the new token. Mirrors the viewer engine's
-     * `__refreshImageToken` behaviour.
-     */
-    private fun refreshTokenOnImage403(chain: okhttp3.Interceptor.Chain): Response {
-        val request = chain.request()
-        val response = chain.proceed(request)
-        if (response.code != 403) {
-            return response
-        }
-        Log.e(LOG_TAG, "image 403: ${request.url} (token=${request.header("Token")?.take(8)}..., host=${request.url.host})")
-        if (request.header("Token") == null) {
-            return response
-        }
-        if (!request.url.host.endsWith("lxmanga.xyz")) {
-            return response
-        }
-        response.close()
-
-        val newToken = runBlocking {
-            val csrf = cachedActionTokenCsrf ?: run {
-                Log.e(LOG_TAG, "image 403: no cached csrf")
-                return@runBlocking null
-            }
-            val mfKey = cachedActionTokenMfKey ?: run {
-                Log.e(LOG_TAG, "image 403: no cached mfKey")
-                return@runBlocking null
-            }
-            // Reuse the standard token path: /get_token without `kid` returns a
-            // fresh generic token, which is what the engine's refresh does too.
-            getActionToken(
-                chapterUrl = request.header("Referer") ?: "$baseUrl/",
-                csrfToken = csrf,
-                chapterHtml = "",
-                mfKey = mfKey,
-                mfKid = null,
-                forceRefresh = true,
-            ).takeIf { it.isNotEmpty() }
-        } ?: run {
-            Log.e(LOG_TAG, "image 403: refresh returned empty; retrying old token")
-            return chain.proceed(request)
-        }
-
-        Log.e(LOG_TAG, "image 403: refreshed token=${newToken.take(8)}..., retrying")
-        val retried = request.newBuilder()
-            .header("Token", newToken)
-            .build()
-        val retry = chain.proceed(retried)
-        Log.e(LOG_TAG, "image 403: retry status=${retry.code}")
-        return retry
-    }
-
     private fun imageHeaders(chapterUrl: String, actionToken: String) = super.headersBuilder()
         // The CDN expects the site root Referer (what the browser actually sends
         // for cross-site image requests), not the chapter URL.
@@ -625,10 +551,6 @@ abstract class LxHentai : KeiSource() {
         return chapterUrl to actionToken
     }
 
-    private var cachedActionToken: String? = null
-    private var cachedActionTokenChapter: String? = null
-    private var cachedActionTokenCsrf: String? = null
-    private var cachedActionTokenMfKey: String? = null
     private var cachedActionTokenSiteKey: String? = null
 
     private val csrfTokenRegex = Regex("""var\s+csrf_token\s*=\s*'([^']+)'""")
