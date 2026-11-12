@@ -21,6 +21,7 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 
 @Source
 abstract class TheGioiTruyen : KeiSource() {
@@ -77,18 +78,20 @@ abstract class TheGioiTruyen : KeiSource() {
     }
 
     private fun parseMangaList(document: Document): MangasPage {
-        val mangas = document.select(".tgt-card").mapNotNull { card ->
-            val link = card.selectFirst("a.tgt-card-title") ?: return@mapNotNull null
-            SManga.create().apply {
-                setUrlWithoutDomain(link.absUrl("href"))
-                title = link.text()
-                thumbnail_url = card.selectFirst(".tgt-card-thumb img")
-                    ?.let { it.attr("abs:src").ifEmpty { it.attr("abs:data-src") } }
-                    ?.takeIf { it.isNotBlank() }
-            }
-        }
+        val mangas = document.select(".tgt-card").mapNotNull { it.toSMangaOrNull() }
         val hasNextPage = document.selectFirst("a.next.page-numbers") != null
         return MangasPage(mangas, hasNextPage)
+    }
+
+    private fun Element.toSMangaOrNull(): SManga? {
+        val link = selectFirst("a.tgt-card-title") ?: return null
+        return SManga.create().apply {
+            setUrlWithoutDomain(link.absUrl("href"))
+            title = link.text()
+            thumbnail_url = selectFirst(".tgt-card-thumb img")
+                ?.let { it.attr("abs:src").ifEmpty { it.attr("abs:data-src") } }
+                ?.takeIf { it.isNotBlank() }
+        }
     }
 
     // ============================== Details ==============================
@@ -131,6 +134,15 @@ abstract class TheGioiTruyen : KeiSource() {
         "đang phát hành" -> SManga.ONGOING
         "hoàn thành" -> SManga.COMPLETED
         else -> SManga.UNKNOWN
+    }
+
+    // =============================== Related ==============================
+
+    override val supportsRelatedMangas get() = true
+
+    override suspend fun fetchRelatedMangaList(manga: SManga): List<SManga> {
+        val document = client.get(getMangaUrl(manga), Fetch.DOCUMENT).asJsoup()
+        return document.select(".tgt-similar-grid .tgt-card").mapNotNull { it.toSMangaOrNull() }
     }
 
     // ============================= Chapters ===============================
