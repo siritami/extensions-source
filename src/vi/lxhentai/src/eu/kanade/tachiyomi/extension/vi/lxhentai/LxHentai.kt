@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.extension.vi.lxhentai
 
 import android.util.Base64
+import android.util.Log
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -37,6 +38,8 @@ import kotlin.time.Instant
 
 @Source
 abstract class LxHentai : KeiSource() {
+
+    private val TAG = "LxHentai"
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         rateLimit(3)
@@ -499,7 +502,11 @@ abstract class LxHentai : KeiSource() {
     private fun refreshTokenOnImage403(chain: okhttp3.Interceptor.Chain): Response {
         val request = chain.request()
         val response = chain.proceed(request)
-        if (response.code != 403 || request.header("Token") == null) {
+        if (response.code != 403) {
+            return response
+        }
+        Log.e(TAG, "image 403: ${request.url} (token=${request.header("Token")?.take(8)}..., host=${request.url.host})")
+        if (request.header("Token") == null) {
             return response
         }
         if (!request.url.host.endsWith("lxmanga.xyz")) {
@@ -508,8 +515,14 @@ abstract class LxHentai : KeiSource() {
         response.close()
 
         val newToken = runBlocking {
-            val csrf = cachedActionTokenCsrf ?: return@runBlocking null
-            val mfKey = cachedActionTokenMfKey ?: return@runBlocking null
+            val csrf = cachedActionTokenCsrf ?: run {
+                Log.e(TAG, "image 403: no cached csrf")
+                return@runBlocking null
+            }
+            val mfKey = cachedActionTokenMfKey ?: run {
+                Log.e(TAG, "image 403: no cached mfKey")
+                return@runBlocking null
+            }
             // Reuse the standard token path: /get_token without `kid` returns a
             // fresh generic token, which is what the engine's refresh does too.
             getActionToken(
@@ -520,12 +533,18 @@ abstract class LxHentai : KeiSource() {
                 mfKid = null,
                 forceRefresh = true,
             ).takeIf { it.isNotEmpty() }
-        } ?: return chain.proceed(request)
+        } ?: run {
+            Log.e(TAG, "image 403: refresh returned empty; retrying old token")
+            return chain.proceed(request)
+        }
 
+        Log.e(TAG, "image 403: refreshed token=${newToken.take(8)}..., retrying")
         val retried = request.newBuilder()
             .header("Token", newToken)
             .build()
-        return chain.proceed(retried)
+        val retry = chain.proceed(retried)
+        Log.e(TAG, "image 403: retry status=${retry.code}")
+        return retry
     }
 
     private fun imageHeaders(chapterUrl: String, actionToken: String) = super.headersBuilder()
