@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.extension.vi.lxhentai
 
 import android.util.Base64
+import android.util.Log
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -206,24 +207,37 @@ abstract class LxHentai : KeiSource() {
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val chapterUrl = "$baseUrl${chapter.url}"
+        Log.e(TAG, "getPageList: $chapterUrl")
 
         var lastError: Exception? = null
         // The XSRF-TOKEN cookie can rotate between requests (e.g. after /get_token),
         // which makes a stale page token fail with HTTP 419. Retry once with a fresh page.
-        repeat(2) {
+        repeat(2) { attempt ->
             try {
                 val chapterDocument = client.get(chapterUrl, Fetch.DOCUMENT).asJsoup()
                 val chapterHtml = chapterDocument.html()
+                Log.e(TAG, "attempt $attempt: page fetched, ${chapterHtml.length} chars")
 
                 val mfKey = extractMfKey(chapterHtml)
-                    ?: throw Exception("Không giải mã được viewer")
+                if (mfKey == null) {
+                    Log.e(TAG, "attempt $attempt: mfKey not found")
+                    throw Exception("Không giải mã được viewer")
+                }
+                Log.e(TAG, "attempt $attempt: mfKey ok (${mfKey.length} chars)")
                 val component = findViewerComponent(chapterDocument)
-                    ?: throw Exception("Không tìm thấy component ảnh")
+                if (component == null) {
+                    Log.e(TAG, "attempt $attempt: viewer component not found")
+                    throw Exception("Không tìm thấy component ảnh")
+                }
                 val mfKid = component.serverMemo["data"]["manifestKid"]?.stringOrNull
+                Log.e(TAG, "attempt $attempt: component ok, mfKid=$mfKid")
 
                 val csrfToken = csrfTokenRegex.find(chapterHtml)?.groupValues?.get(1).orEmpty()
+                Log.e(TAG, "attempt $attempt: csrf=${csrfToken.take(8)}...")
                 val actionToken = getActionToken(chapterUrl, csrfToken, chapterHtml, mfKey, mfKid)
+                Log.e(TAG, "attempt $attempt: actionToken=${actionToken.take(8)}... (${actionToken.length} chars)")
                 val imageUrls = fetchImageManifest(chapterUrl, component, csrfToken, actionToken, mfKey)
+                Log.e(TAG, "attempt $attempt: manifest urls=${imageUrls.size}")
                 if (imageUrls.isEmpty()) return@repeat
 
                 val pageMetadata = encodePageMetadata(chapterUrl, actionToken)
@@ -232,6 +246,7 @@ abstract class LxHentai : KeiSource() {
                     Page(index, url = pageMetadata, imageUrl = imageUrl)
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "attempt $attempt failed: ${e.message}", e)
                 lastError = e
             }
         }
@@ -331,8 +346,10 @@ abstract class LxHentai : KeiSource() {
         }
 
         val getResponse = client.get(tokenUrl, tokenHeaders, Fetch.XHR, ensureSuccess = false)
+        Log.e(TAG, "get_token GET: ${getResponse.code}")
         if (getResponse.isSuccessful) {
             val data = getResponse.parseAs<TokenResponse>()
+            Log.e(TAG, "get_token GET: is_bot=${data.is_bot} hasToken=${data.action_token != null} hasE=${data.e != null}")
             if (!data.is_bot) {
                 data.actionToken()?.let { return it.also { token -> cachedActionToken = token } }
             }
@@ -340,6 +357,7 @@ abstract class LxHentai : KeiSource() {
             getResponse.close()
         }
 
+        Log.e(TAG, "get_token GET failed, siteKey=${siteKey.take(12)}...")
         if (siteKey.isNotEmpty()) {
             val turnstileToken = getTurnstileToken(
                 url = chapterUrl,
@@ -361,8 +379,10 @@ abstract class LxHentai : KeiSource() {
 
             val payload = TurnstilePayload(turnstileResponse = turnstileToken).toJsonRequestBody()
             val postResponse = client.post(tokenUrl, postHeaders, Fetch.XHR, payload, ensureSuccess = false)
+            Log.e(TAG, "get_token POST: ${postResponse.code}")
             if (postResponse.isSuccessful) {
                 val data = postResponse.parseAs<TokenResponse>()
+                Log.e(TAG, "get_token POST: is_bot=${data.is_bot} hasToken=${data.action_token != null} hasE=${data.e != null}")
                 if (!data.is_bot) {
                     data.actionToken()?.let { return it.also { token -> cachedActionToken = token } }
                 }
@@ -371,6 +391,7 @@ abstract class LxHentai : KeiSource() {
             }
         }
 
+        Log.e(TAG, "getActionToken: no token")
         return ""
     }
 
@@ -404,17 +425,30 @@ abstract class LxHentai : KeiSource() {
             manifestHeaders,
             Fetch.XHR,
             message.toJsonRequestBody(),
+            ensureSuccess = false,
         )
+        Log.e(TAG, "livewire POST: ${response.code}")
+        if (!response.isSuccessful) {
+            Log.e(TAG, "livewire POST failed: ${response.body.string().take(200)}")
+            return emptyList()
+        }
 
-        val payload = response.parseAs<LivewireResponse>()
+        val dispatch = response.parseAs<LivewireResponse>()
             .effects
             ?.dispatches
             ?.firstOrNull { it.event == "lx:srcs" }
             ?.data
             ?.data
-            ?: return emptyList()
+        if (dispatch == null) {
+            Log.e(TAG, "livewire: no lx:srcs dispatch")
+            return emptyList()
+        }
 
-        val manifest = xorB64Decode(payload, mfKey)?.parseAs<ImageManifest>() ?: return emptyList()
+        val manifest = xorB64Decode(dispatch, mfKey)?.parseAs<ImageManifest>()
+        if (manifest == null) {
+            Log.e(TAG, "livewire: manifest decode failed")
+            return emptyList()
+        }
         return manifest.u.filterIndexed { index, _ -> (manifest.f.getOrNull(index) ?: 0) and 1 == 0 }
     }
 
@@ -485,4 +519,8 @@ abstract class LxHentai : KeiSource() {
     private val quotedStringRegex = Regex(""""([^"]+)"""")
     private val backgroundUrlRegex = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
     private val genreSlugRegex = Regex("""toggleGenre\('([^']+)'\)""")
+
+    private companion object {
+        const val TAG = "LxHentai"
+    }
 }
