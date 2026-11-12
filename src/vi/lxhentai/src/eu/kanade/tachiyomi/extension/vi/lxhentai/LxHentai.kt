@@ -215,8 +215,9 @@ abstract class LxHentai : KeiSource() {
             ?: throw Exception("Không tìm thấy component ảnh")
         val mfKid = component.serverMemo["data"]["manifestKid"]?.stringOrNull
 
-        val actionToken = getActionToken(chapterUrl, chapterHtml, mfKey, mfKid)
-        val imageUrls = fetchImageManifest(chapterUrl, component, actionToken, mfKey)
+        val csrfToken = csrfTokenRegex.find(chapterHtml)?.groupValues?.get(1).orEmpty()
+        val actionToken = getActionToken(chapterUrl, csrfToken, chapterHtml, mfKey, mfKid)
+        val imageUrls = fetchImageManifest(chapterUrl, component, csrfToken, actionToken, mfKey)
         if (imageUrls.isEmpty()) return emptyList()
 
         val pageMetadata = encodePageMetadata(chapterUrl, actionToken)
@@ -289,10 +290,9 @@ abstract class LxHentai : KeiSource() {
         return String(bytes, Charsets.UTF_8)
     }
 
-    private suspend fun getActionToken(chapterUrl: String, chapterHtml: String, mfKey: String, mfKid: String?): String {
+    private suspend fun getActionToken(chapterUrl: String, csrfToken: String, chapterHtml: String, mfKey: String, mfKid: String?): String {
         cachedActionToken?.let { return it }
 
-        val csrfToken = csrfTokenRegex.find(chapterHtml)?.groupValues?.get(1).orEmpty()
         val siteKey = recaptchaRegex.find(chapterHtml)?.groupValues?.get(1).orEmpty()
 
         val tokenHeaders = headersBuilder()
@@ -349,7 +349,7 @@ abstract class LxHentai : KeiSource() {
         return ""
     }
 
-    private suspend fun fetchImageManifest(chapterUrl: String, component: LivewireInitialData, actionToken: String, mfKey: String): List<String> {
+    private suspend fun fetchImageManifest(chapterUrl: String, component: LivewireInitialData, csrfToken: String, actionToken: String, mfKey: String): List<String> {
         val message = LivewireMessage(
             fingerprint = component.fingerprint,
             serverMemo = component.serverMemo,
@@ -357,7 +357,7 @@ abstract class LxHentai : KeiSource() {
                 LivewireUpdate(
                     type = "fireEvent",
                     payload = LivewireUpdatePayload(
-                        id = (1..4).map { "abcdefghijklmnopqrstuvwxyz0123456789".random() }.joinToString(""),
+                        id = (1..7).map { "abcdefghijklmnopqrstuvwxyz0123456789".random() }.joinToString(""),
                         event = "lxViewerImagesUnlock",
                         params = listOf(actionToken),
                     ),
@@ -369,6 +369,7 @@ abstract class LxHentai : KeiSource() {
             .set("Accept", "text/html, application/xhtml+xml")
             .set("Content-Type", "application/json")
             .set("X-Livewire", "true")
+            .set("X-CSRF-TOKEN", csrfToken)
             .set("Referer", chapterUrl.toHttpUrlOrNull()?.toString() ?: chapterUrl)
             .set("Origin", baseUrl)
             .build()
