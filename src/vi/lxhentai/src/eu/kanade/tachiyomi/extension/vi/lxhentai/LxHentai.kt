@@ -216,17 +216,15 @@ abstract class LxHentai : KeiSource() {
             try {
                 val t0 = System.nanoTime()
                 val chapterBody = client.get(chapterUrl, Fetch.DOCUMENT).body.string()
-                val t1 = System.nanoTime()
-                val chapterDocument = chapterBody.asJsoup(chapterUrl)
-                val t2 = System.nanoTime()
                 val chapterHtml = chapterBody
-                Log.e(LOG_TAG, "timings: fetch=${(t1 - t0) / 1_000_000}ms parse=${(t2 - t1) / 1_000_000}ms body=${chapterBody.length}")
+                val t1 = System.nanoTime()
+                Log.e(LOG_TAG, "timings: fetch=${(t1 - t0) / 1_000_000}ms body=${chapterBody.length}")
 
                 val t3 = System.nanoTime()
                 val mfKey = extractMfKey(chapterHtml)
                     ?: throw Exception("Không giải mã được viewer")
                 val t4 = System.nanoTime()
-                val component = findViewerComponent(chapterDocument)
+                val component = findViewerComponent(chapterHtml)
                     ?: throw Exception("Không tìm thấy component ảnh")
                 val t5 = System.nanoTime()
                 Log.e(LOG_TAG, "timings: mfKey=${(t4 - t3) / 1_000_000}ms component=${(t5 - t4) / 1_000_000}ms")
@@ -252,19 +250,31 @@ abstract class LxHentai : KeiSource() {
         throw lastError ?: Exception("Không tải được danh sách trang")
     }
 
-    private fun findViewerComponent(document: Document): LivewireInitialData? = document.body().allElements
-        .asSequence()
-        .filter { element: Element -> element.hasAttr("wire:initial-data") }
-        .mapNotNull { element: Element ->
+    /**
+     * Finds the `chapter-viewer-images` Livewire component's `wire:initial-data`
+     * JSON on the raw page. Reads attributes straight from the HTML instead of
+     * building a DOM, which Jsoup takes seconds to produce for ~1 MB pages.
+     */
+    private fun findViewerComponent(html: String): LivewireInitialData? = wireInitialDataRegex.findAll(html)
+        .mapNotNull { match ->
             try {
-                element.attr("wire:initial-data").parseAs<LivewireInitialData>()
+                decodeHtmlEntities(match.groupValues[1]).parseAs<LivewireInitialData>()
             } catch (_: Exception) {
                 null
             }
         }
-        .firstOrNull { component: LivewireInitialData ->
+        .firstOrNull { component ->
             component.fingerprint["name"]?.stringOrNull == "chapter-viewer-images"
         }
+
+    private fun decodeHtmlEntities(text: String): String = text
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&#039;", "'")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
 
     /**
      * Extracts the `__lxMfkey` XOR key used to decrypt the image manifest.
@@ -421,7 +431,7 @@ abstract class LxHentai : KeiSource() {
 
             // The WebView session can rotate cookies the page's CSRF token was issued
             // for. Re-fetch the page so the token matches the current session.
-            val freshCsrf = client.get(chapterUrl, Fetch.DOCUMENT).asJsoup().html()
+            val freshCsrf = client.get(chapterUrl, Fetch.DOCUMENT).body.string()
                 .let { csrfTokenRegex.find(it)?.groupValues?.get(1) }
                 ?: csrfToken
             val postHeaders = headersBuilder()
@@ -554,6 +564,7 @@ abstract class LxHentai : KeiSource() {
     private var cachedActionTokenSiteKey: String? = null
 
     private val csrfTokenRegex = Regex("""var\s+csrf_token\s*=\s*'([^']+)'""")
+    private val wireInitialDataRegex = Regex("""wire:initial-data="((?:[^"\\]|\\.)*)"""")
     private val recaptchaRegex = Regex("""var\s+recaptcha\s*=\s*'([^']+)'""")
     private val mfKeyRegex = Regex("""__lxMfkey\s*=\s*"([^"]+)"""")
     private val arrayStartRegex = Regex("""var\s+_\w+\s*=\s*\[""")
