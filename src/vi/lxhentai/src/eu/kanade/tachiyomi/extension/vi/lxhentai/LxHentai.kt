@@ -22,6 +22,7 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.stringOrNull
 import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.toJsonRequestBody
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonElement
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -231,6 +232,8 @@ abstract class LxHentai : KeiSource() {
                 return imageUrls.mapIndexed { index: Int, imageUrl: String ->
                     Page(index, url = pageMetadata, imageUrl = imageUrl)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 lastError = e
             }
@@ -269,11 +272,7 @@ abstract class LxHentai : KeiSource() {
             val next = mutableListOf<String>()
             for (text in candidates) {
                 mfKeyRegex.find(text)?.let { return it.groupValues[1].replace("\\/", "/") }
-                for (match in hexPayloadRegex.findAll(text)) {
-                    val hex = quotedStringRegex.findAll(match.groupValues[1])
-                        .joinToString("") { it.groupValues[1] }
-                    next.add(decodeHexPayload(hex) ?: continue)
-                }
+                next.addAll(decodeHexPayloads(text))
             }
             if (next.isEmpty()) return null
             candidates = next
@@ -281,12 +280,51 @@ abstract class LxHentai : KeiSource() {
         return null
     }
 
+    /**
+     * Finds `var _<name> = ["hex", ...]` arrays and decodes each to a JS layer.
+     *
+     * Uses indexOf scanning instead of a greedy regex over array contents:
+     * arrays of non-hex strings (e.g. the base64 decoy) are rejected at their
+     * first non-hex character, which keeps this fast on ~600 KB pages.
+     */
+    private fun decodeHexPayloads(text: String): List<String> {
+        val layers = mutableListOf<String>()
+        var offset = 0
+        while (true) {
+            val start = arrayStartRegex.find(text, offset)?.let { it.range.last + 1 } ?: break
+            val end = text.indexOf(']', start)
+            if (end < 0) break
+            offset = end + 1
+            val hex = extractHex(text, start, end) ?: continue
+            decodeHexPayload(hex)?.let(layers::add)
+        }
+        return layers
+    }
+
+    /**
+     * Reads the `"hex", "hex", ...` elements between [start] and [end] as one
+     * concatenated hex string. Returns `null` as soon as any other character
+     * appears, so non-hex arrays are rejected without scanning them fully.
+     */
+    private fun extractHex(text: String, start: Int, end: Int): String? {
+        val hex = StringBuilder(end - start)
+        for (i in start until end) {
+            when (text[i]) {
+                in '0'..'9', in 'a'..'f', in 'A'..'F' -> hex.append(text[i])
+                '"', ',', ' ', '\t', '\n', '\r' -> Unit
+                else -> return null
+            }
+        }
+        return hex.toString().takeIf { it.length >= 66 }
+    }
+
     private fun decodeHexPayload(hex: String): String? {
         if (hex.length < 66 || hex.length % 2 != 0) return null
-        val bytes = try {
-            hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-        } catch (_: Exception) {
-            return null
+        val bytes = ByteArray(hex.length / 2)
+        for (i in bytes.indices) {
+            val hi = hex[2 * i].digitToIntOrNull(16) ?: return null
+            val lo = hex[2 * i + 1].digitToIntOrNull(16) ?: return null
+            bytes[i] = (hi shl 4 or lo).toByte()
         }
         val key = bytes.copyOfRange(0, 32)
         val out = ByteArray(bytes.size - 32)
@@ -489,8 +527,7 @@ abstract class LxHentai : KeiSource() {
     private val csrfTokenRegex = Regex("""var\s+csrf_token\s*=\s*'([^']+)'""")
     private val recaptchaRegex = Regex("""var\s+recaptcha\s*=\s*'([^']+)'""")
     private val mfKeyRegex = Regex("""__lxMfkey\s*=\s*"([^"]+)"""")
-    private val hexPayloadRegex = Regex("""var\s+_\w+\s*=\s*\[((?:"[0-9a-fA-F]+"\s*,?\s*)+)\]""")
-    private val quotedStringRegex = Regex(""""([^"]+)"""")
+    private val arrayStartRegex = Regex("""var\s+_\w+\s*=\s*\[""")
     private val backgroundUrlRegex = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
     private val genreSlugRegex = Regex("""toggleGenre\('([^']+)'\)""")
 }
