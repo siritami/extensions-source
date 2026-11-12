@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.teamlanhlung
 
+import android.webkit.CookieManager
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -19,6 +20,7 @@ import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.tryParseDate
 import keiyoushi.utils.ui.askPassword
 import kotlinx.serialization.json.JsonElement
+import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -295,15 +297,32 @@ abstract class TeamLanhLung : KeiSource() {
                 .set("Referer", chapterUrl)
                 .build()
 
-            val postResponse = client.post(postAction, postHeaders, Fetch.DOCUMENT, formBody, ensureSuccess = false)
-            val responseUrl = postResponse.request.url.toString()
-            val responseBody = postResponse.body.string()
+            // Don't follow the redirect: the wp-postpass cookie from Set-Cookie may not
+            // reach the shared CookieManager before the redirected GET, locking us out.
+            // Read it from the 302 and send it on the refetch instead.
+            val noRedirectClient = client.newBuilder().followRedirects(false).build()
+            val postResponse = noRedirectClient.post(postAction, postHeaders, Fetch.DOCUMENT, formBody, ensureSuccess = false)
 
-            html = if (postResponse.isSuccessful && !responseUrl.contains("wp-login.php")) {
-                responseBody
-            } else {
-                client.get(chapterUrl, Fetch.DOCUMENT).body.string()
+            // WordPress sets a wp-postpass cookie even for a wrong password, so its
+            // presence alone can't reject the password; the form check below does.
+            val postpassCookie = postResponse.headers("Set-Cookie")
+                .map { it.substringBefore(";") }
+                .firstOrNull { it.startsWith("wp-postpass_") }
+                ?: throw Exception("Mật khẩu không chính xác")
+            postResponse.close()
+
+            // Persist it so the next chapter-list fetch renders without lock icons.
+            runCatching {
+                CookieManager.getInstance().setCookie(chapterUrl, "$postpassCookie; Path=/")
             }
+
+            // The Cookie header must go out on a jarless client: BridgeInterceptor would
+            // overwrite it with the cookie jar's, which can still miss the new cookie.
+            val unlockedHeaders = postHeaders.newBuilder()
+                .add("Cookie", postpassCookie)
+                .build()
+            val jarlessClient = client.newBuilder().cookieJar(CookieJar.NO_COOKIES).build()
+            html = jarlessClient.get(chapterUrl, unlockedHeaders, Fetch.DOCUMENT.from(chapterUrl)).body.string()
 
             document = Jsoup.parse(html, chapterUrl)
             if (document.selectFirst("form.post-password-form") != null) {
