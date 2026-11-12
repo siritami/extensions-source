@@ -33,8 +33,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
-import org.jsoup.parser.Parser
 import org.jsoup.nodes.Element
+import org.jsoup.parser.Parser
 import kotlin.time.Instant
 
 @Source
