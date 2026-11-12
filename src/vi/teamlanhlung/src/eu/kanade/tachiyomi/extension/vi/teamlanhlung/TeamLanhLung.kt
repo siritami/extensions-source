@@ -271,8 +271,7 @@ abstract class TeamLanhLung : KeiSource() {
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val chapterUrl = getChapterUrl(chapter)
-        // Locked chapter pages answer with max-age=3600 and no Vary: Cookie, so the
-        // OkHttp cache would keep serving the locked page after a successful unlock.
+        // Locked pages are cacheable (max-age, no Vary: Cookie) — skip disk cache.
         val response = client.get(chapterUrl, Fetch.DOCUMENT, CacheControl.FORCE_NETWORK)
         var html = response.body.string()
         var document = Jsoup.parse(html, chapterUrl)
@@ -298,8 +297,6 @@ abstract class TeamLanhLung : KeiSource() {
                 .set("Referer", chapterUrl)
                 .build()
 
-            // The password POST's followed redirect may also hit the disk cache; the
-            // wp-postpass cookie is in the jar by now, so refetch straight from network.
             client.post(postAction, postHeaders, Fetch.DOCUMENT, formBody, ensureSuccess = false).close()
             html = client.get(chapterUrl, Fetch.DOCUMENT, CacheControl.FORCE_NETWORK).body.string()
 
