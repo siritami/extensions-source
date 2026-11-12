@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.teamlanhlung
 
+import android.util.Log
 import android.webkit.CookieManager
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -305,7 +306,12 @@ abstract class TeamLanhLung : KeiSource() {
             val postCode = postResponse.code
             val postLocation = postResponse.header("Location")
             val setCookies = postResponse.headers("Set-Cookie")
+            val sentCookies = postResponse.request.headers("Cookie")
             postResponse.close()
+
+            Log.e(TAG, "postpass POST: code=$postCode loc=$postLocation action=$postAction")
+            Log.e(TAG, "postpass POST sent Cookie: $sentCookies")
+            setCookies.forEach { Log.e(TAG, "postpass Set-Cookie: ${it.substringBefore(";")}") }
 
             // WordPress sets a wp-postpass cookie even for a wrong password, so its
             // presence alone can't reject the password; the form check below does.
@@ -325,12 +331,16 @@ abstract class TeamLanhLung : KeiSource() {
                 .add("Cookie", postpassCookie)
                 .build()
             val jarlessClient = client.newBuilder().cookieJar(CookieJar.NO_COOKIES).build()
-            html = jarlessClient.get(chapterUrl, unlockedHeaders, Fetch.DOCUMENT.from(chapterUrl)).body.string()
+            val refetch = jarlessClient.get(chapterUrl, unlockedHeaders, Fetch.DOCUMENT.from(chapterUrl))
+            Log.e(TAG, "postpass refetch: code=${refetch.code} sentCookie=${refetch.request.headers("Cookie")}")
+            html = refetch.body.string()
+            Log.e(TAG, "postpass refetch locked=${html.contains("post-password-form")}")
 
             if (html.contains("post-password-form")) {
                 // Cookie header refetch failed; try once more through the normal client —
                 // the cookie may have reached CookieManager by now.
                 html = client.get(chapterUrl, Fetch.DOCUMENT).body.string()
+                Log.e(TAG, "postpass refetch2 locked=${html.contains("post-password-form")}")
             }
 
             document = Jsoup.parse(html, chapterUrl)
@@ -387,6 +397,7 @@ abstract class TeamLanhLung : KeiSource() {
     }
 
     private val dateFormatFull = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
+    private val TAG = "TeamLanhLung"
     private val dateFormatShort = DateTimeFormatter.ofPattern("dd/MM/yy", Locale.ROOT)
     private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
     private val chapterNameRegex = Regex("chap\\s*\\d+(?:\\.\\d+)?", RegexOption.IGNORE_CASE)
