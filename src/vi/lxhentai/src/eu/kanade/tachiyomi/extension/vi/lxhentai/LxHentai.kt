@@ -348,7 +348,9 @@ abstract class LxHentai : KeiSource() {
     }
 
     private suspend fun getActionToken(chapterUrl: String, csrfToken: String, chapterHtml: String, mfKey: String, mfKid: String?): String {
-        cachedActionToken?.let { return it }
+        // The token is bound to the chapter's manifestKid, so it must not be
+        // reused across chapters.
+        cachedActionToken?.takeIf { cachedActionTokenChapter == chapterUrl }?.let { return it }
 
         val siteKey = recaptchaRegex.find(chapterHtml)?.groupValues?.get(1).orEmpty()
 
@@ -379,7 +381,11 @@ abstract class LxHentai : KeiSource() {
         if (getResponse.isSuccessful) {
             val data = getResponse.parseAs<TokenResponse>()
             if (!data.is_bot) {
-                data.actionToken()?.let { return it.also { token -> cachedActionToken = token } }
+                data.actionToken()?.let { token ->
+                    cachedActionToken = token
+                    cachedActionTokenChapter = chapterUrl
+                    return token
+                }
             }
         } else {
             getResponse.close()
@@ -409,7 +415,11 @@ abstract class LxHentai : KeiSource() {
             if (postResponse.isSuccessful) {
                 val data = postResponse.parseAs<TokenResponse>()
                 if (!data.is_bot) {
-                    data.actionToken()?.let { return it.also { token -> cachedActionToken = token } }
+                    data.actionToken()?.let { token ->
+                        cachedActionToken = token
+                        cachedActionTokenChapter = chapterUrl
+                        return token
+                    }
                 }
             } else {
                 postResponse.close()
@@ -471,7 +481,9 @@ abstract class LxHentai : KeiSource() {
     }
 
     private fun imageHeaders(chapterUrl: String, actionToken: String) = super.headersBuilder()
-        .add("Referer", chapterUrl.toHttpUrlOrNull()?.toString() ?: chapterUrl)
+        // The CDN expects the site root Referer (what the browser actually sends
+        // for cross-site image requests), not the chapter URL.
+        .add("Referer", "$baseUrl/")
         .add("Origin", baseUrl)
         .apply {
             if (actionToken.isNotEmpty()) {
@@ -523,6 +535,7 @@ abstract class LxHentai : KeiSource() {
     }
 
     private var cachedActionToken: String? = null
+    private var cachedActionTokenChapter: String? = null
 
     private val csrfTokenRegex = Regex("""var\s+csrf_token\s*=\s*'([^']+)'""")
     private val recaptchaRegex = Regex("""var\s+recaptcha\s*=\s*'([^']+)'""")
