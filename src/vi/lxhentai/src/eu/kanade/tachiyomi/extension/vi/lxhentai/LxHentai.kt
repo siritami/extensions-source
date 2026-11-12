@@ -216,8 +216,9 @@ abstract class LxHentai : KeiSource() {
         // which makes a stale page token fail with HTTP 419. Retry once with a fresh page.
         repeat(2) {
             try {
-                val chapterDocument = client.get(chapterUrl, Fetch.DOCUMENT).asJsoup()
-                val chapterHtml = chapterDocument.html()
+                val chapterBody = client.get(chapterUrl, Fetch.DOCUMENT).body.string()
+                val chapterDocument = chapterBody.asJsoup(chapterUrl)
+                val chapterHtml = chapterBody
 
                 val mfKey = extractMfKey(chapterHtml)
                     ?: throw Exception("Không giải mã được viewer")
@@ -310,6 +311,17 @@ abstract class LxHentai : KeiSource() {
      * appears, so non-hex arrays are rejected without scanning them fully.
      */
     private fun extractHex(text: String, start: Int, end: Int): String? {
+        // Reject non-hex arrays fast: hex entries are short fixed-length strings,
+        // so if the first quoted span is much longer than a typical hex entry
+        // (e.g. a base64 decoy), skip the scan entirely.
+        val firstQuote = text.indexOf('"', start)
+        if (firstQuote < 0 || firstQuote >= end) return null
+        val secondQuote = text.indexOf('"', firstQuote + 1)
+        if (secondQuote < 0 || secondQuote >= end) return null
+        // Hex entries are short (~50 chars); decoy arrays pack a single long
+        // base64 blob. Bail on entries far longer than a hex entry can be.
+        if (secondQuote - firstQuote - 1 > 512) return null
+
         val hex = StringBuilder(end - start)
         for (i in start until end) {
             when (text[i]) {
@@ -550,11 +562,10 @@ abstract class LxHentai : KeiSource() {
         // for cross-site image requests), not the chapter URL.
         .add("Referer", "$baseUrl/")
         .add("Origin", baseUrl)
-        .apply {
-            if (actionToken.isNotEmpty()) {
-                add("Token", actionToken)
-            }
-        }
+        // The CDN only requires the Token header to be present; any non-empty
+        // value passes. Falling back to a placeholder keeps image loads working
+        // even if the page-level token was lost or stripped.
+        .add("Token", actionToken.ifEmpty { "x" })
         .build()
 
     // ============================== Filters ===============================
