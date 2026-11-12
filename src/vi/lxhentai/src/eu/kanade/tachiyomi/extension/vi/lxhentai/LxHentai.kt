@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.extension.vi.lxhentai
 
 import android.util.Base64
-import android.util.Log
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -210,24 +209,17 @@ abstract class LxHentai : KeiSource() {
         val chapterUrl = "$baseUrl${chapter.url}"
 
         var lastError: Exception? = null
-        // The XSRF-TOKEN cookie can rotate between requests (e.g. after /get_token),
-        // which makes a stale page token fail with HTTP 419. Retry once with a fresh page.
+        // /get_token can rotate the XSRF cookie, invalidating a stale CSRF (HTTP 419).
+        // Retry once with a fresh page.
         repeat(2) {
             try {
-                val t0 = System.nanoTime()
                 val chapterBody = client.get(chapterUrl, Fetch.DOCUMENT).body.string()
                 val chapterHtml = chapterBody
-                val t1 = System.nanoTime()
-                Log.e(LOG_TAG, "timings: fetch=${(t1 - t0) / 1_000_000}ms body=${chapterBody.length}")
 
-                val t3 = System.nanoTime()
                 val mfKey = extractMfKey(chapterHtml)
                     ?: throw Exception("Không giải mã được viewer")
-                val t4 = System.nanoTime()
                 val component = findViewerComponent(chapterHtml)
                     ?: throw Exception("Không tìm thấy component ảnh")
-                val t5 = System.nanoTime()
-                Log.e(LOG_TAG, "timings: mfKey=${(t4 - t3) / 1_000_000}ms component=${(t5 - t4) / 1_000_000}ms")
                 val mfKid = component.serverMemo["data"]["manifestKid"]?.stringOrNull
 
                 val csrfToken = csrfTokenRegex.find(chapterHtml)?.groupValues?.get(1).orEmpty()
@@ -250,11 +242,8 @@ abstract class LxHentai : KeiSource() {
         throw lastError ?: Exception("Không tải được danh sách trang")
     }
 
-    /**
-     * Finds the `chapter-viewer-images` Livewire component's `wire:initial-data`
-     * JSON on the raw page. Reads attributes straight from the HTML instead of
-     * building a DOM, which Jsoup takes seconds to produce for ~1 MB pages.
-     */
+    /** Finds the `chapter-viewer-images` `wire:initial-data` JSON by regex —
+     * avoids a Jsoup DOM build on ~1 MB pages. */
     private fun findViewerComponent(html: String): LivewireInitialData? = wireInitialDataRegex.findAll(html)
         .mapNotNull { match ->
             try {
@@ -276,16 +265,9 @@ abstract class LxHentai : KeiSource() {
         .replace("&gt;", ">")
         .replace("&amp;", "&")
 
-    /**
-     * Extracts the `__lxMfkey` XOR key used to decrypt the image manifest.
-     *
-     * The key is buried inside hex-encoded string arrays
-     * (`var _<name> = ["hex", ...]`) nested in obfuscated scripts; each decoded
-     * layer may contain another payload or the key itself. Walks up to 4
-     * layers (currently 2 are used) to tolerate extra nesting.
-     *
-     * @return the key with `\/` unescaped, or `null` if not found.
-     */
+    /** Extracts `__lxMfkey` — nested inside hex-encoded JS layers
+     * (`var _x = ["hex", ...]`). Walks up to 4 layers; 2 are used today.
+     * Returns the key with `\/` unescaped. */
     private fun extractMfKey(html: String): String? {
         var candidates = listOf(html)
         repeat(4) {
@@ -300,13 +282,8 @@ abstract class LxHentai : KeiSource() {
         return null
     }
 
-    /**
-     * Finds `var _<name> = ["hex", ...]` arrays and decodes each to a JS layer.
-     *
-     * Uses indexOf scanning instead of a greedy regex over array contents:
-     * arrays of non-hex strings (e.g. the base64 decoy) are rejected at their
-     * first non-hex character, which keeps this fast on ~600 KB pages.
-     */
+    /** Finds `var _x = ["hex", ...]` arrays, decodes each to a JS layer.
+     * indexOf scanning is used instead of regex over array contents. */
     private fun decodeHexPayloads(text: String): List<String> {
         val layers = mutableListOf<String>()
         var offset = 0
@@ -321,21 +298,14 @@ abstract class LxHentai : KeiSource() {
         return layers
     }
 
-    /**
-     * Reads the `"hex", "hex", ...` elements between [start] and [end] as one
-     * concatenated hex string. Returns `null` as soon as any other character
-     * appears, so non-hex arrays are rejected without scanning them fully.
-     */
+    /** Reads `"hex", ...` elements between [start] and [end] as one hex string.
+     * Returns null at the first non-hex character. */
     private fun extractHex(text: String, start: Int, end: Int): String? {
-        // Reject non-hex arrays fast: hex entries are short fixed-length strings,
-        // so if the first quoted span is much longer than a typical hex entry
-        // (e.g. a base64 decoy), skip the scan entirely.
+        // Hex entries are ~50 chars; decoys pack one long blob — bail early.
         val firstQuote = text.indexOf('"', start)
         if (firstQuote < 0 || firstQuote >= end) return null
         val secondQuote = text.indexOf('"', firstQuote + 1)
         if (secondQuote < 0 || secondQuote >= end) return null
-        // Hex entries are short (~50 chars); decoy arrays pack a single long
-        // base64 blob. Bail on entries far longer than a hex entry can be.
         if (secondQuote - firstQuote - 1 > 512) return null
 
         val hex = StringBuilder(end - start)
@@ -429,8 +399,7 @@ abstract class LxHentai : KeiSource() {
                 siteKey = siteKey,
             )
 
-            // The WebView session can rotate cookies the page's CSRF token was issued
-            // for. Re-fetch the page so the token matches the current session.
+            // WebView cookie rotation may have invalidated the page CSRF — re-fetch.
             val freshCsrf = client.get(chapterUrl, Fetch.DOCUMENT).body.string()
                 .let { csrfTokenRegex.find(it)?.groupValues?.get(1) }
                 ?: csrfToken
@@ -509,13 +478,10 @@ abstract class LxHentai : KeiSource() {
     }
 
     private fun imageHeaders(chapterUrl: String, actionToken: String) = super.headersBuilder()
-        // The CDN expects the site root Referer (what the browser actually sends
-        // for cross-site image requests), not the chapter URL.
+        // CDN expects the site root Referer, not the chapter URL.
         .add("Referer", "$baseUrl/")
         .add("Origin", baseUrl)
-        // The CDN only requires the Token header to be present; any non-empty
-        // value passes. Falling back to a placeholder keeps image loads working
-        // even if the page-level token was lost or stripped.
+        // CDN only requires the Token header present — any non-empty value passes.
         .add("Token", actionToken.ifEmpty { "x" })
         .build()
 
@@ -570,8 +536,4 @@ abstract class LxHentai : KeiSource() {
     private val arrayStartRegex = Regex("""var\s+_\w+\s*=\s*\[""")
     private val backgroundUrlRegex = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
     private val genreSlugRegex = Regex("""toggleGenre\('([^']+)'\)""")
-
-    private companion object {
-        const val LOG_TAG = "LxHentai"
-    }
 }
