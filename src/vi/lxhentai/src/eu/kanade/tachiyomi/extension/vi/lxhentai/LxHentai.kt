@@ -206,25 +206,37 @@ abstract class LxHentai : KeiSource() {
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val chapterUrl = "$baseUrl${chapter.url}"
-        val chapterDocument = client.get(chapterUrl, Fetch.DOCUMENT).asJsoup()
-        val chapterHtml = chapterDocument.html()
 
-        val mfKey = extractMfKey(chapterHtml)
-            ?: throw Exception("Không giải mã được viewer")
-        val component = findViewerComponent(chapterDocument)
-            ?: throw Exception("Không tìm thấy component ảnh")
-        val mfKid = component.serverMemo["data"]["manifestKid"]?.stringOrNull
+        var lastError: Exception? = null
+        // The XSRF-TOKEN cookie can rotate between requests (e.g. after /get_token),
+        // which makes a stale page token fail with HTTP 419. Retry once with a fresh page.
+        repeat(2) {
+            try {
+                val chapterDocument = client.get(chapterUrl, Fetch.DOCUMENT).asJsoup()
+                val chapterHtml = chapterDocument.html()
 
-        val csrfToken = csrfTokenRegex.find(chapterHtml)?.groupValues?.get(1).orEmpty()
-        val actionToken = getActionToken(chapterUrl, csrfToken, chapterHtml, mfKey, mfKid)
-        val imageUrls = fetchImageManifest(chapterUrl, component, csrfToken, actionToken, mfKey)
-        if (imageUrls.isEmpty()) return emptyList()
+                val mfKey = extractMfKey(chapterHtml)
+                    ?: throw Exception("Không giải mã được viewer")
+                val component = findViewerComponent(chapterDocument)
+                    ?: throw Exception("Không tìm thấy component ảnh")
+                val mfKid = component.serverMemo["data"]["manifestKid"]?.stringOrNull
 
-        val pageMetadata = encodePageMetadata(chapterUrl, actionToken)
+                val csrfToken = csrfTokenRegex.find(chapterHtml)?.groupValues?.get(1).orEmpty()
+                val actionToken = getActionToken(chapterUrl, csrfToken, chapterHtml, mfKey, mfKid)
+                val imageUrls = fetchImageManifest(chapterUrl, component, csrfToken, actionToken, mfKey)
+                if (imageUrls.isEmpty()) return@repeat
 
-        return imageUrls.mapIndexed { index: Int, imageUrl: String ->
-            Page(index, url = pageMetadata, imageUrl = imageUrl)
+                val pageMetadata = encodePageMetadata(chapterUrl, actionToken)
+
+                return imageUrls.mapIndexed { index: Int, imageUrl: String ->
+                    Page(index, url = pageMetadata, imageUrl = imageUrl)
+                }
+            } catch (e: Exception) {
+                lastError = e
+            }
         }
+
+        throw lastError ?: Exception("Không tải được danh sách trang")
     }
 
     private fun findViewerComponent(document: Document): LivewireInitialData? = document.body().allElements
@@ -379,12 +391,7 @@ abstract class LxHentai : KeiSource() {
             manifestHeaders,
             Fetch.XHR,
             message.toJsonRequestBody(),
-            ensureSuccess = false,
         )
-        if (!response.isSuccessful) {
-            response.close()
-            return emptyList()
-        }
 
         val payload = response.parseAs<LivewireResponse>()
             .effects
