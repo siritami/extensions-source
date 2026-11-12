@@ -147,13 +147,12 @@ abstract class TheGioiTruyen : KeiSource() {
 
     // ============================= Chapters ===============================
 
-    private fun parseChapterList(document: Document): List<SChapter> =
-        document.select("a.tgt-chapter-item").map { item ->
-            SChapter.create().apply {
-                setUrlWithoutDomain(item.absUrl("href"))
-                name = item.selectFirst(".tgt-chap-name")!!.text()
-            }
+    private fun parseChapterList(document: Document): List<SChapter> = document.select("a.tgt-chapter-item").map { item ->
+        SChapter.create().apply {
+            setUrlWithoutDomain(item.absUrl("href"))
+            name = item.selectFirst(".tgt-chap-name")!!.text()
         }
+    }
 
     // =============================== Pages ================================
 
@@ -174,9 +173,12 @@ abstract class TheGioiTruyen : KeiSource() {
         if (segments.size < 2 || segments[0] != "truyen") return null
         val mangaUrl = "$baseUrl/truyen/${segments[1]}/"
         val document = client.get(mangaUrl, Fetch.DOCUMENT).asJsoup()
-        return parseMangaDetails(document, SManga.create().apply {
-            setUrlWithoutDomain(mangaUrl)
-        })
+        return parseMangaDetails(
+            document,
+            SManga.create().apply {
+                setUrlWithoutDomain(mangaUrl)
+            },
+        )
     }
 
     // ============================== Filters ===============================
@@ -197,8 +199,7 @@ abstract class TheGioiTruyen : KeiSource() {
         return genres.toJsonElement()
     }
 
-    override fun getFilterList(data: JsonElement?): FilterList =
-        getFilters(data?.parseAs<List<GenreDto>>())
+    override fun getFilterList(data: JsonElement?): FilterList = getFilters(data?.parseAs<List<GenreDto>>())
 
     @Serializable
     class GenreDto(
