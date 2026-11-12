@@ -1,79 +1,3 @@
-# Auth Token via WebView
-
-## How it works
-
-1. User logs in through the in-app WebView → token is saved to `localStorage` on the source's origin
-2. Extension reads the token from `localStorage` via `getLocalStorage(baseUrl, "token")`
-3. Token is cached and sent as `Authorization: Bearer <token>` on API requests
-
-## Code
-
-```kotlin
-import okhttp3.Interceptor
-
-// 1. Cache the token in a suspend method
-private var cachedAuthToken: String? = null
-
-private suspend fun loadAuthToken() {
-    if (cachedAuthToken != null) return
-    cachedAuthToken = getLocalStorage(baseUrl, "token")
-        ?.takeIf { it.isNotBlank() }
-}
-
-// 2. Call it from the first suspend method (e.g. getPopularManga)
-override suspend fun getPopularManga(page: Int): MangasPage {
-    loadAuthToken()
-    // ... API call
-}
-
-// 3. Interceptor reads the cached token — no WebView, no runBlocking
-private fun authInterceptor() = Interceptor { chain ->
-    val original = chain.request()
-    val request = original.newBuilder().apply {
-        cachedAuthToken?.let { header("Authorization", "Bearer $it") }
-    }.build()
-    chain.proceed(request)
-}
-```
-
-- The `"******"` value is a placeholder — replace it with the token format the site expects (e.g. `"Bearer $cachedAuthToken"`). Never commit a real credential.
-- Import `okhttp3.Interceptor` and use `Interceptor` in declarations. Avoid fully qualified type names such as `okhttp3.Interceptor` in implementation code.
-
----
-
-## Loading JS Assets Directly (Avoid `by lazy` for Large Scripts)
-
-When an extension injects large JavaScript via `evaluateJs` (e.g. anti-bot hooks), avoid caching the script string in a `by lazy` property. The `lazy` delegate keeps the string in memory for the lifetime of the extension class, which is wasteful since the WebView is only opened occasionally.
-
-### Instead — load inside the suspend function
-
-```kotlin
-override suspend fun getPageList(chapter: SChapter): List<Page> {
-    val hookScript = javaClass.getResource("/assets/hook.js")?.readText()
-        ?: throw IllegalStateException("hook.js not found")
-    val pollScript = javaClass.getResource("/assets/poll.js")?.readText()
-        ?: throw IllegalStateException("poll.js not found")
-
-    runWebView<...>(timeout = 60.seconds) {
-        injectAtDocumentStart(hookScript)
-        poll(1.seconds) { evaluateJs(pollScript) { ... resolve(...) } }
-        loadUrl(url)
-    }
-}
-```
-
-This way the strings are created on demand and garbage-collected after `getPageList` returns. The I/O cost (`getResource` + `readText`) is negligible compared to the WebView startup time.
-
-Prefer `injectAtDocumentStart` over `onPageStarted { evaluateJs(...) }` for pre-DOM hooks: it registers a native document-start script on Chromium 91+ (runs before any page or inline script) and returns a `ScriptHandle` for removal. On older engines it transparently falls back to `onPageStarted` evaluation — main frame only, and inline scripts may already have run. It must be called before `loadUrl`/`loadData`; it only applies to later navigations.
-
-## Requirements
-
-- `getLocalStorage(url, key)` loads an **empty page** via `loadData` with `url` as its origin — `url` itself is never fetched over the network — then reads `localStorage[key]` on `onPageFinished`
-- This only works if the user logged in through the **in-app WebView**, not the system browser
-- The in-app WebView and `getLocalStorage`'s WebView share the same DOM storage (same app, same origin)
-
----
-
 # General Extension Development Notes
 
 ## Pass the Document Directly
@@ -633,117 +557,6 @@ suspend fun <T> showCustomDialog(
 
 ---
 
-# Advanced WebView Execution (`runWebView`)
-
-When a source requires executing client-side scripts, decoding JavaScript obfuscation, solving custom challenges, or reading authentication state, use `keiyoushi.utils.runWebView`.
-
-## Execution Mechanics & Defaults
-
-- `runWebView(timeout = 30.seconds, configure)` runs on `Dispatchers.Main` internally and suspends until `resolve`/`reject` or timeout.
-- Sets up viewport matching device metrics (`widthPixels`, `heightPixels`).
-- Automatically enables:
-  - `javaScriptEnabled = true`
-  - `domStorageEnabled = true`
-  - `blockNetworkImage = false`
-- Mutes WebView audio when the `MUTE_AUDIO` feature is supported.
-- Automatically spoofs matching `Sec-CH-UA` client hints when setting `userAgent` (requires Chromium 119+ / `USER_AGENT_METADATA`).
-- Cleans up WebView on completion, rejection, or timeout: cancels loading, removes from parent hierarchy, and calls `webView.destroy()`.
-
-## DSL Capabilities (`WebViewScope<T>`)
-
-### Settings
-
-- `javaScriptEnabled`, `domStorageEnabled`, `blockImages`, `useWideViewPort`, `loadWithOverviewMode` — delegate to `WebSettings`.
-- `userAgent` — sets `userAgentString` and spoofs matching `Sec-CH-UA` client hints when supported.
-- `includeCookiesOnIntercept` — includes the `Cookie` header in `interceptRequest` callbacks and makes the WebView honor `Set-Cookie` from intercepted responses. Requires Chromium 138+ (`COOKIE_INTERCEPT`); silently ignored otherwise.
-
-### Lifecycle Hooks
-
-- `onPageStarted { url -> ... }`
-- `onPageFinished { url -> ... }` — can fire multiple times per page (redirects, SPA navigations, iframes).
-- `onReceivedError { request, error -> ... }` — DNS/SSL/network failures.
-
-Exceptions thrown in hooks fail the run via `reject`.
-
-### Resource Interception
-
-`interceptRequest { request -> WebResourceResponse? }` runs on a WebView background thread; return `null` to let the request proceed. Can be registered only once per scope.
-
-```kotlin
-interceptRequest { request ->
-    if (request.url.path?.endsWith(".jpg") == true) {
-        WebResourceResponse("text/plain", "UTF-8", null) // block
-    } else {
-        null
-    }
-}
-```
-
-### JS ↔ Kotlin Messaging
-
-**`webMessageBridge` (preferred)** — modern async, origin-scoped 2-way channel (requires Chromium 82+ / `WEB_MESSAGE_LISTENER`; falls back to `addJavascriptInterface` below Chromium 82):
-
-```kotlin
-webMessageBridge("bridge", allowedOriginRules = setOf("https://example.com")) { message, reply ->
-    if (reply.isMainFrame == true && message.startsWith("done:")) {
-        resolve(message.removePrefix("done:"))
-    }
-}
-```
-
-- JS side: `window.bridge.postMessage(msg)` to send; `window.bridge.onmessage = e => ...` to receive.
-- `reply.sourceOrigin` / `reply.isMainFrame` identify the sender frame (null on the fallback path).
-- `reply.postMessage(msg)` replies into the sending frame; `reply.evaluateJs(script, cb)` runs JS in that frame (Chromium 146+ / `JS_INJECTION_IN_FRAME_AND_WORLD`).
-- With the default `setOf("*")` rule, any frame (ads, third-party iframes) can post. Scope `allowedOriginRules` to the expected origin and check `isMainFrame`/`sourceOrigin` before trusting a message that completes the run.
-- Must be registered before `loadUrl`/`loadData`.
-- A `(message) -> Unit` overload exists when reply is unneeded.
-
-**`jsBridge` (deprecated)** — `window.<name>.post(msg)` via `addJavascriptInterface`; handler runs on a background thread. Only use for engines older than Chromium 82; prefer `webMessageBridge`.
-
-### Script Injection
-
-- `evaluateJs(script) { result -> ... }` — runs in the current page; optional callback gets the JSON-encoded result.
-- `injectAtDocumentStart(script, allowedOriginRules)` — injects before any page script runs. Requires Chromium 91+ (`DOCUMENT_START_SCRIPT`); falls back to `onPageStarted` evaluation on older engines (async, main frame only — page scripts may already have run). Returns a `ScriptHandle` for removal.
-- `addJavaScriptOnEvent(script, event, worldName, allowedOriginRules)` — injects on `InjectionEvent.DOCUMENT_START`/`DOCUMENT_END`, optionally in an isolated world. Requires Chromium 146+ (`JS_INJECTION_IN_FRAME_AND_WORLD`); **no fallback** — rejects on older engines.
-
-### Polling
-
-`poll(interval = 500.milliseconds) { ... }` repeats on the main thread until `resolve`/`reject`. First run fires after one interval.
-
-### Load & Resolve
-
-- `loadUrl(url, headers)` / `loadData(baseUrl, html)` — each may be called only once per scope.
-- `resolve(value)` completes the suspend call; first completion wins. `reject(error)` throws it.
-- `stopLoading()` aborts in-progress loads.
-
-### Failures & Timeouts
-
-- Timeout throws `WebViewTimeoutException` — deliberately a plain `Exception`, not `CancellationException`, so it surfaces as a failure instead of a silently swallowed cancellation.
-- A crashed or killed render process rejects with `RenderProcessGoneException`.
-- An exception thrown from any hook, `poll` block, `interceptRequest`, or bridge handler fails the run via `reject`.
-
-### Escape Hatch — `withNativeWebView`
-
-`withNativeWebView { webView -> ... }` runs a block with the raw `WebView` on the main thread for operations the scope has no API for. It is marked `@NativeWebViewApi` (opt-in required) — prefer the scope's own API where one exists. The view is never attached to a window, so `View.post` runnables don't run; schedule work with a main-thread `Handler`. Don't keep the view past the block, and don't load pages or replace its clients through it.
-
-### Blocking Interceptor Entry Point
-
-`runWebViewBlocking(call, timeout, configure)` for non-suspend OkHttp `Interceptor` bodies:
-
-```kotlin
-override fun intercept(chain: Interceptor.Chain): Response {
-    // verify not on main thread — enforced by check()
-    val token = runWebViewBlocking<String>(chain.call(), timeout = 30.seconds) {
-        // ...same DSL...
-    }
-}
-```
-
-- Must not be called on the main thread (`check` enforced).
-- Watches `call.isCanceled()` and cancels the WebView run when the call is aborted; cancellation surfaces as `IOException`, not a raw `CancellationException`.
-
----
-
 ## Pass POST Bodies with Named Parameters
 
 CONTRIBUTING's `post` signature is `post(url, headers, fetch, body)`. Prefer named arguments so the `Fetch` kind is explicit and the body does not land in the `headers` slot by position:
@@ -817,7 +630,7 @@ uniquely identifiable from its required fields.
 For source files with several responsibilities, group each override with its
 related parsers and helpers under consistent section markers. Keep sections in
 the normal source flow: Auth (when needed), Popular, Latest, Search, Details,
-Pages, Filters, Related (when supported), then Utilities (when needed).
+Chapters, Pages, Filters, Related (when supported), then Utilities (when needed).
 
 ```kotlin
 // ================================ Auth =================================
@@ -830,6 +643,8 @@ Pages, Filters, Related (when supported), then Utilities (when needed).
 // ============================== Search ===============================
 
 // ============================== Details ===============================
+
+// ============================= Chapters ===============================
 
 // ============================== Pages ===============================
 
@@ -1304,50 +1119,6 @@ class Example : KeiSource() {
 - Place source-specific reusable values at the bottom of the source class, after its methods.
 - Use file-level declarations only when a value is shared by multiple classes or top-level functions in the same file.
 - Retain a `companion object` only when its members require class-scoped access or Java-style static interoperability.
-
----
-
-# WebView Defaults
-
-`runWebView` already enables these WebView settings by default, so do not repeat them in your `runWebView` block:
-
-- `javaScriptEnabled = true`
-- `domStorageEnabled = true`
-- `blockNetworkImage = false` (`blockImages = false` in the DSL)
-
-Only set settings that differ from the defaults:
-
-```kotlin
-runWebView(timeout = 45.seconds) {
-    loadWithOverviewMode = true
-    useWideViewPort = true
-    userAgent = userAgent.replace(Regex(""";\s*wv\)"""), ")")
-    // ...
-}
-```
-
-Check the current defaults in `extensions-source/core/src/main/kotlin/keiyoushi/utils/WebView.kt` (`setupWebView` function) before adding settings.
-
-## Resolve Directly in Callbacks
-
-When extracting data from `evaluateJs` callbacks, call `resolve(Unit)` directly instead of setting a flag and checking it later:
-
-```kotlin
-runWebView(timeout = 45.seconds) {
-    poll(1.seconds) {
-        evaluateJs(CHECK_AND_DECODE_SCRIPT) { value ->
-            val parsed = parseResult(value) ?: return@evaluateJs
-            token = parsed.first
-            urls = parsed.second
-            resolve(Unit)  // complete immediately
-        }
-    }
-
-    loadUrl(chapterUrl)
-}
-```
-
-Avoid the pattern of setting `resolved = true` in a callback, guarding `return@poll`, and checking the flag after each `evaluateJs` call. Calling `resolve` directly is simpler and avoids unnecessary state management.
 
 ---
 
