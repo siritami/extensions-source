@@ -481,6 +481,71 @@ override suspend fun getPageList(chapter: SChapter): List<Page> {
 }
 ```
 
+### Cache Trap: Password-Locked Pages
+
+Password-protected WordPress pages answer the *locked* HTML with a cacheable response — e.g.
+`Cache-Control: max-age=3600, public` and **no `Vary: Cookie`**. The OkHttp disk cache stores the
+locked page keyed on URL alone, so after `wp-login.php?action=postpass` sets the `wp-postpass`
+cookie, a normal `client.get(chapterUrl)` (default `Cache-Control: max-age=600`) keeps serving the
+stale locked page — the password prompt appears to fail even though the cookie is correct, and the
+chapter list keeps its lock icons.
+
+This hits three places at once:
+
+- the **initial** chapter GET (serves a previously cached lock page — the user is asked again),
+- the **redirected GET inside** `client.post(...)` (the 302-follow GET inherits the request's
+  cache-control and can hit cache — `postResponse.body` is then the old locked page),
+- any **explicit refetch** (e.g. the chapter-list refresh that should drop the lock icons).
+
+Fix: use `CacheControl.FORCE_NETWORK` on every GET that can see post-login/post-password state.
+
+```kotlin
+import okhttp3.CacheControl
+
+override suspend fun getPageList(chapter: SChapter): List<Page> {
+    val chapterUrl = getChapterUrl(chapter)
+    var html = client.get(chapterUrl, Fetch.DOCUMENT, CacheControl.FORCE_NETWORK).body.string()
+    var document = Jsoup.parse(html, chapterUrl)
+
+    val lockForm = document.selectFirst("form.post-password-form")
+    if (lockForm != null) {
+        val password = askPassword(
+            title = chapter.name,
+            message = "This chapter requires a password",
+        ) ?: throw Exception("Password input cancelled")
+
+        val postAction = lockForm.absUrl("action").ifEmpty {
+            "$baseUrl/wp-login.php?action=postpass"
+        }
+        val formBody = FormBody.Builder()
+            .add("post_password", password)
+            .add("redirect_to", chapterUrl)
+            .add("Submit", "Nhập")
+            .build()
+        val postHeaders = headers.newBuilder().set("Referer", chapterUrl).build()
+
+        // Discard the followed redirect (it can be a cached locked page); refetch from network.
+        client.post(postAction, postHeaders, Fetch.DOCUMENT, formBody, ensureSuccess = false).close()
+        html = client.get(chapterUrl, Fetch.DOCUMENT, CacheControl.FORCE_NETWORK).body.string()
+        document = Jsoup.parse(html, chapterUrl)
+
+        if (document.selectFirst("form.post-password-form") != null) {
+            throw Exception("Incorrect password")
+        }
+    }
+    // ...
+}
+```
+
+Notes:
+
+- `client.get`/`post` accept a `cacheControl` parameter; `CacheControl.FORCE_NETWORK` skips disk
+  cache reads entirely.
+- Symptom fingerprint: the refetch returns a 200 in single-digit milliseconds — a real network
+  round-trip can't be that fast.
+- WordPress sets a `wp-postpass_*` cookie even for a wrong password — the cookie's presence is not
+  proof of success; check for the password form in the final HTML instead.
+
 ### Cancellation & Exception Handling in Dialogs
 
 - **No `try`/`catch` or `CancellationException` import needed:** When a user dismisses the dialog (tapping outside, pressing Back, or clicking Cancel), dialog helpers return `null` (or `false` for `askConfirm`). Handle cancellation with `?: return emptyList()` (or another non-throwing fallback); CONTRIBUTING prefers `emptyList()` over a hardcoded exception for locked content so the app can show a localized message.
