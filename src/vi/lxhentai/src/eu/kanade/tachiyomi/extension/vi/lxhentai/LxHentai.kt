@@ -222,7 +222,7 @@ abstract class LxHentai : KeiSource() {
                 val chapterDocument = chapterBody.asJsoup(chapterUrl)
                 val t2 = System.nanoTime()
                 val chapterHtml = chapterBody
-                Log.e(LOG_TAG, "timings: fetch=${(t1-t0)/1_000_000}ms parse=${(t2-t1)/1_000_000}ms body=${chapterBody.length}")
+                Log.e(LOG_TAG, "timings: fetch=${(t1 - t0) / 1_000_000}ms parse=${(t2 - t1) / 1_000_000}ms body=${chapterBody.length}")
 
                 val t3 = System.nanoTime()
                 val mfKey = extractMfKey(chapterHtml)
@@ -231,7 +231,7 @@ abstract class LxHentai : KeiSource() {
                 val component = findViewerComponent(chapterDocument)
                     ?: throw Exception("Không tìm thấy component ảnh")
                 val t5 = System.nanoTime()
-                Log.e(LOG_TAG, "timings: mfKey=${(t4-t3)/1_000_000}ms component=${(t5-t4)/1_000_000}ms")
+                Log.e(LOG_TAG, "timings: mfKey=${(t4 - t3) / 1_000_000}ms component=${(t5 - t4) / 1_000_000}ms")
                 val mfKid = component.serverMemo["data"]["manifestKid"]?.stringOrNull
 
                 val csrfToken = csrfTokenRegex.find(chapterHtml)?.groupValues?.get(1).orEmpty()
