@@ -282,7 +282,7 @@ abstract class TeamLanhLung : KeiSource() {
                 title = chapter.name,
                 message = "Chương này yêu cầu mật khẩu",
                 hint = "Mật khẩu",
-            ) ?: throw Exception("Đã hủy nhập mật khẩu")
+            )?.trim()?.ifEmpty { null } ?: throw Exception("Đã hủy nhập mật khẩu")
 
             val postAction = lockForm.absUrl("action").ifEmpty {
                 "$baseUrl/wp-login.php?action=postpass"
@@ -302,14 +302,17 @@ abstract class TeamLanhLung : KeiSource() {
             // Read it from the 302 and send it on the refetch instead.
             val noRedirectClient = client.newBuilder().followRedirects(false).build()
             val postResponse = noRedirectClient.post(postAction, postHeaders, Fetch.DOCUMENT, formBody, ensureSuccess = false)
+            val postCode = postResponse.code
+            val postLocation = postResponse.header("Location")
+            val setCookies = postResponse.headers("Set-Cookie")
+            postResponse.close()
 
             // WordPress sets a wp-postpass cookie even for a wrong password, so its
             // presence alone can't reject the password; the form check below does.
-            val postpassCookie = postResponse.headers("Set-Cookie")
+            val postpassCookie = setCookies
                 .map { it.substringBefore(";") }
                 .firstOrNull { it.startsWith("wp-postpass_") }
-                ?: throw Exception("Mật khẩu không chính xác")
-            postResponse.close()
+                ?: throw Exception("POST postpass: HTTP $postCode, không có cookie (loc=$postLocation)")
 
             // Persist it so the next chapter-list fetch renders without lock icons.
             runCatching {
@@ -324,9 +327,15 @@ abstract class TeamLanhLung : KeiSource() {
             val jarlessClient = client.newBuilder().cookieJar(CookieJar.NO_COOKIES).build()
             html = jarlessClient.get(chapterUrl, unlockedHeaders, Fetch.DOCUMENT.from(chapterUrl)).body.string()
 
+            if (html.contains("post-password-form")) {
+                // Cookie header refetch failed; try once more through the normal client —
+                // the cookie may have reached CookieManager by now.
+                html = client.get(chapterUrl, Fetch.DOCUMENT).body.string()
+            }
+
             document = Jsoup.parse(html, chapterUrl)
             if (document.selectFirst("form.post-password-form") != null) {
-                throw Exception("Mật khẩu không chính xác")
+                throw Exception("Mật khẩu không chính xác (POST $postCode)")
             }
         }
 
