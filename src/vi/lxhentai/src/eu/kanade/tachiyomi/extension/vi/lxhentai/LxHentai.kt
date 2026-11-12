@@ -33,6 +33,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
+import org.jsoup.parser.Parser
 import org.jsoup.nodes.Element
 import kotlin.time.Instant
 
@@ -258,14 +259,7 @@ abstract class LxHentai : KeiSource() {
             component.fingerprint.getStringOrNull("name") == "chapter-viewer-images"
         }
 
-    private fun decodeHtmlEntities(text: String): String = text
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&#039;", "'")
-        .replace("&apos;", "'")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&")
+    private fun decodeHtmlEntities(text: String): String = Parser.unescapeEntities(text, false)
 
     /** Extracts `__lxMfkey` — nested inside hex-encoded JS layers
      * (`var _x = ["hex", ...]`). Walks up to 4 layers; 2 are used today.
