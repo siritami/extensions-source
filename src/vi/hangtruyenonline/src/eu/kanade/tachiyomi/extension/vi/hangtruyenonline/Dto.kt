@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.vi.hangtruyenonline
 
-import eu.kanade.tachiyomi.source.model.Page
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -46,6 +45,4 @@ class ChapterDetailDto(
 class ChapterPage(
     @SerialName("page") val index: Int,
     val url: String,
-) {
-    fun toPage(): Page = Page(index - 1, imageUrl = url)
-}
+)

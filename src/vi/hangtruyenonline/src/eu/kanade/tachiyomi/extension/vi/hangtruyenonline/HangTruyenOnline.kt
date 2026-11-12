@@ -151,7 +151,6 @@ abstract class HangTruyenOnline : KeiSource() {
         if (segments.firstOrNull() != "truyen-tranh") return null
         val slug = segments.getOrNull(1)?.takeIf { it.isNotEmpty() } ?: return null
 
-        // Chapter link: resolve to the manga detail URL
         val mangaUrl = segments.getOrNull(2)
             ?.takeIf { it.startsWith("chapter-") }
             ?.let { "$baseUrl/truyen-tranh/$slug" }
@@ -218,13 +217,15 @@ abstract class HangTruyenOnline : KeiSource() {
             ?.pages
             ?.takeIf { it.isNotEmpty() }
             ?.let { pages ->
-                return pages.sortedBy { it.index }.map { it.toPage() }
+                // First entry is a site watermark
+                return pages.sortedBy { it.index }
+                    .filterNot { watermarkImageRegex.containsMatchIn(it.url) }
+                    .mapIndexed { i, p -> Page(i, imageUrl = p.url) }
             }
 
-        // Fallback: image tags rendered server-side (lazy-loaded in data-src)
-        return document.select("img.reading-img").mapIndexedNotNull { index, img ->
-            imageUrl(img)?.let { Page(index, imageUrl = it) }
-        }
+        return document.select("img.reading-img").mapNotNull { img ->
+            imageUrl(img)?.takeUnless { watermarkImageRegex.containsMatchIn(it) }
+        }.mapIndexed { index, url -> Page(index, imageUrl = url) }
     }
 
     // ============================== Filters ===============================
@@ -295,4 +296,5 @@ abstract class HangTruyenOnline : KeiSource() {
     }
 
     private val relativeDateRegex = Regex("""\d+""")
+    private val watermarkImageRegex = Regex("""/[^/]*truyen[^/]*\.webp?$""", RegexOption.IGNORE_CASE)
 }
