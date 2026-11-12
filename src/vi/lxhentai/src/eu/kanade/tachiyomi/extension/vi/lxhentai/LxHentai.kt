@@ -253,10 +253,17 @@ abstract class LxHentai : KeiSource() {
             component.fingerprint["name"]?.stringOrNull == "chapter-viewer-images"
         }
 
+    /**
+     * Extracts the `__lxMfkey` XOR key used to decrypt the image manifest.
+     *
+     * The key is buried inside hex-encoded string arrays
+     * (`var _<name> = ["hex", ...]`) nested in obfuscated scripts; each decoded
+     * layer may contain another payload or the key itself. Walks up to 4
+     * layers (currently 2 are used) to tolerate extra nesting.
+     *
+     * @return the key with `\/` unescaped, or `null` if not found.
+     */
     private fun extractMfKey(html: String): String? {
-        // The viewer engine is nested in hex-encoded payloads: each blob is an array of
-        // hex strings whose first 32 bytes are the XOR key for the rest. Walk the layers
-        // until the decoded engine script exposes __lxMfkey / __lxMfkid.
         var candidates = listOf(html)
         repeat(4) {
             val next = mutableListOf<String>()
