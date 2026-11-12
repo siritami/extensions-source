@@ -216,14 +216,22 @@ abstract class LxHentai : KeiSource() {
         // which makes a stale page token fail with HTTP 419. Retry once with a fresh page.
         repeat(2) {
             try {
+                val t0 = System.nanoTime()
                 val chapterBody = client.get(chapterUrl, Fetch.DOCUMENT).body.string()
+                val t1 = System.nanoTime()
                 val chapterDocument = chapterBody.asJsoup(chapterUrl)
+                val t2 = System.nanoTime()
                 val chapterHtml = chapterBody
+                Log.e(LOG_TAG, "timings: fetch=${(t1-t0)/1_000_000}ms parse=${(t2-t1)/1_000_000}ms body=${chapterBody.length}")
 
+                val t3 = System.nanoTime()
                 val mfKey = extractMfKey(chapterHtml)
                     ?: throw Exception("Không giải mã được viewer")
+                val t4 = System.nanoTime()
                 val component = findViewerComponent(chapterDocument)
                     ?: throw Exception("Không tìm thấy component ảnh")
+                val t5 = System.nanoTime()
+                Log.e(LOG_TAG, "timings: mfKey=${(t4-t3)/1_000_000}ms component=${(t5-t4)/1_000_000}ms")
                 val mfKid = component.serverMemo["data"]["manifestKid"]?.stringOrNull
 
                 val csrfToken = csrfTokenRegex.find(chapterHtml)?.groupValues?.get(1).orEmpty()
@@ -337,16 +345,23 @@ abstract class LxHentai : KeiSource() {
         if (hex.length < 66 || hex.length % 2 != 0) return null
         val bytes = ByteArray(hex.length / 2)
         for (i in bytes.indices) {
-            val hi = hex[2 * i].digitToIntOrNull(16) ?: return null
-            val lo = hex[2 * i + 1].digitToIntOrNull(16) ?: return null
+            val hi = hexVal(hex[2 * i])
+            val lo = hexVal(hex[2 * i + 1])
+            if (hi < 0 || lo < 0) return null
             bytes[i] = (hi shl 4 or lo).toByte()
         }
-        val key = bytes.copyOfRange(0, 32)
         val out = ByteArray(bytes.size - 32)
         for (i in out.indices) {
-            out[i] = (bytes[i + 32].toInt() xor key[i % key.size].toInt()).toByte()
+            out[i] = (bytes[i + 32].toInt() xor bytes[i % 32].toInt()).toByte()
         }
         return String(out, Charsets.UTF_8).takeIf { it.isNotBlank() }
+    }
+
+    private fun hexVal(c: Char): Int = when (c) {
+        in '0'..'9' -> c - '0'
+        in 'a'..'f' -> c - 'a' + 10
+        in 'A'..'F' -> c - 'A' + 10
+        else -> -1
     }
 
     private fun xorB64Decode(payload: String, key: String): String? {
