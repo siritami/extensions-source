@@ -39,8 +39,6 @@ import kotlin.time.Instant
 @Source
 abstract class LxHentai : KeiSource() {
 
-    private val TAG = "LxHentai"
-
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         rateLimit(3)
         addInterceptor(::refreshTokenOnImage403)
@@ -505,7 +503,7 @@ abstract class LxHentai : KeiSource() {
         if (response.code != 403) {
             return response
         }
-        Log.e(TAG, "image 403: ${request.url} (token=${request.header("Token")?.take(8)}..., host=${request.url.host})")
+        Log.e(LOG_TAG, "image 403: ${request.url} (token=${request.header("Token")?.take(8)}..., host=${request.url.host})")
         if (request.header("Token") == null) {
             return response
         }
@@ -516,11 +514,11 @@ abstract class LxHentai : KeiSource() {
 
         val newToken = runBlocking {
             val csrf = cachedActionTokenCsrf ?: run {
-                Log.e(TAG, "image 403: no cached csrf")
+                Log.e(LOG_TAG, "image 403: no cached csrf")
                 return@runBlocking null
             }
             val mfKey = cachedActionTokenMfKey ?: run {
-                Log.e(TAG, "image 403: no cached mfKey")
+                Log.e(LOG_TAG, "image 403: no cached mfKey")
                 return@runBlocking null
             }
             // Reuse the standard token path: /get_token without `kid` returns a
@@ -534,16 +532,16 @@ abstract class LxHentai : KeiSource() {
                 forceRefresh = true,
             ).takeIf { it.isNotEmpty() }
         } ?: run {
-            Log.e(TAG, "image 403: refresh returned empty; retrying old token")
+            Log.e(LOG_TAG, "image 403: refresh returned empty; retrying old token")
             return chain.proceed(request)
         }
 
-        Log.e(TAG, "image 403: refreshed token=${newToken.take(8)}..., retrying")
+        Log.e(LOG_TAG, "image 403: refreshed token=${newToken.take(8)}..., retrying")
         val retried = request.newBuilder()
             .header("Token", newToken)
             .build()
         val retry = chain.proceed(retried)
-        Log.e(TAG, "image 403: retry status=${retry.code}")
+        Log.e(LOG_TAG, "image 403: retry status=${retry.code}")
         return retry
     }
 
@@ -613,4 +611,8 @@ abstract class LxHentai : KeiSource() {
     private val arrayStartRegex = Regex("""var\s+_\w+\s*=\s*\[""")
     private val backgroundUrlRegex = Regex("""background-image:\s*url\(['"]?([^'")]+)""", RegexOption.IGNORE_CASE)
     private val genreSlugRegex = Regex("""toggleGenre\('([^']+)'\)""")
+
+    private companion object {
+        const val LOG_TAG = "LxHentai"
+    }
 }
