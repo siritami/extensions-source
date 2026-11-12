@@ -21,6 +21,7 @@ import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.tryParseDate
 import keiyoushi.utils.ui.askPassword
 import kotlinx.serialization.json.JsonElement
+import okhttp3.CacheControl
 import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
@@ -275,7 +276,9 @@ abstract class TeamLanhLung : KeiSource() {
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val chapterUrl = getChapterUrl(chapter)
-        val response = client.get(chapterUrl, Fetch.DOCUMENT)
+        // Password-locked pages answer with max-age=3600 and no Vary: Cookie — the OkHttp
+        // cache would serve the locked page even after unlocking. Always go to network.
+        val response = client.get(chapterUrl, Fetch.DOCUMENT, CacheControl.FORCE_NETWORK)
         var html = response.body.string()
         var document = Jsoup.parse(html, chapterUrl)
 
@@ -286,7 +289,6 @@ abstract class TeamLanhLung : KeiSource() {
                 message = "Chương này yêu cầu mật khẩu",
                 hint = "Mật khẩu",
             )?.trim { it.isWhitespace() }?.ifEmpty { null } ?: throw Exception("Đã hủy nhập mật khẩu")
-            Log.e(TAG, "postpass password: len=${password.length} codepoints=${password.codePoints().toArray().joinToString(",") { it.toString(16) }}")
 
             val postAction = lockForm.absUrl("action").ifEmpty {
                 "$baseUrl/wp-login.php?action=postpass"
@@ -330,21 +332,18 @@ abstract class TeamLanhLung : KeiSource() {
 
             // The Cookie header must go out on a jarless client: BridgeInterceptor would
             // overwrite it with the cookie jar's, which can still miss the new cookie.
+            val cookieHeader = buildList {
+                setCookies.mapTo(this) { it.substringBefore(";") }
+                add(postpassCookie)
+            }.distinct().joinToString("; ")
+
             val unlockedHeaders = postHeaders.newBuilder()
-                .add("Cookie", postpassCookie)
+                .add("Cookie", cookieHeader)
                 .build()
             val jarlessClient = client.newBuilder().cookieJar(CookieJar.NO_COOKIES).build()
-            val refetch = jarlessClient.get(chapterUrl, unlockedHeaders, Fetch.DOCUMENT.from(chapterUrl))
-            Log.e(TAG, "postpass refetch: code=${refetch.code} sentCookie=${refetch.request.headers("Cookie")}")
+            val refetch = jarlessClient.get(chapterUrl, unlockedHeaders, Fetch.DOCUMENT.from(chapterUrl), CacheControl.FORCE_NETWORK)
             html = refetch.body.string()
             Log.e(TAG, "postpass refetch locked=${html.contains("post-password-form")}")
-
-            if (html.contains("post-password-form")) {
-                // Cookie header refetch failed; try once more through the normal client —
-                // the cookie may have reached CookieManager by now.
-                html = client.get(chapterUrl, Fetch.DOCUMENT).body.string()
-                Log.e(TAG, "postpass refetch2 locked=${html.contains("post-password-form")}")
-            }
 
             document = Jsoup.parse(html, chapterUrl)
             if (document.selectFirst("form.post-password-form") != null) {
