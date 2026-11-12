@@ -117,40 +117,39 @@ abstract class HangTruyenOnline : KeiSource() {
 
     // ============================== Details ===============================
 
-    private fun parseMangaDetails(document: Document, manga: SManga): SManga =
-        SManga.create().apply {
-            setUrlWithoutDomain(manga.url)
+    private fun parseMangaDetails(document: Document, manga: SManga): SManga = SManga.create().apply {
+        setUrlWithoutDomain(manga.url)
 
-            val detail = document.extractJson<MangaDetailDto>("window.mangaDetail")
+        val detail = document.extractJson<MangaDetailDto>("window.mangaDetail")
 
-            title = detail?.title
-                ?: document.selectFirst("h1.title-detail")!!.text()
+        title = detail?.title
+            ?: document.selectFirst("h1.title-detail")!!.text()
 
-            author = detail?.author?.takeIf { it.isNotBlank() }
-                ?: document.selectFirst(".info-group .author p")?.text()
-                    ?.takeIf { it.isNotBlank() }
+        author = detail?.author?.takeIf { it.isNotBlank() }
+            ?: document.selectFirst(".info-group .author p")?.text()
+                ?.takeIf { it.isNotBlank() }
 
-            genre = detail?.genres?.joinToString { it.name }?.takeIf { it.isNotEmpty() }
-                ?: document.select(".m-tags a").joinToString { it.text() }
-                    .takeIf { it.isNotEmpty() }
+        genre = detail?.genres?.joinToString { it.name }?.takeIf { it.isNotEmpty() }
+            ?: document.select(".m-tags a").joinToString { it.text() }
+                .takeIf { it.isNotEmpty() }
 
-            description = detail?.overview?.takeIf { it.isNotBlank() }
-                ?: document.selectFirst(".sort-des .line-clamp")?.text()
-                    ?.takeIf { it.isNotBlank() }
+        description = detail?.overview?.takeIf { it.isNotBlank() }
+            ?: document.selectFirst(".sort-des .line-clamp")?.text()
+                ?.takeIf { it.isNotBlank() }
 
-            thumbnail_url = detail?.posterPath
-                ?: document.selectFirst(".col-image img")?.let { imageUrl(it) }
+        thumbnail_url = detail?.posterPath
+            ?: document.selectFirst(".col-image img")?.let { imageUrl(it) }
 
-            status = document.selectFirst(".info-group .status p")?.text()?.lowercase().let { statusText ->
-                when {
-                    statusText == null -> SManga.UNKNOWN
-                    "đang tiến hành" in statusText -> SManga.ONGOING
-                    "hoàn thành" in statusText -> SManga.COMPLETED
-                    "tạm ngưng" in statusText || "ngừng" in statusText -> SManga.ON_HIATUS
-                    else -> SManga.UNKNOWN
-                }
+        status = document.selectFirst(".info-group .status p")?.text()?.lowercase().let { statusText ->
+            when {
+                statusText == null -> SManga.UNKNOWN
+                "đang tiến hành" in statusText -> SManga.ONGOING
+                "hoàn thành" in statusText -> SManga.COMPLETED
+                "tạm ngưng" in statusText || "ngừng" in statusText -> SManga.ON_HIATUS
+                else -> SManga.UNKNOWN
             }
         }
+    }
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         if (url.host != baseUrl.toHttpUrl().host) return null
@@ -188,17 +187,16 @@ abstract class HangTruyenOnline : KeiSource() {
 
     // ============================= Chapters ===============================
 
-    private fun parseChapterList(document: Document): List<SChapter> =
-        document.select(".l-chapter").mapNotNull { element ->
-            val link = element.selectFirst("a.ll-chap[href]") ?: return@mapNotNull null
-            SChapter.create().apply {
-                setUrlWithoutDomain(link.absUrl("href"))
-                name = link.attrOrNull("title") ?: link.text()
-                date_upload = parseRelativeDate(
-                    element.selectFirst(".ll-update")?.text(),
-                )
-            }
+    private fun parseChapterList(document: Document): List<SChapter> = document.select(".l-chapter").mapNotNull { element ->
+        val link = element.selectFirst("a.ll-chap[href]") ?: return@mapNotNull null
+        SChapter.create().apply {
+            setUrlWithoutDomain(link.absUrl("href"))
+            name = link.attrOrNull("title") ?: link.text()
+            date_upload = parseRelativeDate(
+                element.selectFirst(".ll-update")?.text(),
+            )
         }
+    }
 
     private fun parseRelativeDate(value: String?): Long {
         if (value.isNullOrBlank()) return 0L
@@ -281,12 +279,10 @@ abstract class HangTruyenOnline : KeiSource() {
 
     // ============================= Utilities ==============================
 
-    private fun imageUrl(element: Element): String? =
-        element.attrOrNull("data-src")
-            ?: element.attrOrNull("data-original")
-            ?: element.attrOrNull("src")
-                ?.takeUnless { it.contains("pre-load") || it.startsWith("data:") }
-
+    private fun imageUrl(element: Element): String? = element.attrOrNull("data-src")
+        ?: element.attrOrNull("data-original")
+        ?: element.attrOrNull("src")
+            ?.takeUnless { it.contains("pre-load") || it.startsWith("data:") }
 
     private inline fun <reified T> Document.extractJson(variable: String): T? {
         val script = select("script:not([src])")
