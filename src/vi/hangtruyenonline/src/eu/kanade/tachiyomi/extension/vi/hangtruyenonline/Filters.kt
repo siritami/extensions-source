@@ -11,21 +11,11 @@ fun getFilters(data: JsonElement?): FilterList {
     val filterData = data?.parseAs<FilterData>()
 
     filterData?.categories?.takeIf { it.isNotEmpty() }?.let { categories ->
-        filters.add(
-            Filter.Group(
-                "Thể loại",
-                categories.map { CategoryCheckBox(it.name, it.id) },
-            ),
-        )
+        filters.add(CategoryFilter(categories))
     }
 
     filterData?.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
-        filters.add(
-            Filter.Group(
-                "Tags",
-                genres.map { TagCheckBox(it.name, it.id) },
-            ),
-        )
+        filters.add(TagFilter(genres))
     }
 
     filters.add(SortFilter())
@@ -36,6 +26,22 @@ fun getFilters(data: JsonElement?): FilterList {
 class CategoryCheckBox(name: String, val id: String) : Filter.CheckBox(name)
 
 class TagCheckBox(name: String, val id: String) : Filter.CheckBox(name)
+
+class CategoryFilter(categories: List<CategoryOption>) :
+    Filter.Group<CategoryCheckBox>(
+        "Thể loại",
+        categories.map { CategoryCheckBox(it.name, it.id) },
+    ) {
+    fun selectedIds(): String = state.filter { it.state }.joinToString(",") { it.id }
+}
+
+class TagFilter(genres: List<GenreOption>) :
+    Filter.Group<TagCheckBox>(
+        "Tags",
+        genres.map { TagCheckBox(it.name, it.id) },
+    ) {
+    fun selectedIds(): String = state.filter { it.state }.joinToString(",") { it.id }
+}
 
 class SortFilter :
     Filter.Select<SortOption>(

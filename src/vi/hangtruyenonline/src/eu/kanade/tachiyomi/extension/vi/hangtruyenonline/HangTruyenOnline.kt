@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.vi.hangtruyenonline
 
-import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -59,19 +58,13 @@ abstract class HangTruyenOnline : KeiSource() {
     ): MangasPage = searchRequest(page) {
         if (query.isNotBlank()) addQueryParameter("keyword", query)
 
-        val categoryIds = filters.filterIsInstance<Filter.Group<*>>()
-            .flatMap { it.state }
-            .filterIsInstance<CategoryCheckBox>()
-            .filter { it.state }
-            .joinToString(",") { it.id }
-        if (categoryIds.isNotEmpty()) addQueryParameter("categoryIds", categoryIds)
+        filters.firstInstanceOrNull<CategoryFilter>()?.selectedIds()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { addQueryParameter("categoryIds", it) }
 
-        val genreIds = filters.filterIsInstance<Filter.Group<*>>()
-            .flatMap { it.state }
-            .filterIsInstance<TagCheckBox>()
-            .filter { it.state }
-            .joinToString(",") { it.id }
-        if (genreIds.isNotEmpty()) addQueryParameter("genreIds", genreIds)
+        filters.firstInstanceOrNull<TagFilter>()?.selectedIds()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { addQueryParameter("genreIds", it) }
 
         filters.firstInstanceOrNull<SortFilter>()?.let {
             addQueryParameter("orderBy", it.toUriPart())
