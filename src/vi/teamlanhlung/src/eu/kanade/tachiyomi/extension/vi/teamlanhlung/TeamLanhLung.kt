@@ -285,7 +285,8 @@ abstract class TeamLanhLung : KeiSource() {
                 title = chapter.name,
                 message = "Chương này yêu cầu mật khẩu",
                 hint = "Mật khẩu",
-            )?.trim()?.ifEmpty { null } ?: throw Exception("Đã hủy nhập mật khẩu")
+            )?.trim { it.isWhitespace() }?.ifEmpty { null } ?: throw Exception("Đã hủy nhập mật khẩu")
+            Log.e(TAG, "postpass password: len=${password.length} codepoints=${password.codePoints().toArray().joinToString(",") { it.toString(16) }}")
 
             val postAction = lockForm.absUrl("action").ifEmpty {
                 "$baseUrl/wp-login.php?action=postpass"
