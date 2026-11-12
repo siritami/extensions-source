@@ -15,11 +15,13 @@ import keiyoushi.network.post
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.asJsoup
+import keiyoushi.utils.decodeHex
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.get
+import keiyoushi.utils.getObjectOrNull
+import keiyoushi.utils.getStringOrNull
 import keiyoushi.utils.getTurnstileToken
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.stringOrNull
 import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.toJsonRequestBody
 import kotlinx.coroutines.CancellationException
@@ -220,7 +222,7 @@ abstract class LxHentai : KeiSource() {
                     ?: throw Exception("Không giải mã được viewer")
                 val component = findViewerComponent(chapterHtml)
                     ?: throw Exception("Không tìm thấy component ảnh")
-                val mfKid = component.serverMemo["data"]["manifestKid"]?.stringOrNull
+                val mfKid = component.serverMemo.getObjectOrNull("data")?.getStringOrNull("manifestKid")
 
                 val csrfToken = csrfTokenRegex.find(chapterHtml)?.groupValues?.get(1).orEmpty()
                 val actionToken = getActionToken(chapterUrl, csrfToken, chapterHtml, mfKey, mfKid)
@@ -253,7 +255,7 @@ abstract class LxHentai : KeiSource() {
             }
         }
         .firstOrNull { component ->
-            component.fingerprint["name"]?.stringOrNull == "chapter-viewer-images"
+            component.fingerprint.getStringOrNull("name") == "chapter-viewer-images"
         }
 
     private fun decodeHtmlEntities(text: String): String = text
@@ -321,12 +323,10 @@ abstract class LxHentai : KeiSource() {
 
     private fun decodeHexPayload(hex: String): String? {
         if (hex.length < 66 || hex.length % 2 != 0) return null
-        val bytes = ByteArray(hex.length / 2)
-        for (i in bytes.indices) {
-            val hi = hexVal(hex[2 * i])
-            val lo = hexVal(hex[2 * i + 1])
-            if (hi < 0 || lo < 0) return null
-            bytes[i] = (hi shl 4 or lo).toByte()
+        val bytes = try {
+            hex.decodeHex()
+        } catch (_: Exception) {
+            return null
         }
         val out = ByteArray(bytes.size - 32)
         for (i in out.indices) {
@@ -335,24 +335,15 @@ abstract class LxHentai : KeiSource() {
         return String(out, Charsets.UTF_8).takeIf { it.isNotBlank() }
     }
 
-    private fun hexVal(c: Char): Int = when (c) {
-        in '0'..'9' -> c - '0'
-        in 'a'..'f' -> c - 'a' + 10
-        in 'A'..'F' -> c - 'A' + 10
-        else -> -1
-    }
-
-    private fun xorB64Decode(payload: String, key: String): String? {
-        val bytes = try {
-            Base64.decode(payload, Base64.DEFAULT)
-        } catch (_: Exception) {
-            return null
-        }
+    private fun xorB64Decode(payload: String, key: String): String? = try {
+        val bytes = Base64.decode(payload, Base64.DEFAULT)
         val keyBytes = key.toByteArray(Charsets.UTF_8)
         for (i in bytes.indices) {
             bytes[i] = (bytes[i].toInt() xor keyBytes[i % keyBytes.size].toInt()).toByte()
         }
-        return String(bytes, Charsets.UTF_8)
+        String(bytes, Charsets.UTF_8)
+    } catch (_: Exception) {
+        null
     }
 
     private suspend fun getActionToken(chapterUrl: String, csrfToken: String, chapterHtml: String, mfKey: String, mfKid: String?): String {
@@ -399,7 +390,6 @@ abstract class LxHentai : KeiSource() {
                 siteKey = siteKey,
             )
 
-            // WebView cookie rotation may have invalidated the page CSRF — re-fetch.
             val freshCsrf = client.get(chapterUrl, Fetch.DOCUMENT).body.string()
                 .let { csrfTokenRegex.find(it)?.groupValues?.get(1) }
                 ?: csrfToken
@@ -478,10 +468,8 @@ abstract class LxHentai : KeiSource() {
     }
 
     private fun imageHeaders(chapterUrl: String, actionToken: String) = super.headersBuilder()
-        // CDN expects the site root Referer, not the chapter URL.
         .add("Referer", "$baseUrl/")
         .add("Origin", baseUrl)
-        // CDN only requires the Token header present — any non-empty value passes.
         .add("Token", actionToken.ifEmpty { "x" })
         .build()
 
