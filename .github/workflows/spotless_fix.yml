@@ -1,0 +1,79 @@
+name: Spotless Fix
+
+on:
+  workflow_dispatch:
+    inputs:
+      language:
+        description: 'Language to fix formatting for'
+        required: true
+        type: choice
+        default: 'vi'
+        options:
+          - all
+          - ar
+          - bg
+          - ca
+          - cs
+          - de
+          - en
+          - es
+          - fr
+          - id
+          - it
+          - ja
+          - ko
+          - pl
+          - pt
+          - ru
+          - th
+          - tr
+          - uk
+          - vi
+          - zh
+
+permissions:
+  contents: write
+
+jobs:
+  spotless:
+    name: Fix formatting violations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Set up Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5.5.0
+        with:
+          java-version: 17
+          distribution: temurin
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
+
+      - name: Run spotlessApply
+        run: |
+          LANGUAGE="${{ github.event.inputs.language }}"
+          if [ "$LANGUAGE" = "all" ]; then
+            mapfile -t tasks < <(find src -mindepth 2 -maxdepth 2 -type d -printf '%p\n' | sed 's|^src/\([^/]*\)/\(.*\)$|:src:\1:\2:spotlessApply|' | sort -u)
+            ./gradlew "${tasks[@]}"
+          else
+            mapfile -t tasks < <(find "src/$LANGUAGE" -mindepth 1 -maxdepth 1 -type d -printf ":src:$LANGUAGE:%f:spotlessApply\n")
+            ./gradlew "${tasks[@]}" -PextensionLanguage="$LANGUAGE"
+          fi
+
+      - name: Commit and push fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No formatting changes needed."
+          else
+            git add -A
+            git commit -m "style: fix spotless formatting violations"
+            git push
+          fi
