@@ -13,7 +13,7 @@ keiyoushi {
     source {
         lang = "vi"
         baseUrl {
-            custom("https://damconuong.cool")
+            custom("https://damconuong.tech")
         }
     }
 
