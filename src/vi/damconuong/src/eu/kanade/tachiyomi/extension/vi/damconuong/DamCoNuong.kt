@@ -325,10 +325,9 @@ abstract class DamCoNuong : KeiSource() {
         return PagesCrypto.decryptPages(body.parseAs<PagesResponse>().encrypted, token, path)
     }
 
-    private suspend fun loadSecret(chapterPage: Document, knownStale: Boolean = false): ByteArray =
-        withContext(Dispatchers.IO) {
-            DecoderSecret.load(client, baseUrl, chapterPage, preferences, knownStale)
-        }
+    private suspend fun loadSecret(chapterPage: Document, knownStale: Boolean = false): ByteArray = withContext(Dispatchers.IO) {
+        DecoderSecret.load(client, baseUrl, chapterPage, preferences, knownStale)
+    }
 
     private suspend fun fetchPages(mangaSlug: String, chapterSlug: String, secret: ByteArray): Pair<String, String> {
         PagesCrypto.load(secret)

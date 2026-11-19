@@ -10,7 +10,6 @@ import keiyoushi.network.Fetch
 import keiyoushi.network.get
 import keiyoushi.utils.aesDecrypt
 import keiyoushi.utils.aesGcm
-import keiyoushi.utils.asJsoup
 import keiyoushi.utils.decodeHex
 import keiyoushi.utils.hmacSha256
 import keiyoushi.utils.parseAs
@@ -77,8 +76,7 @@ object DecoderSecret {
         return captureKey(script, host)?.takeIf { it.size == KEY_SIZE }
     }
 
-    private fun resolve(baseUrl: String, path: String): String =
-        if (path.startsWith("http")) path else baseUrl.trimEnd('/') + "/" + path.trimStart('/')
+    private fun resolve(baseUrl: String, path: String): String = if (path.startsWith("http")) path else baseUrl.trimEnd('/') + "/" + path.trimStart('/')
 
     private fun captureKey(script: String, host: String): ByteArray? = try {
         QuickJs.create().use { js ->
