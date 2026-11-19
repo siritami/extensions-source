@@ -43,7 +43,7 @@ object DecoderSecret {
      * Stored key when still valid, otherwise a freshly scraped one. The bundle only
      * runs on a miss or when [knownStale] says the server rejected the stored key.
      */
-    fun load(
+    suspend fun load(
         client: OkHttpClient,
         baseUrl: String,
         chapterPage: Document,
@@ -61,7 +61,7 @@ object DecoderSecret {
         return fetched
     }
 
-    private fun runBundle(client: OkHttpClient, baseUrl: String, chapterPage: Document, headers: Headers): ByteArray? {
+    private suspend fun runBundle(client: OkHttpClient, baseUrl: String, chapterPage: Document, headers: Headers): ByteArray? {
         val decoder = chapterPage.selectFirst("[data-cipher-decoder]")?.attr("data-cipher-decoder")
             ?: return null
         val url = chapterPage.absUrl("abs:data-cipher-decoder").ifEmpty { resolve(baseUrl, decoder) }
