@@ -16,6 +16,7 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.readIntBigEndian
 import keiyoushi.utils.writeIntBigEndian
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Headers
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -46,26 +47,27 @@ object DecoderSecret {
         client: OkHttpClient,
         baseUrl: String,
         chapterPage: Document,
+        headers: Headers,
         preferences: SharedPreferences,
         knownStale: Boolean = false,
     ): ByteArray {
         val stored = preferences.getString(PREF_SECRET, null)?.decodeHex()?.takeIf { it.size == KEY_SIZE }
         if (stored != null && !knownStale) return stored
 
-        val fetched = runBundle(client, baseUrl, chapterPage) ?: return checkNotNull(stored) {
+        val fetched = runBundle(client, baseUrl, chapterPage, headers) ?: return checkNotNull(stored) {
             "Could not read the page decoder key"
         }
         preferences.edit().putString(PREF_SECRET, fetched.toHexString()).apply()
         return fetched
     }
 
-    private fun runBundle(client: OkHttpClient, baseUrl: String, chapterPage: Document): ByteArray? {
+    private fun runBundle(client: OkHttpClient, baseUrl: String, chapterPage: Document, headers: Headers): ByteArray? {
         val decoder = chapterPage.selectFirst("[data-cipher-decoder]")?.attr("data-cipher-decoder")
             ?: return null
         val url = chapterPage.absUrl("abs:data-cipher-decoder").ifEmpty { resolve(baseUrl, decoder) }
 
         val script = try {
-            client.get(url, Fetch.SCRIPT).use { it.body.string() }
+            client.get(url, headers, Fetch.SCRIPT).use { it.body.string() }
                 .replace("export default", "globalThis.__decoder = ")
                 .replace(NULL_IMPORT_RE, "globalThis.__noImport(")
         } catch (_: Exception) {
@@ -182,7 +184,7 @@ object PagesCrypto {
     }
 
     internal fun decodeBase64Url(input: String): ByteArray? {
-        val out = ByteArrayOutputStream(input.size)
+        val out = ByteArrayOutputStream(input.length)
         var bits = 0
         var value = 0
         for (ch in input) {

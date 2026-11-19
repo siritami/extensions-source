@@ -319,14 +319,13 @@ abstract class DamCoNuong : KeiSource() {
         val (token, body) = try {
             fetchPages(mangaSlug, chapterSlug, secret)
         } catch (_: InvalidPagesTokenException) {
-            // The stored key no longer matches the bundle: read it again.
             fetchPages(mangaSlug, chapterSlug, loadSecret(chapterPage, knownStale = true))
         }
         return PagesCrypto.decryptPages(body.parseAs<PagesResponse>().encrypted, token, path)
     }
 
     private suspend fun loadSecret(chapterPage: Document, knownStale: Boolean = false): ByteArray = withContext(Dispatchers.IO) {
-        DecoderSecret.load(client, baseUrl, chapterPage, preferences, knownStale)
+        DecoderSecret.load(client, baseUrl, chapterPage, headers, preferences, knownStale)
     }
 
     private suspend fun fetchPages(mangaSlug: String, chapterSlug: String, secret: ByteArray): Pair<String, String> {
