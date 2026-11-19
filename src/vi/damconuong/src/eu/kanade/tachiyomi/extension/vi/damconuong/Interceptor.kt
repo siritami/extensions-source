@@ -35,7 +35,7 @@ import javax.crypto.spec.SecretKeySpec
 object DecoderSecret {
     private const val KEY_SIZE = 32
 
-    private const val PREF_SECRET = "decoder_secret"
+    private const val PREF_SECRET = "decoder_key_hex"
 
     private val NULL_IMPORT_RE = Regex("""\bimport\s*\(""")
 
