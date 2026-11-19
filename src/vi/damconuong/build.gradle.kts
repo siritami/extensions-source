@@ -6,7 +6,7 @@ plugins {
 
 keiyoushi {
     name = "DamCoNuong"
-    versionCode = 21
+    versionCode = 23
     contentWarning = ContentWarning.NSFW
     libVersion = "1.6"
 
@@ -20,4 +20,9 @@ keiyoushi {
     deeplink {
         path("/truyen/..*")
     }
+}
+
+dependencies {
+    implementation(project(":lib:imagedecoder"))
+    implementation(project(":lib:synchrony"))
 }
