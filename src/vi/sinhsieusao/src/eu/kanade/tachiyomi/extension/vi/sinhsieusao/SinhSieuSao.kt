@@ -72,7 +72,7 @@ abstract class SinhSieuSao : KeiSource() {
                 }
             }
 
-        return fetchWorks(page, builder.build())
+        return fetchWorks(page, builder)
     }
 
     private suspend fun fetchWorks(page: Int, builder: HttpUrl.Builder): MangasPage {
