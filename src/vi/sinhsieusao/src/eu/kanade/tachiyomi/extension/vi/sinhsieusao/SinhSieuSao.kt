@@ -43,8 +43,7 @@ abstract class SinhSieuSao : KeiSource() {
 
     // ============================== Latest ===============================
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        fetchWorks(page, "$baseUrl/api/v1/works".toHttpUrl().newBuilder())
+    override suspend fun getLatestUpdates(page: Int): MangasPage = fetchWorks(page, "$baseUrl/api/v1/works".toHttpUrl().newBuilder())
 
     // ============================== Search ===============================
 
@@ -122,13 +121,11 @@ abstract class SinhSieuSao : KeiSource() {
         )
     }
 
-    private suspend fun fetchWork(workId: Int): WorkDto =
-        client.get("$baseUrl/api/v1/works/$workId", Fetch.XHR).parseAs()
+    private suspend fun fetchWork(workId: Int): WorkDto = client.get("$baseUrl/api/v1/works/$workId", Fetch.XHR).parseAs()
 
-    private suspend fun fetchMangaChapters(mangaId: Int, workId: Int): List<SChapter> =
-        client.get("$baseUrl/api/v1/mangas/$mangaId", Fetch.XHR)
-            .parseAs<MangaDto>()
-            .toSChapters(workId)
+    private suspend fun fetchMangaChapters(mangaId: Int, workId: Int): List<SChapter> = client.get("$baseUrl/api/v1/mangas/$mangaId", Fetch.XHR)
+        .parseAs<MangaDto>()
+        .toSChapters(workId)
 
     private suspend fun fetchAlbumChapter(work: WorkDto): List<SChapter> {
         val albumId = work.workableId ?: work.id
