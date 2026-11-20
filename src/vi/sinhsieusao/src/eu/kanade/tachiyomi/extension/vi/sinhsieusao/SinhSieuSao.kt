@@ -36,7 +36,7 @@ abstract class SinhSieuSao : KeiSource() {
         val url = "$baseUrl/api/v1/works/top".toHttpUrl().newBuilder()
             .addQueryParameter("period", "monthly")
             .build()
-        val result = client.get(url, Fetch.XHR).parseAs<WorksResponse>()
+        val result = client.get(url, Fetch.XHR).parseAs<TopWorksResponse>()
         val mangas = result.items.orEmpty().map { it.toSManga() }
         return MangasPage(mangas, false)
     }

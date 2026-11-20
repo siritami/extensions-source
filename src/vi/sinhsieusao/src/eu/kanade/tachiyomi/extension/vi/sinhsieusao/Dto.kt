@@ -23,6 +23,11 @@ class WorksMeta(
 )
 
 @Serializable
+class TopWorksResponse(
+    val items: List<WorkDto>? = null,
+)
+
+@Serializable
 class Pagy(
     val page: Int,
     val pages: Int,
