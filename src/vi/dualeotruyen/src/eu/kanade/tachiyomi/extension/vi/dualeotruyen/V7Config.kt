@@ -13,8 +13,6 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 /**
- * V7 page encryption config, randomized per chapter HTML response.
- *
  * The config lives in a `<script>` tag carrying exactly 3 attributes named
  * `data-[a-z][a-z0-9]{4,6}`. Sorted by attribute name, the concatenated values
  * form a base64url blob: first byte is the initial LCG state, each following
@@ -66,10 +64,6 @@ class V7Config private constructor(
         return unmaskToken(token, seedMask xor 0x5a, 45, 99, 29)
     }
 
-    /**
-     * Decrypts the real file name hidden in the obfuscated URL path.
-     * Returns null when the HMAC check fails, marking the element as a decoy page.
-     */
     fun decodeObfuscatedUrl(input: String): String? {
         val url = input.toHttpUrl()
         val fileName = url.pathSegments.last()
