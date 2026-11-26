@@ -83,7 +83,7 @@ abstract class Koi : KeiSource() {
                 return mangaListParse(response.asJsoup())
             }
             val mangas = response.parseAs<SearchResponse>().data
-                .filter { "/$mangaPath/" in it.link }
+                .filter { "/$mangaPath/" in it.link && !isExcludedMangaUrl(it.link) }
                 .map { result ->
                     SManga.create().apply {
                         title = result.title
@@ -119,8 +119,12 @@ abstract class Koi : KeiSource() {
         document.hasNextPage(),
     )
 
-    private fun mangaFromListItem(element: Element): SManga? {
+    // Sites can return false here to drop entries (e.g. novels) from popular, latest, search and filter listings
+    protected open fun isExcludedMangaUrl(url: String): Boolean = false
+
+    protected open fun mangaFromListItem(element: Element): SManga? {
         val link = element.selectFirst("p.super-title a[href*=/$mangaPath/]") ?: return null
+        if (isExcludedMangaUrl(link.absUrl("href"))) return null
         return SManga.create().apply {
             title = link.text()
             setUrlWithoutDomain(link.absUrl("href"))
@@ -128,8 +132,9 @@ abstract class Koi : KeiSource() {
         }
     }
 
-    private fun mangaFromGridItem(element: Element): SManga? {
+    protected open fun mangaFromGridItem(element: Element): SManga? {
         val link = element.selectFirst("a[href*=/$mangaPath/]") ?: return null
+        if (isExcludedMangaUrl(link.absUrl("href"))) return null
         val mangaTitle = element.selectFirst("h3.comic-title")?.textOrNull()
             ?: link.attrOrNull("title")
             ?: return null
@@ -218,7 +223,7 @@ abstract class Koi : KeiSource() {
         var page: Document? = document
 
         while (page != null) {
-            chapters += page.select(".chapter-table table tbody tr").mapNotNull(::chapterFromElement)
+            chapters += page.select(".chapter-table table tbody tr, .table-scroll table tbody tr").mapNotNull(::chapterFromElement)
             val nextUrl = page.selectFirst("ul.pager li.next:not(.disabled) a[href]:not([href=#])")?.absUrl("href")
             page = if (nextUrl != null && visited.add(nextUrl)) client.get(nextUrl, Fetch.DOCUMENT).asJsoup() else null
         }
@@ -255,44 +260,48 @@ abstract class Koi : KeiSource() {
             throw Exception("Chương này cần đăng nhập vào tài khoản phù hợp bằng webview để xem")
         }
 
-        var document = html.asJsoup(chapterUrl)
-        val lockForm = document.selectFirst("form.post-password-form")
-        if (lockForm != null) {
-            val hint = (
-                document.selectFirst("p:contains(Gợi ý)")
-                    ?: document.selectFirst("*:containsOwn(Gợi ý)")?.parent()
-                )?.text()?.replaceFirst(hintColonRegex, "$1\n")?.trim()
-            val password = askPassword(
-                title = chapter.name,
-                message = listOfNotNull("Chương này yêu cầu mật khẩu", hint).joinToString("\n\n"),
-                hint = "Mật khẩu",
-            ) ?: throw Exception("Đã hủy nhập mật khẩu")
+        html = unlockChapterHtml(html, chapterUrl, chapter)
 
-            val postAction = lockForm.absUrl("action").ifEmpty { "$baseUrl/wp-login.php?action=postpass" }
-            val postHeaders = headers.newBuilder()
-                .set("Referer", chapterUrl)
-                .build()
-            val formBody = FormBody.Builder()
-                .add("post_password", password)
-                .add("redirect_to", chapterUrl)
-                .add("Submit", "Nhập")
-                .build()
-            client.post(postAction, postHeaders, Fetch.DOCUMENT, formBody, ensureSuccess = false).close()
-
-            html = fetchChapterHtml(chapterUrl)
-            document = html.asJsoup(chapterUrl)
-            if (document.selectFirst("form.post-password-form") != null) {
-                throw Exception("Mật khẩu không chính xác")
-            }
-        }
-
-        return ImageDecryptor.extractImageUrls(html, document).mapIndexed { index, imageUrl ->
+        return ImageDecryptor.extractImageUrls(html, html.asJsoup(chapterUrl)).mapIndexed { index, imageUrl ->
             Page(index, url = chapterUrl, imageUrl = imageUrl)
         }
     }
 
+    protected open suspend fun unlockChapterHtml(html: String, chapterUrl: String, chapter: SChapter): String {
+        var document = html.asJsoup(chapterUrl)
+        val lockForm = document.selectFirst("form.post-password-form") ?: return html
+
+        val hint = (
+            document.selectFirst("p:contains(Gợi ý)")
+                ?: document.selectFirst("*:containsOwn(Gợi ý)")?.parent()
+            )?.text()?.replaceFirst(hintColonRegex, "$1\n")?.trim()
+        val password = askPassword(
+            title = chapter.name,
+            message = listOfNotNull("Chương này yêu cầu mật khẩu", hint).joinToString("\n\n"),
+            hint = "Mật khẩu",
+        ) ?: throw Exception("Đã hủy nhập mật khẩu")
+
+        val postAction = lockForm.absUrl("action").ifEmpty { "$baseUrl/wp-login.php?action=postpass" }
+        val postHeaders = headers.newBuilder()
+            .set("Referer", chapterUrl)
+            .build()
+        val formBody = FormBody.Builder()
+            .add("post_password", password)
+            .add("redirect_to", chapterUrl)
+            .add("Submit", "Nhập")
+            .build()
+        client.post(postAction, postHeaders, Fetch.DOCUMENT, formBody, ensureSuccess = false).close()
+
+        val unlockedHtml = fetchChapterHtml(chapterUrl)
+        document = unlockedHtml.asJsoup(chapterUrl)
+        if (document.selectFirst("form.post-password-form") != null) {
+            throw Exception("Mật khẩu không chính xác")
+        }
+        return unlockedHtml
+    }
+
     // Locked pages are cacheable (max-age, no Vary: Cookie), so skip the disk cache
-    private suspend fun fetchChapterHtml(chapterUrl: String): String = client.get(chapterUrl, Fetch.DOCUMENT, CacheControl.FORCE_NETWORK).use { it.body.string() }
+    protected suspend fun fetchChapterHtml(chapterUrl: String): String = client.get(chapterUrl, Fetch.DOCUMENT, CacheControl.FORCE_NETWORK).use { it.body.string() }
 
     // =============================== Filters ==============================
 
