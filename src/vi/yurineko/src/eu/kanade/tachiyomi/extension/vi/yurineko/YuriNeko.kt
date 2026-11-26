@@ -93,8 +93,6 @@ abstract class YuriNeko : KeiSource() {
     }
 
     private suspend fun loadAuthToken() = authTokenMutex.withLock {
-        // Re-read whenever the cache is empty so users can log in via WebView
-        // and retry without restarting the app.
         if (!cachedAuthToken.isNullOrBlank()) return@withLock
         cachedAuthToken = runCatching {
             getLocalStorage(baseUrl, "accessToken")?.takeIf(String::isNotBlank)
@@ -109,7 +107,7 @@ abstract class YuriNeko : KeiSource() {
             .build()
         val payload = client.get(url, Fetch.XHR).parseAs<MangaListDto>()
         return MangasPage(
-            mangas = payload.data.map(::mangaFromDto),
+            mangas = payload.data.excludingNovels().map(::mangaFromDto),
             hasNextPage = false,
         )
     }
@@ -123,7 +121,7 @@ abstract class YuriNeko : KeiSource() {
             .build()
         val payload = client.get(url, Fetch.XHR).parseAs<MangaListDto>()
         return MangasPage(
-            mangas = payload.data.map(::mangaFromDto),
+            mangas = payload.data.excludingNovels().map(::mangaFromDto),
             hasNextPage = payload.page < payload.lastPage,
         )
     }
@@ -155,7 +153,7 @@ abstract class YuriNeko : KeiSource() {
         }.build()
         val payload = client.get(url, Fetch.XHR).parseAs<MangaListDto>()
         return MangasPage(
-            mangas = payload.data.map(::mangaFromDto),
+            mangas = payload.data.excludingNovels().map(::mangaFromDto),
             hasNextPage = payload.page < payload.lastPage,
         )
     }
@@ -312,6 +310,8 @@ abstract class YuriNeko : KeiSource() {
             SMangaUpdate(updatedManga.await(), updatedChapters.await())
         }
     }
+
+    private fun List<MangaDto>.excludingNovels() = filter { it.type != "NOVEL" }
 
     private fun mangaFromDto(manga: MangaDto): SManga = SManga.create().apply {
         setUrlWithoutDomain("/manga/${manga.id}")
@@ -528,7 +528,7 @@ abstract class YuriNeko : KeiSource() {
             ?: "$baseUrl${manga.url}".toHttpUrl().mangaIdOrNull()
             ?: throw IllegalArgumentException("Không tìm thấy manga id từ URL: ${manga.url}")
         val related = client.get("$apiUrl/mangas/$mangaId/related", Fetch.XHR).parseAs<List<MangaDto>>()
-        return related.map(::mangaFromDto)
+        return related.excludingNovels().map(::mangaFromDto)
     }
 
     private val loginRequiredMessage = "Truyện này cần đăng nhập bằng webview bằng tài khoản phù hợp để xem"
