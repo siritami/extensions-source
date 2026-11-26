@@ -8,28 +8,34 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import keiyoushi.annotation.Source
 import keiyoushi.network.Fetch
+import keiyoushi.network.addCookie
 import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.source.SMangaUpdate
 import keiyoushi.utils.asJsoup
 import keiyoushi.utils.firstInstanceOrNull
+import keiyoushi.utils.getLocalStorage
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.stringOrNull
 import keiyoushi.utils.toJsonElement
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.io.IOException
 import java.util.Base64
 import kotlin.time.Instant
 
@@ -40,9 +46,58 @@ abstract class YuriNeko : KeiSource() {
     private val cdnUrl get() = "https://cdn.${baseUrl.toHttpUrl().host}"
     private val webApiUrl get() = "$baseUrl/api/v1"
 
+    private var cachedAuthToken: String? = null
+
+    private var authChecked = false
+
+    private val authTokenMutex = Mutex()
+
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
+        addInterceptor(authInterceptor())
+        addInterceptor(loginRequiredInterceptor())
         addInterceptor(ImageDecryptor::interceptor)
+        addCookie { cachedAuthToken?.let { listOf("accessToken" to it) } ?: emptyList() }
         rateLimit(3)
+    }
+
+    // ================================ Auth =================================
+    // The site stores its JWT in the WebView's localStorage after login
+    // (mirrored to a plain `accessToken` cookie). Chapter reader pages are
+    // gated server-side by that cookie; the REST API is public.
+
+    private fun authInterceptor() = Interceptor { chain ->
+        val token = cachedAuthToken
+        val request = if (token.isNullOrBlank()) {
+            chain.request()
+        } else {
+            chain.request().newBuilder()
+                .header("Authorization", "Bearer $token")
+                .build()
+        }
+        chain.proceed(request)
+    }
+
+    private fun loginRequiredInterceptor() = Interceptor { chain ->
+        val response = chain.proceed(chain.request())
+        val responseUrl = response.request.url
+        val isLoginPage = responseUrl.host == baseUrl.toHttpUrl().host &&
+            responseUrl.encodedPath == "/login"
+
+        if (isLoginPage) {
+            cachedAuthToken = null
+            authChecked = false
+            response.close()
+            throw IOException(loginRequiredMessage)
+        }
+        response
+    }
+
+    private suspend fun loadAuthToken() = authTokenMutex.withLock {
+        if (authChecked) return@withLock
+        cachedAuthToken = runCatching {
+            getLocalStorage(baseUrl, "accessToken")?.takeIf(String::isNotBlank)
+        }.getOrNull()
+        authChecked = true
     }
 
     // ============================== Popular ===============================
@@ -336,8 +391,12 @@ abstract class YuriNeko : KeiSource() {
 
     // ============================== Pages =================================
     override suspend fun getPageList(chapter: SChapter): List<Page> {
+        loadAuthToken()
+        if (cachedAuthToken.isNullOrBlank()) throw IOException(loginRequiredMessage)
+
         val document = client.get("$baseUrl${chapter.url}", Fetch.DOCUMENT).asJsoup()
         val imageUrls = parsePageUrls(document)
+        if (imageUrls.isEmpty()) throw IOException(loginRequiredMessage)
 
         return imageUrls.mapIndexed { index, imageUrl ->
             Page(index, imageUrl = imageUrl)
@@ -470,6 +529,8 @@ abstract class YuriNeko : KeiSource() {
         val related = client.get("$apiUrl/mangas/$mangaId/related", Fetch.XHR).parseAs<List<MangaDto>>()
         return related.map(::mangaFromDto)
     }
+
+    private val loginRequiredMessage = "Truyện này cần đăng nhập bằng webview bằng tài khoản phù hợp để xem"
 
     private val popularLimit = 10
     private val latestLimit = 16
