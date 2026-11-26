@@ -48,8 +48,6 @@ abstract class YuriNeko : KeiSource() {
 
     private var cachedAuthToken: String? = null
 
-    private var authChecked = false
-
     private val authTokenMutex = Mutex()
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
@@ -67,7 +65,10 @@ abstract class YuriNeko : KeiSource() {
 
     private fun authInterceptor() = Interceptor { chain ->
         val token = cachedAuthToken
-        val request = if (token.isNullOrBlank()) {
+        val host = chain.request().url.host
+        val baseHost = baseUrl.toHttpUrl().host
+        val isApiHost = host == baseHost || host == "api.$baseHost"
+        val request = if (token.isNullOrBlank() || !isApiHost) {
             chain.request()
         } else {
             chain.request().newBuilder()
@@ -85,7 +86,6 @@ abstract class YuriNeko : KeiSource() {
 
         if (isLoginPage) {
             cachedAuthToken = null
-            authChecked = false
             response.close()
             throw IOException(loginRequiredMessage)
         }
@@ -93,11 +93,12 @@ abstract class YuriNeko : KeiSource() {
     }
 
     private suspend fun loadAuthToken() = authTokenMutex.withLock {
-        if (authChecked) return@withLock
+        // Re-read whenever the cache is empty so users can log in via WebView
+        // and retry without restarting the app.
+        if (!cachedAuthToken.isNullOrBlank()) return@withLock
         cachedAuthToken = runCatching {
             getLocalStorage(baseUrl, "accessToken")?.takeIf(String::isNotBlank)
         }.getOrNull()
-        authChecked = true
     }
 
     // ============================== Popular ===============================
