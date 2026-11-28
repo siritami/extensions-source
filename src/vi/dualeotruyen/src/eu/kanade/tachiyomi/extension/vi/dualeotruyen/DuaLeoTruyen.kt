@@ -176,7 +176,7 @@ abstract class DuaLeoTruyen : KeiSource() {
                 val requestUrl = request.url?.toString()?.toHttpUrlOrNull()
                     ?: return@interceptRequest emptyResponse
                 val host = requestUrl.host
-                val isImage = request.headers["Accept"]?.startsWith("image/") == true
+                val isImage = request.requestHeaders["Accept"]?.startsWith("image/") == true
                 val allowed = host == siteHost ||
                     host.endsWith(".$siteHost") ||
                     host.endsWith(".challenges.cloudflare.com") ||
