@@ -98,33 +98,6 @@ Do not read `source.buffer` after requesting only a small signature prefix. The
 buffer may contain only that prefix and produce truncated data. Keep the read
 inside `ResponseBody.use` so the original response body is closed.
 
-## `fetchMangaUpdate` Flags — Do Not Gate Same-Page Parsing
-
-CONTRIBUTING is explicit about `fetchDetails` / `fetchChapters`:
-
-> If manga details and the chapter list come from the **same page or the same API
-> response**, fetch and parse it once and return both the updated `SManga` and the
-> full chapter list, **regardless of the `fetchDetails`/`fetchChapters` flags** —
-> there's no separate request to skip, so honoring the flags would just mean
-> discarding data you already parsed.
-
-Do **not** write patterns like:
-
-```kotlin
-// ❌ Don't — same document already contains chapters
-chapters = if (fetchChapters) parseChapterList(document) else chapters,
-```
-
-Once you have paid for `client.get(...).asJsoup()` (or one API call that includes
-both fields), parse and return **both**. Throwing away the chapter list when
-`fetchChapters == false` leaves manga state stale and contradicts
-[Fetch Manga Update — Always Return Both](#fetch-manga-update---always-return-both).
-
-Only honor the flags when details and chapters live behind **separate** requests.
-Then skip the call the flag does not ask for (and if both flags are true, fire the
-two requests concurrently — see
-[Fetch Details and Chapters Concurrently](#fetch-details-and-chapters-concurrently)).
-
 ## URL Fragments vs `memo`
 
 CONTRIBUTING limits URL fragments and prefers `memo`:
@@ -172,45 +145,6 @@ Preserve this behavior when all of the following are true:
 
 - The condition is detected explicitly, such as a password, login, or access form.
 
-## Use the New Date Helpers
-
-When parsing date strings from a source, prefer the helpers in `keiyoushi.utils.Date.kt` over manual `LocalDate.parse` + `atStartOfDay` chains. They handle null inputs, parse errors, and zone resolution consistently.
-
-```kotlin
-import keiyoushi.utils.tryParseDate
-import keiyoushi.utils.tryParseDateTime
-import keiyoushi.utils.tryParseZonedDateTime
-import java.time.format.DateTimeFormatter
-import java.time.ZoneId
-
-// Date only (e.g. "23/08/26" → start of day in zone)
-private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yy", Locale.ROOT)
-private fun parseChapterDate(dateStr: String): Long = dateFormat.tryParseDate(dateStr, ZoneId.of("Asia/Ho_Chi_Minh"))
-
-// Date + time, no offset (e.g. "2026-08-11 14:30:00")
-private val dateTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-private fun parseUploadTime(dateStr: String): Long = dateTimeFormat.tryParseDateTime(dateStr, ZoneId.of("Asia/Ho_Chi_Minh"))
-
-// Date + time with offset/zone (e.g. ISO 8601 "2026-08-11T14:30:00+07:00")
-private val zonedDateTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX")
-private fun parseTimestamp(dateStr: String): Long = zonedDateTimeFormat.tryParseZonedDateTime(dateStr)
-```
-
-- `tryParseDate` — use when the source sends a date only (no time). Resolves to start of day in the given zone.
-- `tryParseDateTime` — use when the source sends a local date + time with no offset. The zone decides the instant.
-- `tryParseZonedDateTime` — use when the source sends a date + time with its own offset/zone id. The offset in the string decides the instant.
-
-All three helpers accept a `zone` parameter (defaults to `ZoneId.systemDefault()`). When the source operates in a specific timezone, pass it explicitly:
-
-```kotlin
-private val dateZone = ZoneId.of("Asia/Ho_Chi_Minh")
-
-private fun parseChapterDate(dateStr: String): Long = dateFormat.tryParseDate(dateStr, dateZone)
-```
-
-This ensures dates are resolved to the correct start-of-day instant regardless of the user's device timezone.
-
-All three return `0L` if the input is null or cannot be parsed.
 
 ---
 
@@ -690,56 +624,6 @@ the push arrays with JSON utilities instead of manually unescaping JavaScript,
 and continue using an explicit predicate only when the target object is not
 uniquely identifiable from its required fields.
 
-## Source Code Organization
-
-For source files with several responsibilities, group each override with its
-related parsers and helpers under consistent section markers. Keep sections in
-the normal source flow: Auth (when needed), Popular, Latest, Search, Details,
-Chapters, Pages, Filters, Related (when supported), then Utilities (when needed).
-
-```kotlin
-// ================================ Auth =================================
-// Optional: include only when the website uses login or authentication.
-
-// ============================== Popular ===============================
-
-// ============================== Latest ===============================
-
-// ============================== Search ===============================
-
-// ============================== Details ===============================
-
-// ============================= Chapters ===============================
-
-// ============================== Pages ===============================
-
-// ============================== Filters ===============================
-
-// =============================== Related ==============================
-// Optional: include only when the source implements related manga support.
-
-// ============================= Utilities =============================
-// Optional: include only when the source has shared helpers or constants.
-```
-
-Place narrowly scoped helpers in the section that uses them. Keep shared
-configuration near the top of the class and constants near the bottom. Do not
-add empty optional sections, and do not reorder code when doing so would change
-initialization or runtime behavior.
-
-Place a helper next to the selector or request function that owns and calls it
-when it has fewer than three call sites. Keep it in a shared Utilities section
-when it is called three or more times, especially when those callers use
-different selectors or parsing contexts. Place the Utilities section after all
-feature sections so shared helpers and constants do not interrupt the normal
-source flow. Do not use it as a catch-all for helpers owned by one feature.
-
-Do not use callable references such as `Element::helper` for member extension
-functions declared inside a source class; Kotlin prohibits references to
-elements that are members and extensions at the same time. Call the extension
-through a lambda or use a regular member helper that accepts the receiver as a
-parameter.
-
 ## Derived Request Headers
 
 `KeiSource` already adds the default User-Agent, root `Referer` (`$baseUrl/`),
@@ -756,13 +640,13 @@ private val xhrHeaders: Headers
         .build()
 ```
 
-    ## Derived URLs
+## Derived URLs
 
-    When a URL is derived from a configurable `baseUrl`, declare it with a getter so changes to the custom URL are reflected on every access:
+When a URL is derived from a configurable `baseUrl`, declare it with a getter so changes to the custom URL are reflected on every access:
 
-    ```kotlin
-    private val apiUrl get() = "https://api.${baseUrl.toHttpUrl().host}"
-    ```
+```kotlin
+private val apiUrl get() = "https://api.${baseUrl.toHttpUrl().host}"
+```
 
 ## Fetch Independent Data in Parallel
 
@@ -895,26 +779,6 @@ override suspend fun getSearchMangaList(
 - Simpler implementation
 - Works across different sites
 
-### URL Search with KeiSource
-
-`KeiSource` detects full URL queries before `getSearchMangaList` is called and
-routes them to `getMangaByUrl(HttpUrl)` automatically. Keep
-`getSearchMangaList` focused on normal text and filter searches, and implement
-detail or chapter URL resolution in `getMangaByUrl`.
-
-Do not add custom pseudo-query prefixes such as `id:` merely to turn a slug or
-ID into a URL. They are undocumented user-facing syntax and duplicate URL
-routing already provided by `KeiSource`. Keep one only when the source has a
-real, pre-existing ID-search requirement that cannot be represented by a
-normal site URL.
-
-```kotlin
-override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
-    if (url.host != baseUrl.toHttpUrl().host) return null
-    // Resolve recognized detail or chapter paths.
-}
-```
-
 ### 2. Filter-Based Search
 
 When extending `Filter.Select`, do not declare a property named `values` in
@@ -1044,73 +908,6 @@ an independent request or other meaningful extra work. In that case, guard the
 extra request with the corresponding flag and return the existing value when it
 was not requested.
 
----
-
-# Shared Date Parsing Utilities
-
-The helpers in `core/src/main/kotlin/keiyoushi/utils/Date.kt` convert nullable date
-strings directly to epoch milliseconds for `SChapter.date_upload`. They return `0L`
-when the input is null or cannot be parsed. Prefer them over source-local
-`runCatching` wrappers and the deprecated `SimpleDateFormat.tryParse` helper.
-
-Choose the helper based on what information the source provides:
-
-- `Instant.tryParse(date)` parses a complete ISO 8601 instant whose `Z` or offset
-    determines the result, such as `2025-01-15T10:30:00Z` or
-    `2025-01-15T10:30:00+07:00`.
-- `DateTimeFormatter.tryParseDate(date, zone)` parses a date without a time, such as
-    `2025-01-15` or `Aug 06, 2026`, and resolves it to the start of that day in `zone`.
-- `DateTimeFormatter.tryParseDateTime(date, zone)` parses a local date and time whose
-    result must use the supplied site zone.
-- `DateTimeFormatter.tryParseZonedDateTime(date)` parses a value whose formatter
-    includes a trustworthy offset or zone. Do not pass a separate zone for this case.
-
-The `tryParse` helpers accept nullable input and return `0L` when the value is
-null or invalid. Pass an optional timestamp directly instead of wrapping it in
-`?.let { ... } ?: 0L`:
-
-```kotlin
-val dateTime: String? = element.selectFirst("time")?.attr("datetime")
-dateUpload = Instant.tryParse(dateTime)
-```
-
-Avoid the redundant form:
-
-```kotlin
-dateUpload = dateTime?.let { Instant.tryParse(it) } ?: 0L
-```
-
-```kotlin
-import keiyoushi.utils.tryParse
-import keiyoushi.utils.tryParseDate
-import keiyoushi.utils.tryParseDateTime
-import keiyoushi.utils.tryParseZonedDateTime
-import kotlin.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-
-private val siteZone = ZoneId.of("Asia/Ho_Chi_Minh")
-private val chapterDateFormat = DateTimeFormatter.ofPattern("MMM dd, uuuu", Locale.ENGLISH)
-private val localDateTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT)
-private val zonedDateTimeFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ROOT)
-
-val isoDate = Instant.tryParse("2025-01-15T10:30:00Z")
-val chapterDate = chapterDateFormat.tryParseDate("Aug 06, 2026", siteZone)
-val localDateTime = localDateTimeFormat.tryParseDateTime("2025-01-15 10:30:00", siteZone)
-val zonedDateTime = zonedDateTimeFormat.tryParseZonedDateTime("2025-01-15T10:30:00+07:00")
-```
-
-- Always pass the source site's known `ZoneId` to `tryParseDate` and
-    `tryParseDateTime`; their default is the device timezone and should only be used when
-    that behavior is intentional.
-- Use `Locale.ENGLISH` when the pattern parses English textual fields such as `MMM`,
-    `MMMM`, `EEE`, or `EEEE`. Use the site's matching locale for text in another
-    language. Use `Locale.ROOT` for numeric-only patterns.
-- `tryParseDate` and `tryParseDateTime` deliberately use the supplied zone even if the
-    input contains offset or zone fields. Use `tryParseZonedDateTime` when the input's own
-    offset or zone must decide the instant.
-- Keep reusable `DateTimeFormatter` and `ZoneId` values at class or file level.
 
 ## Relative timestamps with `Clock.System.now()`
 
@@ -1308,29 +1105,6 @@ Do not replace an empty list with `getFilters()`: the application obtains the
 source's filter list through `getFilterList`, including dynamically fetched
 filter data, and passes the current filter state to the search method.
 
-## Prefer `parseAs` / `jsonInstance` Over a Local `Json`
-
-Do not create `private val json = Json { ... }` in a source object when
-`keiyoushi.utils.parseAs` (shared `jsonInstance`) is enough.
-
-```kotlin
-// ❌ Don't
-object PagesCrypto {
-    private val json = Json { ignoreUnknownKeys = true }
-    fun decrypt(...): PagesPayload =
-        json.decodeFromString(PagesPayload.serializer(), plaintext)
-}
-
-// ✅ Do
-object PagesCrypto {
-    fun decrypt(...): PagesPayload = plaintext.parseAs()
-}
-```
-
-Use `String.parseAs<T>()`, `Response.parseAs<T>()`, or `JsonElement.parseAs<T>()`.
-Set `ignoreUnknownKeys` only if the shared instance is insufficient and a custom
-serializer is truly required.
-
 ## Meaningful DTO Property Names with `@SerialName`
 
 When the API uses short or cryptic JSON keys, name Kotlin properties for readers
@@ -1402,29 +1176,6 @@ val token = runCatching {
 val token = raw.parseAs<AuthStorage>().state?.token?.takeIf { it.isNotBlank() }
 ```
 
-## Fetch Details and Chapters Concurrently
-
-When `fetchMangaUpdate` hits independent details and chapter endpoints, run both
-in `coroutineScope` + `async` (see also *Fetch Independent Data in Parallel*).
-
-```kotlin
-override suspend fun fetchMangaUpdate(
-    manga: SManga,
-    chapters: List<SChapter>,
-    fetchDetails: Boolean,
-    fetchChapters: Boolean,
-): SMangaUpdate = coroutineScope {
-    val detailsDeferred = async {
-        if (!fetchDetails) return@async manga
-        fetchDetails(manga)
-    }
-    val chaptersDeferred = async {
-        if (fetchChapters) fetchChapterList(manga) else chapters
-    }
-    SMangaUpdate(manga = detailsDeferred.await(), chapters = chaptersDeferred.await())
-}
-```
-
 ## Return Filter Payloads as the Raw List
 
 When `fetchFilterData()` only collects a list of options, return that list as a
@@ -1466,3 +1217,44 @@ val sources = listOfNotNull(
 
 Keep a details-request fallback for library entries created before the memo keys
 existed.
+
+## Chapter Numbers — Pass Through, Never Parse
+
+Do not extract chapter numbers with regexes in the extension. The app's
+`ChapterRecognition` already parses them from the chapter name when
+`chapter_number` is unset — it recognizes "Chap 4: ...", "Chapter 20 - ...",
+"Chương N", plain leading numbers, volumes, and parts, and even numbers unnamed
+chapters from their neighbours. The extension only needs two things:
+
+1. **Set `chapter_number` only when the API provides a numeric value.** Leave it
+   unset (default `-1f`) otherwise — the app treats `-1` as unknown and falls
+   back to name parsing. Never invent a number by scanning the title or the
+   chapterNumber string with a regex.
+2. **Sort chapters by an explicit API ordering field** (`order`, index, or the
+   payload's own order), not by parsing numbers. Fall back to a plain
+   `toDoubleOrNull()` on the API's number field, nothing fancier.
+
+```kotlin
+// ❌ Don't — parses numbers the app already knows how to parse
+private val chapterNumberRegex = Regex("""\d+(?:\.\d+)?""")
+
+chapter_number = chapterNumberRegex.find(chapter.title)?.value?.toFloatOrNull() ?: -1f
+
+// ✅ Do — pass through the API value when present, else let the app parse the name
+chapter.chapterNumber?.toDoubleOrNull()?.let { chapter_number = it.toFloat() }
+```
+
+```kotlin
+// ❌ Don't — sort by extracted numbers
+chapters.sortedByDescending {
+    chapterNumberRegex.find(it.chapterNumber)?.value?.toDoubleOrNull()
+}
+
+// ✅ Do — sort by the API's explicit order, plain parse as fallback
+chapter.order ?: chapter.chapterNumber?.toDoubleOrNull() ?: Double.NEGATIVE_INFINITY
+```
+
+This also makes nullable API fields trivial to handle: when a source starts
+returning `chapterNumber: null` for some entries, the DTO becomes
+`String? = null` and nothing else changes — those chapters simply fall back to
+app-side name recognition.
