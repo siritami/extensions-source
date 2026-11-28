@@ -13,6 +13,7 @@ import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.source.SMangaUpdate
 import keiyoushi.utils.MarkdownDescription
+import keiyoushi.utils.NativeWebViewApi
 import keiyoushi.utils.asJsoup
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.parseAs
@@ -163,6 +164,7 @@ abstract class DuaLeoTruyen : KeiSource() {
         return pages.mapIndexed { index, imageUrl -> Page(index, imageUrl = imageUrl) }
     }
 
+    @OptIn(NativeWebViewApi::class)
     private suspend fun capturePages(chapterUrl: String): List<String> {
         val bridgeName = randomName()
         val errorBridgeName = randomName()
@@ -201,6 +203,10 @@ abstract class DuaLeoTruyen : KeiSource() {
             val captureScript = "((${asset("dualeo_pages.js")})(window.$passName, window.$rejectName));"
             onPageFinished { evaluateJs(captureScript) }
 
+            // Fallback for the http urls the site's decoder emits
+            withNativeWebView {
+                it.settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            }
             loadUrl(chapterUrl)
         }.let { payload ->
             val result = payload.parseAs<CaptureResult>()
