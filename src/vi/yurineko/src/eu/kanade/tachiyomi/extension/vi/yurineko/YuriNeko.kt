@@ -363,8 +363,7 @@ abstract class YuriNeko : KeiSource() {
         return client.get(url, Fetch.XHR).parseAs()
     }
 
-    private fun chapterSortValue(chapter: ChapterDto): Double =
-        chapter.order ?: chapter.chapterNumber?.toDoubleOrNull() ?: Double.NEGATIVE_INFINITY
+    private fun chapterSortValue(chapter: ChapterDto): Double = chapter.order ?: chapter.chapterNumber?.toDoubleOrNull() ?: Double.NEGATIVE_INFINITY
 
     private fun chapterName(chapter: ChapterDto): String {
         val chapterTitle = (chapter.title ?: chapter.name)?.takeIf(String::isNotBlank)
